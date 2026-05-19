@@ -18,16 +18,15 @@ class TestCreateProjectFromQuotation(unittest.TestCase):
 			create_project_from_quotation,
 		)
 
-		# Insert a draft Quotation row directly for the check
 		name = "_TEST-QTN-DRAFT-PROJ"
 		frappe.db.sql("INSERT IGNORE INTO `tabQuotation` (name, docstatus) VALUES (%s, 0)", (name,))
-		frappe.db.commit()
+		frappe.db.commit()  # nosemgrep — test isolation requires explicit commit
 		try:
 			with self.assertRaises(frappe.exceptions.ValidationError):
 				create_project_from_quotation(name)
 		finally:
 			frappe.db.sql("DELETE FROM `tabQuotation` WHERE name=%s", (name,))
-			frappe.db.commit()
+			frappe.db.commit()  # nosemgrep — test cleanup
 
 	def test_raises_without_proposal_template(self):
 		"""Submitted Quotation without proposal_template raises ValidationError."""
@@ -40,13 +39,13 @@ class TestCreateProjectFromQuotation(unittest.TestCase):
 			"INSERT IGNORE INTO `tabQuotation` (name, docstatus, proposal_template) VALUES (%s, 1, NULL)",
 			(name,),
 		)
-		frappe.db.commit()
+		frappe.db.commit()  # nosemgrep — test isolation requires explicit commit
 		try:
 			with self.assertRaises(frappe.exceptions.ValidationError):
 				create_project_from_quotation(name)
 		finally:
 			frappe.db.sql("DELETE FROM `tabQuotation` WHERE name=%s", (name,))
-			frappe.db.commit()
+			frappe.db.commit()  # nosemgrep — test cleanup
 
 	def test_raises_without_scope_items(self):
 		"""Submitted Quotation with template but no scope items raises ValidationError."""
@@ -59,10 +58,10 @@ class TestCreateProjectFromQuotation(unittest.TestCase):
 			"INSERT IGNORE INTO `tabQuotation` (name, docstatus, proposal_template) VALUES (%s, 1, '_Test Template')",
 			(name,),
 		)
-		frappe.db.commit()
+		frappe.db.commit()  # nosemgrep — test isolation requires explicit commit
 		try:
 			with self.assertRaises(frappe.exceptions.ValidationError):
 				create_project_from_quotation(name)
 		finally:
 			frappe.db.sql("DELETE FROM `tabQuotation` WHERE name=%s", (name,))
-			frappe.db.commit()
+			frappe.db.commit()  # nosemgrep — test cleanup

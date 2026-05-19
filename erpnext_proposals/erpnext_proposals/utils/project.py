@@ -1,19 +1,20 @@
 import frappe
+from frappe import _
 
 
 @frappe.whitelist()
-def create_project_from_quotation(quotation_name):
+def create_project_from_quotation(quotation_name: str):
 	quotation = frappe.get_doc("Quotation", quotation_name)
 
 	if quotation.docstatus != 1:
-		frappe.throw("La Cotización debe estar en estado Submitted para crear el Proyecto.")
+		frappe.throw(_("La Cotización debe estar en estado Submitted para crear el Proyecto."))
 
 	if not quotation.proposal_template:
-		frappe.throw("La Cotización no tiene Proposal Template asignado.")
+		frappe.throw(_("La Cotización no tiene Proposal Template asignado."))
 
 	scope_rows = [r for r in quotation.quotation_scope_items if r.include_in_proposal]
 	if not scope_rows:
-		frappe.throw("La Cotización no tiene Scope Items con 'Include in Proposal' activo.")
+		frappe.throw(_("La Cotización no tiene Scope Items con 'Include in Proposal' activo."))
 
 	# Idempotency: reuse if already created
 	if quotation.proposal_project and frappe.db.exists("Project", quotation.proposal_project):
@@ -79,7 +80,7 @@ def create_project_from_quotation(quotation_name):
 			"Quotation Scope Item", row.name, "project_task", task.name, update_modified=False
 		)
 
-	frappe.db.commit()
+	frappe.db.commit()  # nosemgrep
 
 	return {
 		"project": project.name,

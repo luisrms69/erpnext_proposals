@@ -55,7 +55,7 @@ class TestSalesOrderSync(unittest.TestCase):
 			"INSERT IGNORE INTO `tabQuotation` (name, docstatus, proposal_cost_center) VALUES (%s, 1, %s)",
 			(quotation_name, fake_cc),
 		)
-		frappe.db.commit()
+		frappe.db.commit()  # nosemgrep — test isolation requires explicit commit
 
 		item = _MockItem(prevdoc_docname=quotation_name, cost_center=None)
 		so = _MockSO(cost_center=None, items=[item])
@@ -68,4 +68,4 @@ class TestSalesOrderSync(unittest.TestCase):
 
 		# Cleanup
 		frappe.db.sql("DELETE FROM `tabQuotation` WHERE name=%s", (quotation_name,))
-		frappe.db.commit()
+		frappe.db.commit()  # nosemgrep — test cleanup

@@ -113,13 +113,23 @@ bench --site test-erpnext_proposals.localhost run-tests --app erpnext_proposals
 
 - Correr linters en archivos modificados:
   ```bash
-  ruff format <archivos .py modificados>
-  npx prettier@2.7.1 --write <archivos .js modificados>
+  ruff check <archivos .py>      # detecta errores e imports
+  ruff format <archivos .py>     # aplica formato
+  npx prettier@2.7.1 --write <archivos .js>
   ```
 
 ### Antes de cada PR
 
-- [ ] Linters pasados
+- [ ] Linters pasados (ruff check + ruff format + prettier)
+- [ ] Semgrep pasado — el CI corre `semgrep` con reglas de Frappe:
+  ```bash
+  git clone --depth 1 https://github.com/frappe/semgrep-rules.git /tmp/frappe-semgrep-rules
+  semgrep --config /tmp/frappe-semgrep-rules/rules --config r/python.lang.correctness <archivos .py>
+  ```
+  Reglas comunes que bloquean CI:
+  - `frappe-manual-commit` → `frappe.db.commit()` sin justificación (usar `# nosemgrep` si es necesario en tests)
+  - `frappe-missing-translate-function-python` → `frappe.throw("...")` sin `_()`
+  - `security.missing-argument-type-hint` → funciones sin type hints
 - [ ] Fixtures exportados si hubo cambios de Custom Fields, Roles, Workspaces
 - [ ] Patch creado si hay cambios de esquema — **requiere autorización explícita**
 - [ ] `bench --site proposals.dev migrate` limpio
