@@ -179,11 +179,27 @@ Quotation (ganada) → Project + Tasks → Sales Order → vinculación automát
 - `utils/sales_order.py`: auto-llena `SO.project` y `SO.cost_center` en validate; vincula `Project.sales_order` en submit
 - ERPNext 16: `prevdoc_docname` en lugar de `prevdoc_doctype` (removido en v16)
 
-**Validado:** flujo completo Quotation → Project → Tasks → Sales Order → sincronización en proposals.dev
+**Validaciones en proposals.dev (2026-05-19):**
+- Botón "Crear Proyecto desde Propuesta" funciona en Quotation submitted ✅
+- Project creado con customer y cost_center desde Quotation ✅
+- Tasks generadas desde Quotation Scope Items con horas correctas ✅
+- `SO.project` auto-llenado al validar Sales Order creada desde Quotation ✅
+- `SO.cost_center` propagado desde `proposal_cost_center` ✅
+- `Project.sales_order` vinculado al submitir SO ✅
+- PDF "Plan de Trabajo" muestra fases en orden correcto, descripción por tarea, totales ✅
+- 5 Quotations de prueba con horas reales creadas en proposals.dev ✅
+- `proposal_cost_center` marcado como campo obligatorio ✅
+
+**Decisiones confirmadas en esta etapa:**
+- No usar estado "Won" en Quotation — botón visible en cualquier Quotation submitted
+- `sequence` editable en Quotation Scope Item (no solo en catálogo)
+- Project es la fuente de verdad del deploy — nace en Quotation, no en SO
+- ERPNext Activity Type como fuente de costo/hora para etapa futura de rentabilidad
 
 ## Pendiente Etapas siguientes
 
-- Reporte interno de esfuerzo por Quotation (horas por designation/activity_type)
+- Reporte interno de esfuerzo por Quotation (horas por designation/activity_type, costo estimado)
 - Workspace para navegación del módulo
 - Roles y permisos específicos (`Proposals Manager`, `Proposals User`)
 - Tests formales para flujo Quotation → Project → SO
+- Marcar `proposal_cost_center` como obligatorio también al crear Project (no solo al guardar Quotation)
