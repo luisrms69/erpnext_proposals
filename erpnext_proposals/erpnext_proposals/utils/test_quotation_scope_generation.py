@@ -9,6 +9,12 @@ class TestQuotationScopeGeneration(unittest.TestCase):
 	def setUpClass(cls):
 		super().setUpClass()
 
+		# Warehouse Types — required by ERPNext Company.create_default_warehouses()
+		for wt in ("All", "Transit"):
+			if not frappe.db.exists("Warehouse Type", wt):
+				frappe.get_doc({"doctype": "Warehouse Type", "name": wt}).insert(ignore_permissions=True)
+		frappe.db.commit()
+
 		# Company
 		cls.company = frappe.db.get_value("Company", {}, "name")
 		if not cls.company:
