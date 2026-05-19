@@ -161,8 +161,29 @@ El botón "Generar alcance desde Items" debe ser idempotente: si se ejecuta dos 
 | `test_no_scope_without_proposal_template` | Caso negativo | ✅ |
 | `test_print_format_renders` | PDF no lanza excepción | ✅ |
 
+## Etapa 3 — Deploy Plan (rama feature/deploy-sequence-pdf)
+
+**Decisión arquitectónica aprobada:**
+```
+Quotation (ganada) → Project + Tasks → Sales Order → vinculación automática
+```
+
+**Implementado:**
+- `sequence` en `Scope Item` y `Quotation Scope Item` (editable por propuesta)
+- Print Format "Plan de Trabajo": tabla con fase/tarea/perfil/tipo/horas/días, totales por fase y proyecto
+- Descripción de cada tarea visible bajo el título en el PDF
+- `proposal_project` (Link:Project, allow_on_submit) en Quotation — se llena al crear el proyecto
+- `proposal_cost_center` (Link:Cost Center, **obligatorio**) en Quotation
+- Botón "Crear Proyecto desde Propuesta" en Quotation submitted
+- `utils/project.py`: crea Project+Tasks desde Quotation, propaga customer y cost_center, idempotente
+- `utils/sales_order.py`: auto-llena `SO.project` y `SO.cost_center` en validate; vincula `Project.sales_order` en submit
+- ERPNext 16: `prevdoc_docname` en lugar de `prevdoc_doctype` (removido en v16)
+
+**Validado:** flujo completo Quotation → Project → Tasks → Sales Order → sincronización en proposals.dev
+
 ## Pendiente Etapas siguientes
 
-- Print Format: agrupación por `item_code` y ajuste de diseño
+- Reporte interno de esfuerzo por Quotation (horas por designation/activity_type)
 - Workspace para navegación del módulo
 - Roles y permisos específicos (`Proposals Manager`, `Proposals User`)
+- Tests formales para flujo Quotation → Project → SO
