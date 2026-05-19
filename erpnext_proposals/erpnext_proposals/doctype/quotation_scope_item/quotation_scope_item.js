@@ -8,6 +8,7 @@ frappe.ui.form.on("Quotation Scope Item", {
 			// After this point the user can edit freely — changes to
 			// the Scope Item catalog will NOT affect this Quotation.
 			frappe.model.set_value(cdt, cdn, {
+				sequence: doc.sequence,
 				code: doc.code,
 				title: doc.title,
 				description: doc.description,
