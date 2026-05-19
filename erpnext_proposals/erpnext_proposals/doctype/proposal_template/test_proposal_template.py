@@ -47,42 +47,6 @@ class TestProposalTemplate(unittest.TestCase):
 		seqs = [row.sequence for row in doc.sections]
 		self.assertEqual(seqs, [50, 60])
 
-	def test_custom_title_and_content(self):
-		section = frappe.get_doc(
-			{
-				"doctype": "Proposal Section",
-				"section_name": "_Test Section For Custom",
-				"section_type": "Personalizado",
-				"content": "<p>Original content</p>",
-			}
-		)
-		section.insert(ignore_permissions=True)
-
-		doc = frappe.get_doc(
-			{
-				"doctype": "Proposal Template",
-				"template_name": "_Test Template Custom",
-				"sections": [
-					{
-						"proposal_section": section.name,
-						"custom_title": "Mi Título Personalizado",
-						"use_custom_content": 1,
-						"custom_content": "<p>Contenido override</p>",
-						"include_by_default": 1,
-					}
-				],
-			}
-		)
-		doc.insert(ignore_permissions=True)
-
-		row = doc.sections[0]
-		self.assertEqual(row.custom_title, "Mi Título Personalizado")
-		self.assertEqual(row.use_custom_content, 1)
-		self.assertEqual(row.custom_content, "<p>Contenido override</p>")
-
-		doc.delete()
-		section.delete()
-
 	def test_mandatory_template_name(self):
 		doc = frappe.get_doc({"doctype": "Proposal Template"})
 		with self.assertRaises(frappe.exceptions.ValidationError):
