@@ -1,0 +1,115 @@
+{
+ "actions": [],
+ "creation": "2026-05-18 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "scope_item",
+  "code",
+  "title",
+  "include_in_proposal",
+  "section_narrative",
+  "description",
+  "deliverable",
+  "section_classification",
+  "phase",
+  "erpnext_item",
+  "section_effort",
+  "estimated_hours",
+  "activity_type",
+  "designation"
+ ],
+ "fields": [
+  {
+   "fieldname": "scope_item",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Scope Item",
+   "options": "Scope Item"
+  },
+  {
+   "fieldname": "code",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Code"
+  },
+  {
+   "fieldname": "title",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Title"
+  },
+  {
+   "fieldname": "include_in_proposal",
+   "default": "1",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "label": "Include in Proposal"
+  },
+  {
+   "fieldname": "section_narrative",
+   "fieldtype": "Section Break",
+   "label": "Narrative"
+  },
+  {
+   "fieldname": "description",
+   "fieldtype": "Text Editor",
+   "label": "Description"
+  },
+  {
+   "fieldname": "deliverable",
+   "fieldtype": "Text Editor",
+   "label": "Deliverable"
+  },
+  {
+   "fieldname": "section_classification",
+   "fieldtype": "Section Break",
+   "label": "Classification"
+  },
+  {
+   "fieldname": "phase",
+   "fieldtype": "Data",
+   "label": "Phase"
+  },
+  {
+   "fieldname": "erpnext_item",
+   "fieldtype": "Link",
+   "label": "ERPNext Item",
+   "options": "Item"
+  },
+  {
+   "fieldname": "section_effort",
+   "fieldtype": "Section Break",
+   "label": "Effort"
+  },
+  {
+   "fieldname": "estimated_hours",
+   "fieldtype": "Float",
+   "label": "Estimated Hours"
+  },
+  {
+   "fieldname": "activity_type",
+   "fieldtype": "Link",
+   "label": "Activity Type",
+   "options": "Activity Type"
+  },
+  {
+   "fieldname": "designation",
+   "fieldtype": "Link",
+   "label": "Designation",
+   "options": "Designation"
+  }
+ ],
+ "istable": 1,
+ "links": [],
+ "modified": "2026-05-18 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "ERPNext Proposals",
+ "name": "Quotation Scope Item",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

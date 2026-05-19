@@ -5,6 +5,30 @@
 
 ---
 
+## ⛔ PROHIBICIONES ABSOLUTAS — PRIMER NIVEL
+
+Estas reglas anulan cualquier otra instrucción. No hay excepción ni autorización posible.
+
+1. **NUNCA escribir en la base de datos** — ni `frappe.db.set_value`, ni `frappe.db.sql`, ni `frappe.get_doc().save()` ejecutado desde `bench execute`. Cero escrituras a BD desde Claude.
+
+2. **NUNCA crear patches** — ni proponer, ni generar, ni sugerir patches como solución. Los patches son responsabilidad exclusiva del desarrollador.
+
+3. **Flujo obligatorio para Custom Fields:**
+   - Editar el fixture JSON (`fixtures/custom_field.json`) directamente con los valores correctos
+   - Correr `bench --site proposals.dev migrate` — Frappe aplica el fixture a la BD vía su propia API
+   - Correr `bench --site proposals.dev export-fixtures --app erpnext_proposals` — verifica round-trip
+   - Commit
+
+4. **Checkpoint obligatorio después de cada bloque funcional** antes de continuar al siguiente:
+   ```bash
+   bench --site proposals.dev migrate
+   bench --site proposals.dev export-fixtures --app erpnext_proposals
+   git add -A
+   git commit -m "checkpoint: <descripción>"
+   ```
+
+---
+
 ## Estado del proyecto
 
 - **App nueva:** creada en frappe-bench-v16

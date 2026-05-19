@@ -10,6 +10,28 @@ app_license = "mit"
 
 required_apps = ["erpnext"]
 
+# Fixtures
+# ------------------
+
+fixtures = [
+	{
+		"doctype": "Custom Field",
+		"filters": [
+			["dt", "=", "Quotation"],
+			[
+				"fieldname",
+				"in",
+				[
+					"proposal_details_section",
+					"proposal_template",
+					"proposal_title",
+					"quotation_scope_items",
+				],
+			],
+		],
+	}
+]
+
 # Each item in the list will be shown as an app in the apps page
 # add_to_apps_screen = [
 # 	{
@@ -43,7 +65,7 @@ required_apps = ["erpnext"]
 # page_js = {"page" : "public/js/file.js"}
 
 # include js in doctype views
-# doctype_js = {"doctype" : "public/js/doctype.js"}
+doctype_js = {"Quotation": "public/js/quotation.js"}
 # doctype_list_js = {"doctype" : "public/js/doctype_list.js"}
 # doctype_tree_js = {"doctype" : "public/js/doctype_tree.js"}
 # doctype_calendar_js = {"doctype" : "public/js/doctype_calendar.js"}
@@ -255,4 +277,3 @@ required_apps = ["erpnext"]
 # ------------
 # List of apps whose translatable strings should be excluded from this app's translations.
 # ignore_translatable_strings_from = []
-
