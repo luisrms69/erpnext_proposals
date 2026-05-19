@@ -26,6 +26,8 @@ fixtures = [
 					"proposal_template",
 					"proposal_title",
 					"quotation_scope_items",
+					"proposal_project",
+					"proposal_cost_center",
 				],
 			],
 		],
@@ -65,7 +67,10 @@ fixtures = [
 # page_js = {"page" : "public/js/file.js"}
 
 # include js in doctype views
-doctype_js = {"Quotation": "public/js/quotation.js"}
+doctype_js = {
+	"Quotation": "public/js/quotation.js",
+	"Sales Order": "public/js/sales_order.js",
+}
 # doctype_list_js = {"doctype" : "public/js/doctype_list.js"}
 # doctype_tree_js = {"doctype" : "public/js/doctype_tree.js"}
 # doctype_calendar_js = {"doctype" : "public/js/doctype_calendar.js"}
@@ -163,7 +168,11 @@ doctype_js = {"Quotation": "public/js/quotation.js"}
 doc_events = {
 	"Quotation": {
 		"validate": "erpnext_proposals.erpnext_proposals.utils.quotation.on_quotation_validate",
-	}
+	},
+	"Sales Order": {
+		"validate": "erpnext_proposals.erpnext_proposals.utils.sales_order.on_sales_order_validate",
+		"on_submit": "erpnext_proposals.erpnext_proposals.utils.sales_order.on_sales_order_submit",
+	},
 }
 
 # Scheduled Tasks

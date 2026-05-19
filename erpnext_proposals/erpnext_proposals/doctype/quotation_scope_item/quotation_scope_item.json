@@ -21,7 +21,8 @@
   "section_effort",
   "estimated_hours",
   "activity_type",
-  "designation"
+  "designation",
+  "project_task"
  ],
  "fields": [
   {
@@ -127,6 +128,14 @@
    "fieldtype": "Link",
    "label": "Designation",
    "options": "Designation"
+  },
+  {
+   "fieldname": "project_task",
+   "fieldtype": "Link",
+   "label": "Project Task",
+   "options": "Task",
+   "read_only": 1,
+   "description": "Task de Project generada desde este Scope Item. Se llena al crear el Proyecto desde la Orden de Venta."
   }
  ],
  "istable": 1,

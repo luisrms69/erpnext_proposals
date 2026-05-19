@@ -234,5 +234,30 @@
   "translatable": 0,
   "unique": 0,
   "width": null
+ },
+ {
+  "allow_on_submit": 1,
+  "doctype": "Custom Field",
+  "dt": "Quotation",
+  "fieldname": "proposal_project",
+  "fieldtype": "Link",
+  "insert_after": "quotation_scope_items",
+  "label": "Proposal Project",
+  "name": "Quotation-proposal_project",
+  "options": "Project",
+  "read_only": 1,
+  "description": "Proyecto generado desde esta propuesta. Se llena automáticamente al crear el Proyecto."
+ },
+ {
+  "doctype": "Custom Field",
+  "dt": "Quotation",
+  "fieldname": "proposal_cost_center",
+  "fieldtype": "Link",
+  "insert_after": "proposal_project",
+  "label": "Proposal Cost Center",
+  "name": "Quotation-proposal_cost_center",
+  "options": "Cost Center",
+  "reqd": 1,
+  "description": "Centro de costo asignado a esta propuesta. Se propaga al Proyecto y a la Orden de Venta."
  }
 ]
