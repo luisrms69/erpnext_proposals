@@ -60,27 +60,71 @@ Secciones renderizadas:
 
 ---
 
-## Problema identificado en prueba de concepto
+## Problema crítico identificado en prueba de concepto
 
-El campo `erpnext_item` en `Scope Item` y `Quotation Scope Item` **no tiene utilidad clara en Etapa 1**.
+### El doble llenado de ítems rompe la cadena de verdad
 
-El flujo actual obliga a:
-1. Seleccionar `scope_item` en `quotation_scope_items` (alcance técnico)
-2. Agregar por separado el mismo concepto en `items` nativos (precio)
+Durante la primera prueba funcional se detectó un problema arquitectónico que invalida el diseño de Etapa 1:
 
-Esto crea duplicación cognitiva. El link a `erpnext_item` no resuelve el problema porque
-no hay ningún mecanismo que use esa referencia para agregar automáticamente el Item a
-Quotation Items.
+**El problema:**
+El usuario debía llenar dos tablas distintas para el mismo concepto:
 
-**Pendiente de diseño para Etapa 2:**
-- ¿Cómo vincular un Scope Item con su Item comercial de forma que tenga sentido en el flujo?
-- Opciones a evaluar: botón "Agregar a Items", auto-agregar al seleccionar scope item, o eliminar el campo `erpnext_item` si no tendrá uso funcional.
+1. `quotation_scope_items` — alcance técnico (captura manual)
+2. `doc.items` — línea comercial con precio (captura manual)
+
+Estas tablas representan el mismo objeto desde dos ángulos. No son independientes: el usuario tenía que mantenerlas en sincronía manualmente. Eso no es solo UX malo — rompe la trazabilidad preventa → comercial → ejecución → finanzas.
+
+**El objetivo real del sistema:**
+El Item ERPNext es la unidad comercial analizable. Sobre él se quiere poder medir: cuántas veces se vendió, rentabilidad, margen, conversión a Sales Order/Invoice, ejecución en Project/Tasks. Si el alcance técnico no queda ligado al Item vendido, se pierde esa trazabilidad.
+
+**Por qué `erpnext_item` era referencia pasiva:**
+El campo existía en `Scope Item` y `Quotation Scope Item` pero no tenía ningún mecanismo que lo usara. Era decorativo. El problema no era el campo — era que la dirección del flujo estaba al revés.
+
+---
+
+## Decisión arquitectónica para Etapa 2 — APROBADA
+
+**Modelo: Item 1 → N Scope Items**
+
+```
+Item (unidad analizable en ERPNext)
+  └── Scope Items [Scope Item.erpnext_item = Item]  ← relación estructural del catálogo
+         ↓ botón "Generar alcance desde Items"
+Quotation Item [precio, cantidad, impuestos — solo aquí]
+  └── Quotation Scope Item [item_code congelado, textos congelados]
+         ↓ futuro Etapa 3
+Project Task → Sales Invoice → análisis financiero por Item
+```
+
+**Cambio de rol de `Quotation Scope Item`:**
+Deja de ser tabla de captura manual. Pasa a ser tabla generada y congelada desde los Items cotizados. El usuario no llena esta tabla directamente — el botón la genera a partir de `doc.items`.
+
+**Razón para no crear `Item Scope Mapping` (N:M):**
+Si un Scope Item aplica a múltiples Items sin variación técnica, probablemente es contenido del Proposal Template (sección narrativa transversal), no un Scope Item ligado a un ítem vendible. Si varía por ítem, debe ser un Scope Item distinto. N:M se añade solo si en producción aparece un patrón claro de duplicación de catálogo que no sea resuelto por esta regla.
+
+### Cambios de Etapa 1 → Etapa 2
+
+| Campo / DocType | Acción |
+|---|---|
+| `Scope Item.erpnext_item` | Mantener — cambia de referencia pasiva a relación estructural |
+| `Quotation Scope Item.item_code` | Agregar — Data, congelado, referencia al Quotation Item origen |
+| `Quotation Scope Item.erpnext_item` | Eliminar — reemplazado por `item_code` |
+| Botón "Generar alcance desde Items" | Crear — lee `doc.items`, busca Scope Items por `erpnext_item`, congela en `quotation_scope_items` |
+| Print Format | Agrupar alcance por `item_code` y/o `phase` |
+| `Item Scope Mapping` | No crear — sobreingeniería prematura |
+
+### Regla de idempotencia del botón
+
+El botón "Generar alcance desde Items" debe ser idempotente: si se ejecuta dos veces sobre la misma Quotation, no debe duplicar filas en `quotation_scope_items`. Debe detectar combinaciones `item_code + scope_item` ya existentes y omitirlas.
 
 ---
 
 ## Pendiente Etapa 2
 
-- Resolver el vínculo Scope Item → Quotation Item (diseño pendiente)
+- Implementar los cambios de esquema aprobados arriba
+- Botón "Generar alcance desde Items" con lógica idempotente
+- Print Format: agrupación por `item_code` y `phase`
 - Workspace para navegación del módulo
 - Roles y permisos específicos (`Proposals Manager`, `Proposals User`)
 - Ajuste de diseño del Print Format con datos reales
+- Tests formales en `test-erpnext_proposals.localhost`
