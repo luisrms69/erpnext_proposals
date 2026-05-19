@@ -1,9 +1,11 @@
 # ADR-0001: MVP Etapa 1 — Implementación inicial
 
 **Fecha:** 2026-05-18
-**Status:** Cerrado — MVP validado
-**Branch:** feature/mvp-etapa-1-doctypes
+**Status:** Cerrado — MVP validado con tests
+**Branch:** feature/mvp-etapa-1-doctypes → mergeado a version-16
 **Validado:** 2026-05-19 — prueba funcional con datos de producción en proposals.dev
+**Tests:** 21/21 pasando en test-erpnext_proposals.localhost (2026-05-19)
+**Validación 1:N:** Item → Scope Items exitosa con datos reales
 
 ---
 
@@ -122,21 +124,45 @@ El botón "Generar alcance desde Items" debe ser idempotente: si se ejecuta dos 
 
 ## Estado de implementación Etapa 2
 
-**Implementado en branch `feature/mvp-etapa-1-doctypes`:**
+**Implementado y mergeado a version-16:**
 - `Quotation Scope Item`: campos `item_code` (frozen) y `auto_generated` agregados
 - `erpnext_item` deprecado (hidden, no eliminado)
 - `doc_events` hook: auto-genera alcance en `validate` si `proposal_template` está definido
-- Idempotente por `item_code + scope_item`
+- Idempotente por `item_code + scope_item` — verificado con test
 - Botón secundario "Regenerar alcance" en grupo Propuesta
 
-**Pendiente de validar:**
-- Relación 1:N Item → Scope Items con datos reales (prueba diferida)
-- Print Format: agrupación por `item_code` pendiente de ajuste con datos reales
+**Validaciones completadas:**
+- Relación 1:N Item → Scope Items validada con datos reales de producción (erp.buzola.mx)
+- Print Format renderiza correctamente con datos reales
+- 21/21 tests pasando en test-erpnext_proposals.localhost
+
+## Cobertura de tests
+
+| Test | Descripción | Estado |
+|---|---|---|
+| `test_create` (Proposal Section) | Crear sección, verificar nombre | ✅ |
+| `test_title_defaults_to_section_name` | Title default cuando vacío | ✅ |
+| `test_mandatory_section_name` | ValidationError sin nombre | ✅ |
+| `test_create` (Proposal Template) | Crear template sin secciones | ✅ |
+| `test_auto_sequence` | Sequence 10/20/30 auto-asignado | ✅ |
+| `test_sequence_respects_existing` | Sequence respeta valores previos | ✅ |
+| `test_custom_title_and_content` | Override título y contenido en sección | ✅ |
+| `test_mandatory_template_name` | ValidationError sin nombre | ✅ |
+| `test_create` (Scope Item) | Crear scope item básico | ✅ |
+| `test_create_with_erpnext_item` | Scope item con Item ERPNext vinculado | ✅ |
+| `test_mandatory_code` / `test_mandatory_title` | Campos obligatorios | ✅ |
+| `test_no_price_fields` (Scope Item) | Sin campos comerciales | ✅ |
+| `test_no_price_fields` (QSI) | Sin campos comerciales en child | ✅ |
+| `test_is_child_table` | istable = 1 | ✅ |
+| `test_required_fields_exist` | Campos esperados presentes | ✅ |
+| `test_scope_items_generated_on_save` | Auto-generación con proposal_template | ✅ |
+| `test_generation_is_idempotent` | No duplica en segundo save | ✅ |
+| `test_quotation_items_unchanged` | Items comerciales intactos | ✅ |
+| `test_no_scope_without_proposal_template` | Caso negativo | ✅ |
+| `test_print_format_renders` | PDF no lanza excepción | ✅ |
 
 ## Pendiente Etapas siguientes
 
-- Validar relación 1:N `Scope Item.erpnext_item` con Items reales de producción
-- Print Format: ajuste de diseño y agrupación por `item_code`
+- Print Format: agrupación por `item_code` y ajuste de diseño
 - Workspace para navegación del módulo
 - Roles y permisos específicos (`Proposals Manager`, `Proposals User`)
-- Tests formales en `test-erpnext_proposals.localhost`
