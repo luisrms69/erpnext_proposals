@@ -1,8 +1,9 @@
 # ADR-0001: MVP Etapa 1 — Implementación inicial
 
 **Fecha:** 2026-05-18
-**Status:** Activo
+**Status:** Cerrado — MVP validado
 **Branch:** feature/mvp-etapa-1-doctypes
+**Validado:** 2026-05-19 — prueba funcional con datos de producción en proposals.dev
 
 ---
 
@@ -119,12 +120,23 @@ El botón "Generar alcance desde Items" debe ser idempotente: si se ejecuta dos 
 
 ---
 
-## Pendiente Etapa 2
+## Estado de implementación Etapa 2
 
-- Implementar los cambios de esquema aprobados arriba
-- Botón "Generar alcance desde Items" con lógica idempotente
-- Print Format: agrupación por `item_code` y `phase`
+**Implementado en branch `feature/mvp-etapa-1-doctypes`:**
+- `Quotation Scope Item`: campos `item_code` (frozen) y `auto_generated` agregados
+- `erpnext_item` deprecado (hidden, no eliminado)
+- `doc_events` hook: auto-genera alcance en `validate` si `proposal_template` está definido
+- Idempotente por `item_code + scope_item`
+- Botón secundario "Regenerar alcance" en grupo Propuesta
+
+**Pendiente de validar:**
+- Relación 1:N Item → Scope Items con datos reales (prueba diferida)
+- Print Format: agrupación por `item_code` pendiente de ajuste con datos reales
+
+## Pendiente Etapas siguientes
+
+- Validar relación 1:N `Scope Item.erpnext_item` con Items reales de producción
+- Print Format: ajuste de diseño y agrupación por `item_code`
 - Workspace para navegación del módulo
 - Roles y permisos específicos (`Proposals Manager`, `Proposals User`)
-- Ajuste de diseño del Print Format con datos reales
 - Tests formales en `test-erpnext_proposals.localhost`
