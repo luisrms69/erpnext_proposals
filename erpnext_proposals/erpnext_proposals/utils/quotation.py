@@ -23,6 +23,7 @@ def _generate_scope_items(doc):
 			filters={"erpnext_item": item.item_code, "enabled": 1},
 			fields=[
 				"name",
+				"sequence",
 				"code",
 				"title",
 				"description",
@@ -32,6 +33,7 @@ def _generate_scope_items(doc):
 				"default_designation",
 				"estimated_hours",
 			],
+			order_by="phase asc, sequence asc",
 		)
 
 		for si in scope_items:
@@ -42,6 +44,7 @@ def _generate_scope_items(doc):
 				{
 					"scope_item": si.name,
 					"item_code": item.item_code,
+					"sequence": si.sequence,
 					"code": si.code,
 					"title": si.title,
 					"description": si.description,
