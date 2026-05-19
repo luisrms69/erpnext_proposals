@@ -186,3 +186,4 @@ Implementar los DocTypes del MVP Etapa 1, en el orden listado arriba.
 Usar `/new-doctype` para cada uno.
 
 Antes del primer `bench migrate` real → correr `/safe-point site=proposals.dev app=erpnext_proposals`.
+
