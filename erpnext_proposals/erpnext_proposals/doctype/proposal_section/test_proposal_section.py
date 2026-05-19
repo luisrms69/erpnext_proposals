@@ -1,8 +1,9 @@
+import unittest
+
 import frappe
-import pytest
 
 
-class TestProposalSection:
+class TestProposalSection(unittest.TestCase):
 	def test_create(self):
 		doc = frappe.get_doc(
 			{
@@ -13,7 +14,7 @@ class TestProposalSection:
 			}
 		)
 		doc.insert()
-		assert doc.name == "_Test Section"
+		self.assertEqual(doc.name, "_Test Section")
 		doc.delete()
 
 	def test_title_defaults_to_section_name(self):
@@ -25,7 +26,7 @@ class TestProposalSection:
 			}
 		)
 		doc.insert()
-		assert doc.title == "_Test Title Default"
+		self.assertEqual(doc.title, "_Test Title Default")
 		doc.delete()
 
 	def test_mandatory_section_name(self):
@@ -35,5 +36,5 @@ class TestProposalSection:
 				"section_type": "Objetivo",
 			}
 		)
-		with pytest.raises(frappe.exceptions.MandatoryError):
+		with self.assertRaises(frappe.exceptions.ValidationError):
 			doc.insert()

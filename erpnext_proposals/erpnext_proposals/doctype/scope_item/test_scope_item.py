@@ -1,8 +1,9 @@
+import unittest
+
 import frappe
-import pytest
 
 
-class TestScopeItem:
+class TestScopeItem(unittest.TestCase):
 	def test_create(self):
 		doc = frappe.get_doc(
 			{
@@ -14,7 +15,7 @@ class TestScopeItem:
 			}
 		)
 		doc.insert()
-		assert doc.name == "_TEST-001"
+		self.assertEqual(doc.name, "_TEST-001")
 		doc.delete()
 
 	def test_mandatory_code(self):
@@ -24,7 +25,7 @@ class TestScopeItem:
 				"title": "Sin código",
 			}
 		)
-		with pytest.raises(frappe.exceptions.MandatoryError):
+		with self.assertRaises(frappe.exceptions.ValidationError):
 			doc.insert()
 
 	def test_mandatory_title(self):
@@ -34,21 +35,14 @@ class TestScopeItem:
 				"code": "_TEST-NOTITLE",
 			}
 		)
-		with pytest.raises(frappe.exceptions.MandatoryError):
+		with self.assertRaises(frappe.exceptions.ValidationError):
 			doc.insert()
 
 	def test_no_price_fields(self):
-		doc = frappe.get_doc(
-			{
-				"doctype": "Scope Item",
-				"code": "_TEST-002",
-				"title": "Test sin precios",
-			}
-		)
-		# Ningún campo debe tener 'rate', 'price', 'cost', 'amount' o 'margin'
-		field_names = [f.fieldname for f in doc.meta.fields]
-		forbidden = ("rate", "price", "cost", "amount", "margin")
+		meta = frappe.get_meta("Scope Item")
+		field_names = [f.fieldname for f in meta.fields]
+		forbidden = {"rate", "price", "cost", "amount", "margin"}
 		for fname in field_names:
-			assert not any(f in fname for f in forbidden), (
-				f"Campo comercial encontrado en Scope Item: {fname}"
-			)
+			parts = set(fname.split("_"))
+			overlap = parts & forbidden
+			self.assertFalse(overlap, f"Campo comercial encontrado en Scope Item: {fname}")

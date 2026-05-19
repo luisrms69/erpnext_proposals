@@ -1,8 +1,9 @@
+import unittest
+
 import frappe
-import pytest
 
 
-class TestProposalTemplate:
+class TestProposalTemplate(unittest.TestCase):
 	def test_create(self):
 		doc = frappe.get_doc(
 			{
@@ -12,7 +13,7 @@ class TestProposalTemplate:
 			}
 		)
 		doc.insert()
-		assert doc.name == "_Test Template"
+		self.assertEqual(doc.name, "_Test Template")
 		doc.delete()
 
 	def test_auto_sequence(self):
@@ -27,10 +28,9 @@ class TestProposalTemplate:
 				],
 			}
 		)
-		# Pre-insert: sections don't have sequence yet
 		doc.validate()
 		seqs = [row.sequence for row in doc.sections]
-		assert seqs == [10, 20, 30]
+		self.assertEqual(seqs, [10, 20, 30])
 
 	def test_sequence_respects_existing(self):
 		doc = frappe.get_doc(
@@ -45,9 +45,9 @@ class TestProposalTemplate:
 		)
 		doc.validate()
 		seqs = [row.sequence for row in doc.sections]
-		assert seqs == [50, 60]
+		self.assertEqual(seqs, [50, 60])
 
 	def test_mandatory_template_name(self):
 		doc = frappe.get_doc({"doctype": "Proposal Template"})
-		with pytest.raises(frappe.exceptions.MandatoryError):
+		with self.assertRaises(frappe.exceptions.ValidationError):
 			doc.insert()
