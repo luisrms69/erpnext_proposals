@@ -1,0 +1,70 @@
+{
+ "actions": [],
+ "creation": "2026-05-18 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "sequence",
+  "proposal_section",
+  "custom_title",
+  "include_by_default",
+  "use_custom_content",
+  "custom_content"
+ ],
+ "fields": [
+  {
+   "fieldname": "sequence",
+   "fieldtype": "Int",
+   "in_list_view": 1,
+   "label": "Sequence",
+   "description": "Orden en la propuesta. Auto-asignado en múltiplos de 10 si se deja vacío. Ordenar por sequence asc, idx asc."
+  },
+  {
+   "fieldname": "proposal_section",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Proposal Section",
+   "options": "Proposal Section",
+   "reqd": 1
+  },
+  {
+   "fieldname": "custom_title",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Custom Title",
+   "description": "Override del título. Si vacío, usa el título de Proposal Section."
+  },
+  {
+   "fieldname": "include_by_default",
+   "default": "1",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "label": "Include by Default"
+  },
+  {
+   "fieldname": "use_custom_content",
+   "default": "0",
+   "fieldtype": "Check",
+   "label": "Use Custom Content"
+  },
+  {
+   "fieldname": "custom_content",
+   "depends_on": "eval:doc.use_custom_content",
+   "fieldtype": "Text Editor",
+   "label": "Custom Content",
+   "description": "Override del contenido. Solo activo si Use Custom Content está marcado."
+  }
+ ],
+ "istable": 1,
+ "links": [],
+ "modified": "2026-05-18 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "ERPNext Proposals",
+ "name": "Proposal Template Section",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

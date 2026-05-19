@@ -1,0 +1,139 @@
+{
+ "actions": [],
+ "autoname": "field:code",
+ "creation": "2026-05-18 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "code",
+  "title",
+  "enabled",
+  "visible_in_proposal",
+  "section_narrative",
+  "description",
+  "deliverable",
+  "section_classification",
+  "phase",
+  "erpnext_item",
+  "section_effort",
+  "estimated_hours",
+  "default_activity_type",
+  "default_designation"
+ ],
+ "fields": [
+  {
+   "fieldname": "code",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Code",
+   "reqd": 1,
+   "unique": 1
+  },
+  {
+   "fieldname": "title",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Title",
+   "reqd": 1
+  },
+  {
+   "fieldname": "enabled",
+   "default": "1",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "label": "Enabled"
+  },
+  {
+   "fieldname": "visible_in_proposal",
+   "default": "1",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "label": "Visible in Proposal"
+  },
+  {
+   "fieldname": "section_narrative",
+   "fieldtype": "Section Break",
+   "label": "Narrative"
+  },
+  {
+   "fieldname": "description",
+   "fieldtype": "Text Editor",
+   "label": "Description"
+  },
+  {
+   "fieldname": "deliverable",
+   "fieldtype": "Text Editor",
+   "label": "Deliverable"
+  },
+  {
+   "fieldname": "section_classification",
+   "fieldtype": "Section Break",
+   "label": "Classification"
+  },
+  {
+   "fieldname": "phase",
+   "fieldtype": "Data",
+   "label": "Phase",
+   "placeholder": "Ej: Fase 1 — Análisis, Fase 2 — Desarrollo",
+   "description": "Etiqueta libre para agrupar alcances en el PDF. Ejemplos: 'Fase 1', 'Diseño', 'Implementación'. Scope Items con el mismo valor se agrupan juntos en la propuesta. Dejar vacío si no aplica."
+  },
+  {
+   "fieldname": "erpnext_item",
+   "fieldtype": "Link",
+   "label": "ERPNext Item",
+   "options": "Item",
+   "description": "Referencia al Item nativo de ERPNext. No duplica precio ni costo — solo vincula el catálogo."
+  },
+  {
+   "fieldname": "section_effort",
+   "fieldtype": "Section Break",
+   "label": "Effort (Etapa 3)"
+  },
+  {
+   "fieldname": "estimated_hours",
+   "fieldtype": "Float",
+   "label": "Estimated Hours",
+   "description": "Preparatorio para conversión a Project/Tasks en Etapa 3. No funcional en MVP."
+  },
+  {
+   "fieldname": "default_activity_type",
+   "fieldtype": "Link",
+   "label": "Default Activity Type",
+   "options": "Activity Type",
+   "description": "Preparatorio para Etapa 3."
+  },
+  {
+   "fieldname": "default_designation",
+   "fieldtype": "Link",
+   "label": "Default Designation",
+   "options": "Designation",
+   "description": "Preparatorio para Etapa 3."
+  }
+ ],
+ "links": [],
+ "modified": "2026-05-18 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "ERPNext Proposals",
+ "name": "Scope Item",
+ "naming_rule": "By fieldname",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}
