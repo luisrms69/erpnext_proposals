@@ -6,9 +6,11 @@
  "engine": "InnoDB",
  "field_order": [
   "scope_item",
+  "item_code",
   "code",
   "title",
   "include_in_proposal",
+  "auto_generated",
   "section_narrative",
   "description",
   "deliverable",
@@ -27,6 +29,22 @@
    "in_list_view": 1,
    "label": "Scope Item",
    "options": "Scope Item"
+  },
+  {
+   "fieldname": "item_code",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Item Code",
+   "read_only": 1,
+   "description": "Item de Quotation del que proviene este alcance. Congelado al generarse."
+  },
+  {
+   "fieldname": "auto_generated",
+   "default": "0",
+   "fieldtype": "Check",
+   "label": "Auto Generated",
+   "read_only": 1,
+   "description": "Marcado cuando el sistema genera esta fila desde Scope Item.erpnext_item."
   },
   {
    "fieldname": "code",
@@ -75,8 +93,10 @@
   {
    "fieldname": "erpnext_item",
    "fieldtype": "Link",
-   "label": "ERPNext Item",
-   "options": "Item"
+   "hidden": 1,
+   "label": "ERPNext Item (deprecated)",
+   "options": "Item",
+   "description": "Deprecated. Usar item_code. Se mantiene por compatibilidad de datos."
   },
   {
    "fieldname": "section_effort",

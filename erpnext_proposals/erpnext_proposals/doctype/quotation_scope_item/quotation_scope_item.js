@@ -13,7 +13,7 @@ frappe.ui.form.on("Quotation Scope Item", {
 				description: doc.description,
 				deliverable: doc.deliverable,
 				phase: doc.phase,
-				erpnext_item: doc.erpnext_item,
+				item_code: doc.erpnext_item,
 				activity_type: doc.default_activity_type,
 				designation: doc.default_designation,
 				estimated_hours: doc.estimated_hours,
