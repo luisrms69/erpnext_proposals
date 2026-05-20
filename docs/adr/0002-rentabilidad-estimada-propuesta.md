@@ -1,8 +1,8 @@
 # ADR-0002: Rentabilidad Estimada de Propuesta
 
 **Fecha:** 2026-05-19
-**Status:** Aprobado — pendiente de implementación
-**Rama:** feature/proposal-profitability
+**Status:** Cerrado — implementado y mergeado (PR #7, 2026-05-20)
+**Rama:** feature/proposal-profitability → mergeado a version-16
 
 ---
 

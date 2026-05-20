@@ -196,10 +196,33 @@ Quotation (ganada) → Project + Tasks → Sales Order → vinculación automát
 - Project es la fuente de verdad del deploy — nace en Quotation, no en SO
 - ERPNext Activity Type como fuente de costo/hora para etapa futura de rentabilidad
 
+## Etapa 4 — Rentabilidad Estimada (ADR-0002, mergeado PR #7)
+
+Script Report `Profitability Estimate` implementado y mergeado a version-16:
+- Costo laboral: Quotation Scope Items × Activity Type.costing_rate
+- Costo items: jerarquía Supplier Quotation → Buying Item Price → Last Purchase Rate → Valuation Rate
+- Anti-duplicación por item_code en items_with_scope
+- Margen sobre net_total (antes de impuestos)
+- Advertencias por falta de activity_type, costing_rate, costo de item, y discrepancia de moneda
+- Validado con SAL-QTN-2026-00008: venta $212,500 | costo $104,200 | margen 51%
+
+## Roadmap priorizado (aprobado 2026-05-20)
+
+| Prioridad | Área | Objetivo |
+|---|---|---|
+| 1 | **PDF comercial** | Propuesta visualmente profesional y vendible |
+| 2 | **Rentabilidad imprimible** | Reporte interno presentable para revisión/autorización |
+| 3 | **Aprobación interna** | Workflow para validar propuesta antes de enviar al cliente |
+| 4 | **Post mortem** | Comparar estimado vs real (horas, costo, margen) |
+| 5 | **Catálogo/demo** | Templates, Scope Items y datos ejemplo listos para demo |
+
 ## Pendiente Etapas siguientes
 
-- Reporte interno de esfuerzo por Quotation (horas por designation/activity_type, costo estimado)
+- PDF comercial: portada, espaciado, tablas, plan de trabajo legible, inversión clara
+- Reporte de rentabilidad con formato imprimible
+- Workflow de aprobación interna (advertencias de costeo incompleto, margen mínimo)
+- Post mortem estimado vs real via Timesheets y Sales Invoice
+- Catálogo demo: 2-3 templates, 10-20 Scope Items reales, Activity Types con tarifas
 - Workspace para navegación del módulo
 - Roles y permisos específicos (`Proposals Manager`, `Proposals User`)
 - Tests formales para flujo Quotation → Project → SO
-- Marcar `proposal_cost_center` como obligatorio también al crear Project (no solo al guardar Quotation)
