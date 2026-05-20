@@ -1,0 +1,16 @@
+{
+ "app": "erpnext_proposals",
+ "doctype": "Desktop Icon",
+ "name": "ERPNext Proposals",
+ "label": "ERPNext Proposals",
+ "module_name": "ERPNext Proposals",
+ "icon": "file-text",
+ "icon_type": "Link",
+ "link_type": "Workspace Sidebar",
+ "link_to": "ERPNext Proposals",
+ "standard": 1,
+ "hidden": 0,
+ "blocked": 0,
+ "restrict_removal": 0,
+ "roles": []
+}

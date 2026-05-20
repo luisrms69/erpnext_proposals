@@ -57,20 +57,6 @@ fixtures = [
 			]]
 		],
 	},
-	{
-		"doctype": "Proposal Section",
-		"filters": [["name", "in", [
-			"Resumen Ejecutivo", "Objetivo del Proyecto", "Modalidad de Trabajo",
-			"Metodologia", "Criterios de Aceptacion", "Responsabilidades del Cliente",
-			"Supuestos", "Exclusiones", "Control de Cambios", "Cierre del Proyecto"
-		]]],
-	},
-	{
-		"doctype": "Proposal Template",
-		"filters": [["name", "in", [
-			"Implementacion ERPNext", "Integracion API", "Bolsa de Horas Soporte"
-		]]],
-	},
 ]
 
 # Each item in the list will be shown as an app in the apps page
@@ -152,7 +138,7 @@ doctype_js = {
 # ------------
 
 # before_install = "erpnext_proposals.install.before_install"
-# after_install = "erpnext_proposals.install.after_install"
+after_install = "erpnext_proposals.erpnext_proposals.install.after_install"
 
 # Uninstallation
 # ------------
