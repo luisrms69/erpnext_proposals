@@ -92,8 +92,10 @@ Después de crear el proyecto:
 
 ---
 
-## Nota sobre el botón en la Sales Order
+## Sales Order y el proyecto
 
-El botón "Crear Proyecto desde Propuesta" también aparece en la Sales Order, pero **actualmente no funciona** en el RC por una inconsistencia técnica entre el botón y el sistema. Ver [Limitaciones del RC](limitaciones-rc.md).
+El proyecto se crea siempre desde la **Cotización** — no desde la Sales Order.
 
-Usar siempre el botón desde la **Cotización**, no desde la Sales Order.
+Cuando se crea una Sales Order a partir de la Cotización, ERPNext propaga automáticamente
+el proyecto y el centro de costo al nuevo documento. El campo `Proyecto` de la Sales Order
+queda vinculado al mismo proyecto creado desde la propuesta.

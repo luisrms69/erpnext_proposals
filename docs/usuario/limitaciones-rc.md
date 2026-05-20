@@ -8,21 +8,7 @@ Este documento lista las limitaciones conocidas del RC actual. Se actualiza con 
 
 Problemas confirmados en el código que producen comportamiento incorrecto.
 
-### 1. Botón "Crear Proyecto desde Propuesta" en la Sales Order no funciona
-
-**Síntoma:** Al presionar el botón en la Sales Order, el sistema reporta un error o no hace nada.
-
-**Causa:** El botón en la Sales Order llama a un método con un nombre diferente al que está implementado en el servidor. La función existe pero con otro nombre.
-
-**Impacto:** No es posible crear el proyecto desde la Sales Order.
-
-**Solución disponible:** Crear el proyecto siempre desde la **Cotización** (no desde la Sales Order). El botón en la Cotización funciona correctamente.
-
-**Estado:** Pendiente de corrección en versión posterior.
-
----
-
-### 2. El contenido HTML de las Secciones de propuesta puede no renderizarse en el PDF
+### 1. El contenido HTML de las Secciones de propuesta puede no renderizarse en el PDF
 
 **Síntoma:** El contenido de las Secciones de propuesta aparece en el PDF como texto con etiquetas visibles. Por ejemplo: `<p>Texto del párrafo</p>` en lugar de "Texto del párrafo".
 
@@ -111,9 +97,7 @@ Condiciones que el módulo asume sin verificarlas explícitamente.
 
 Mejoras identificadas que no están en el RC actual:
 
-- Corrección del botón "Crear Proyecto" en Sales Order
 - Resolución del problema de renderizado HTML en el PDF
-- Registro de aprobador y revisor en campos visibles de la Cotización
 - Estado "Ganada" en el workflow vinculado al Submit de la Cotización
 - Reporte de post-mortem: estimado vs real con Timesheets
 - Margen mínimo configurable como condición de aprobación
