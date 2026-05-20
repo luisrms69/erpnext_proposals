@@ -15,6 +15,10 @@ Estos campos se agregan a la Cotización nativa de ERPNext en la pestaña "Propu
 | Centro de costo | Centro de costo | Lista desplegable | Sí | Centro de costo del proyecto. Se propaga automáticamente al Proyecto y a la Sales Order. |
 | Alcance (tabla) | — | Tabla | No | Tabla de actividades del alcance técnico. Se puebla automáticamente al guardar si hay coincidencias en el catálogo. |
 | Proyecto de propuesta | Proyecto | Referencia | Solo lectura | Se llena automáticamente cuando se crea el proyecto desde la propuesta. No se edita manualmente. |
+| Revisado por | Revisado por | Usuario | Solo lectura | Se llena automáticamente cuando un Proposals Manager ejecuta "Aprobar" o "Rechazar". |
+| Fecha de revisión | Fecha de revisión | Fecha/hora | Solo lectura | Fecha y hora en que se tomó la decisión de aprobación o rechazo. |
+| Aprobado por | Aprobado por | Usuario | Solo lectura | Se llena automáticamente solo cuando se ejecuta "Aprobar". Queda vacío si la propuesta fue rechazada. |
+| Fecha de aprobación | Fecha de aprobación | Fecha/hora | Solo lectura | Fecha y hora de la aprobación. Solo se llena cuando la propuesta es aprobada. |
 
 ### Cuándo llenar estos campos
 

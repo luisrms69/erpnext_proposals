@@ -1,6 +1,6 @@
 import frappe
 from frappe import _
-from frappe.utils import flt
+from frappe.utils import flt, now_datetime
 
 
 def before_workflow_action(doc, method=None):
@@ -11,6 +11,7 @@ def before_workflow_action(doc, method=None):
 	"""
 	_validate_blocking(doc)
 	_warn_non_blocking(doc)
+	_fill_traceability(doc)
 
 
 def _validate_blocking(doc):
@@ -63,3 +64,26 @@ def _warn_non_blocking(doc):
 			indicator="orange",
 			alert=True,
 		)
+
+
+def _fill_traceability(doc):
+	"""Fill review/approval traceability fields based on the workflow action being executed.
+
+	Frappe sets doc.workflow_action before firing before_workflow_action.
+	- "Aprobar" or "Rechazar": fill proposal_reviewed_by / proposal_reviewed_on.
+	- "Aprobar" only: also fill proposal_approved_by / proposal_approved_on.
+	"""
+	action = getattr(doc, "workflow_action", None)
+	if not action:
+		return
+
+	user = frappe.session.user
+	now = now_datetime()
+
+	if action in ("Aprobar", "Rechazar"):
+		doc.proposal_reviewed_by = user
+		doc.proposal_reviewed_on = now
+
+	if action == "Aprobar":
+		doc.proposal_approved_by = user
+		doc.proposal_approved_on = now

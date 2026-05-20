@@ -1,32 +1,47 @@
 [
  {
+  "docstatus": 0,
   "doctype": "Workflow State",
+  "icon": null,
+  "modified": "2026-05-20 13:40:19.069922",
   "name": "Borrador",
-  "workflow_state_name": "Borrador",
-  "style": "Default"
+  "style": "Default",
+  "workflow_state_name": "Borrador"
  },
  {
+  "docstatus": 0,
   "doctype": "Workflow State",
+  "icon": null,
+  "modified": "2026-05-20 13:40:19.074988",
   "name": "En Revision",
-  "workflow_state_name": "En Revision",
-  "style": "Warning"
+  "style": "Warning",
+  "workflow_state_name": "En Revision"
  },
  {
+  "docstatus": 0,
   "doctype": "Workflow State",
+  "icon": null,
+  "modified": "2026-05-20 13:40:19.079293",
   "name": "Aprobada",
-  "workflow_state_name": "Aprobada",
-  "style": "Success"
+  "style": "Success",
+  "workflow_state_name": "Aprobada"
  },
  {
+  "docstatus": 0,
   "doctype": "Workflow State",
+  "icon": null,
+  "modified": "2026-05-20 13:40:19.089701",
   "name": "Rechazada",
-  "workflow_state_name": "Rechazada",
-  "style": "Danger"
+  "style": "Danger",
+  "workflow_state_name": "Rechazada"
  },
  {
+  "docstatus": 0,
   "doctype": "Workflow State",
+  "icon": null,
+  "modified": "2026-05-20 13:40:19.103148",
   "name": "Enviada al Cliente",
-  "workflow_state_name": "Enviada al Cliente",
-  "style": "Primary"
+  "style": "Primary",
+  "workflow_state_name": "Enviada al Cliente"
  }
 ]
