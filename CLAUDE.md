@@ -121,6 +121,8 @@ bench --site test-erpnext_proposals.localhost run-tests --app erpnext_proposals
 ### Antes de cada PR
 
 - [ ] Linters pasados (ruff check + ruff format + prettier)
+  **Nota:** CI usa `ruff-pre-commit v0.14.10` que puede formatear diferente al ruff local.
+  Si CI falla con `ruff-format`, aplicar el diff exacto del CI y recomitear.
 - [ ] Semgrep pasado — el CI corre `semgrep` con reglas de Frappe:
   ```bash
   git clone --depth 1 https://github.com/frappe/semgrep-rules.git /tmp/frappe-semgrep-rules

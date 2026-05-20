@@ -10,6 +10,15 @@ app_license = "mit"
 
 required_apps = ["erpnext"]
 
+# Jinja
+# ------------------
+
+jinja = {
+	"methods": [
+		"erpnext_proposals.erpnext_proposals.report.profitability_estimate.profitability_estimate.get_profitability_data"
+	]
+}
+
 # Fixtures
 # ------------------
 
@@ -31,7 +40,25 @@ fixtures = [
 				],
 			],
 		],
-	}
+	},
+	{
+		"doctype": "Role",
+		"filters": [["name", "=", "Proposals Manager"]],
+	},
+	{
+		"doctype": "Workflow",
+		"filters": [["name", "=", "Propuesta Comercial"]],
+	},
+	{
+		"doctype": "Workflow State",
+		"filters": [
+			[
+				"workflow_state_name",
+				"in",
+				["Borrador", "En Revision", "Aprobada", "Rechazada", "Enviada al Cliente"],
+			]
+		],
+	},
 ]
 
 # Each item in the list will be shown as an app in the apps page
@@ -113,7 +140,7 @@ doctype_js = {
 # ------------
 
 # before_install = "erpnext_proposals.install.before_install"
-# after_install = "erpnext_proposals.install.after_install"
+after_install = "erpnext_proposals.erpnext_proposals.install.after_install"
 
 # Uninstallation
 # ------------
@@ -168,6 +195,7 @@ doctype_js = {
 doc_events = {
 	"Quotation": {
 		"validate": "erpnext_proposals.erpnext_proposals.utils.quotation.on_quotation_validate",
+		"before_workflow_action": "erpnext_proposals.erpnext_proposals.utils.workflow_validations.before_workflow_action",
 	},
 	"Sales Order": {
 		"validate": "erpnext_proposals.erpnext_proposals.utils.sales_order.on_sales_order_validate",

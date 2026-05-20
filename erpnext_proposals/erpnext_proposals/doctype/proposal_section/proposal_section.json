@@ -26,7 +26,7 @@
    "fieldtype": "Select",
    "in_list_view": 1,
    "label": "Section Type",
-   "options": "Objetivo\nModalidad\nAlcance\nSupuestos\nExclusiones\nEntregables\nCondiciones Comerciales\nPersonalizado",
+   "options": "Objetivo\nModalidad\nMetodologia\nAlcance\nSupuestos\nExclusiones\nEntregables\nCriterios de Aceptacion\nResponsabilidades\nControl de Cambios\nCierre\nCondiciones Comerciales\nResumen Ejecutivo\nPersonalizado",
    "description": "Informativo — clasifica el tipo de contenido de la sección. No afecta la lógica del app ni el PDF. Se evaluará su uso funcional en etapas posteriores."
   },
   {
@@ -57,16 +57,46 @@
  "owner": "Administrator",
  "permissions": [
   {
+   "role": "System Manager",
+   "read": 1,
+   "write": 1,
    "create": 1,
    "delete": 1,
-   "email": 1,
-   "export": 1,
-   "print": 1,
-   "read": 1,
+   "submit": 0,
+   "cancel": 0,
    "report": 1,
-   "role": "System Manager",
-   "share": 1,
-   "write": 1
+   "export": 1,
+   "email": 1,
+   "print": 1,
+   "share": 1
+  },
+  {
+   "role": "Proposals Manager",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 1,
+   "submit": 0,
+   "cancel": 0,
+   "report": 1,
+   "export": 1,
+   "email": 1,
+   "print": 1,
+   "share": 1
+  },
+  {
+   "role": "Proposals User",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 0,
+   "submit": 0,
+   "cancel": 0,
+   "report": 1,
+   "export": 0,
+   "email": 0,
+   "print": 0,
+   "share": 0
   }
  ],
  "sort_field": "modified",

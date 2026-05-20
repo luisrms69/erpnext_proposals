@@ -196,10 +196,66 @@ Quotation (ganada) → Project + Tasks → Sales Order → vinculación automát
 - Project es la fuente de verdad del deploy — nace en Quotation, no en SO
 - ERPNext Activity Type como fuente de costo/hora para etapa futura de rentabilidad
 
-## Pendiente Etapas siguientes
+## Etapa 4 — Rentabilidad Estimada (ADR-0002, mergeado PR #7)
 
-- Reporte interno de esfuerzo por Quotation (horas por designation/activity_type, costo estimado)
-- Workspace para navegación del módulo
-- Roles y permisos específicos (`Proposals Manager`, `Proposals User`)
+Script Report `Profitability Estimate` implementado y mergeado a version-16:
+- Costo laboral: Quotation Scope Items × Activity Type.costing_rate
+- Costo items: jerarquía Supplier Quotation → Buying Item Price → Last Purchase Rate → Valuation Rate
+- Anti-duplicación por item_code en items_with_scope
+- Margen sobre net_total (antes de impuestos)
+- Advertencias por falta de activity_type, costing_rate, costo de item, y discrepancia de moneda
+- Validado con SAL-QTN-2026-00008: venta $212,500 | costo $104,200 | margen 51%
+
+## RC 1.0 — rama feature/commercial-pdf-improvements (PR #8)
+
+**Status:** En revisión — CI corriendo
+
+### Prioridad 1 — PDF Comercial ✅
+- Portada profesional: logo empresa, preparado para/por, fecha, vigencia, moneda
+- Plan de Trabajo tipo deploy: fases, tareas, perfil, tipo, horas, días, totales por fase
+- `sequence` editable en Quotation Scope Item para reordenar por propuesta
+- Sección Inversión con net_total / impuestos / grand_total + condiciones de pago
+- Bloque de aceptación: Elaboró / Revisó / Aprobó
+- Known issue: HTML en Proposal Sections puede renderizar como texto literal
+
+### Prioridad 2 — Rentabilidad Imprimible ✅
+- Print Format "Rentabilidad Estimada" como segundo Print Format en Quotation
+- Reutiliza `get_profitability_data()` — misma fuente que Script Report
+- Secciones: Costo Laboral, Items Comprados, Resumen, Q/C Checks, Advertencias, Firmas
+- Fix: "Último precio de compra" (no "Tasa de cambio de última compra")
+- Items cubiertos por horas excluidos de sección Items Comprados
+
+### Prioridad 3 — Workflow de Aprobación ✅
+- Roles: `Proposals User` (crea/envía a revisión) + `Proposals Manager` (aprueba/rechaza)
+- 5 estados: Borrador → En Revision → Aprobada → Rechazada → Enviada al Cliente
+- Validaciones bloqueantes: sin proposal_template, cost_center o net_total=0
+- Warnings: tareas sin activity_type/costing_rate, moneda distinta
+- Permisos en DocTypes custom para ambos roles
+- Registro via Workflow Action nativo de Frappe (sin custom fields de aprobación)
+
+### Prioridad 4 — Post mortem
+Diferida. Requiere datos reales de Timesheets contra Tasks del Project.
+Arquitectura documentada en ADR-0002.
+
+### Prioridad 5 — Catálogo Base y Workspace ✅
+- 10 Proposal Sections con contenido instructivo (no texto comercial — guía para IA/usuario)
+- 3 Proposal Templates: Implementación ERPNext, Integración API, Bolsa de Horas/Soporte
+- Creados via `after_install` — **no se sobreescriben en migrate**
+- Workspace "ERPNext Proposals" con 4 secciones: Operación, Configuración, Reportes, Referencia
+- Desktop Icon y Workspace Sidebar en module folder (`{app_package}/desktop_icon/`)
+- Comando requerido post-instalación: `bench --site {site} sync-desktop-icons`
+
+**Decisiones RC 1.0:**
+- Proposal Sections/Templates: `after_install` idempotente, NO fixtures (evita sobreescritura)
+- Workspace Sidebar: se sincroniza en `bench migrate`
+- Desktop Icon: requiere `bench sync-desktop-icons` (paso manual documentado)
+- Workflow: `standard=0` no requerido — archivos en module folder evitan orphan removal
+- Pre-commit CI usa `ruff-pre-commit v0.14.10` — puede formatear diferente al ruff local; aplicar diff exacto del CI si falla
+
+## Pendiente post-RC 1.0
+
+- Post mortem estimado vs real (Timesheets / Sales Invoice)
+- Print Format HTML render issue (texto literal en Proposal Sections)
+- Approval digital en BD: `reviewed_by`, `approved_by` campos (Prioridad 3 futura)
+- Margen mínimo configurable para bloquear aprobación
 - Tests formales para flujo Quotation → Project → SO
-- Marcar `proposal_cost_center` como obligatorio también al crear Project (no solo al guardar Quotation)
