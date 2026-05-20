@@ -206,23 +206,56 @@ Script Report `Profitability Estimate` implementado y mergeado a version-16:
 - Advertencias por falta de activity_type, costing_rate, costo de item, y discrepancia de moneda
 - Validado con SAL-QTN-2026-00008: venta $212,500 | costo $104,200 | margen 51%
 
-## Roadmap priorizado (aprobado 2026-05-20)
+## RC 1.0 — rama feature/commercial-pdf-improvements (PR #8)
 
-| Prioridad | Área | Objetivo |
-|---|---|---|
-| 1 | **PDF comercial** | Propuesta visualmente profesional y vendible |
-| 2 | **Rentabilidad imprimible** | Reporte interno presentable para revisión/autorización |
-| 3 | **Aprobación interna** | Workflow para validar propuesta antes de enviar al cliente |
-| 4 | **Post mortem** | Comparar estimado vs real (horas, costo, margen) |
-| 5 | **Catálogo/demo** | Templates, Scope Items y datos ejemplo listos para demo |
+**Status:** En revisión — CI corriendo
 
-## Pendiente Etapas siguientes
+### Prioridad 1 — PDF Comercial ✅
+- Portada profesional: logo empresa, preparado para/por, fecha, vigencia, moneda
+- Plan de Trabajo tipo deploy: fases, tareas, perfil, tipo, horas, días, totales por fase
+- `sequence` editable en Quotation Scope Item para reordenar por propuesta
+- Sección Inversión con net_total / impuestos / grand_total + condiciones de pago
+- Bloque de aceptación: Elaboró / Revisó / Aprobó
+- Known issue: HTML en Proposal Sections puede renderizar como texto literal
 
-- PDF comercial: portada, espaciado, tablas, plan de trabajo legible, inversión clara
-- Reporte de rentabilidad con formato imprimible
-- Workflow de aprobación interna (advertencias de costeo incompleto, margen mínimo)
-- Post mortem estimado vs real via Timesheets y Sales Invoice
-- Catálogo demo: 2-3 templates, 10-20 Scope Items reales, Activity Types con tarifas
-- Workspace para navegación del módulo
-- Roles y permisos específicos (`Proposals Manager`, `Proposals User`)
+### Prioridad 2 — Rentabilidad Imprimible ✅
+- Print Format "Rentabilidad Estimada" como segundo Print Format en Quotation
+- Reutiliza `get_profitability_data()` — misma fuente que Script Report
+- Secciones: Costo Laboral, Items Comprados, Resumen, Q/C Checks, Advertencias, Firmas
+- Fix: "Último precio de compra" (no "Tasa de cambio de última compra")
+- Items cubiertos por horas excluidos de sección Items Comprados
+
+### Prioridad 3 — Workflow de Aprobación ✅
+- Roles: `Proposals User` (crea/envía a revisión) + `Proposals Manager` (aprueba/rechaza)
+- 5 estados: Borrador → En Revision → Aprobada → Rechazada → Enviada al Cliente
+- Validaciones bloqueantes: sin proposal_template, cost_center o net_total=0
+- Warnings: tareas sin activity_type/costing_rate, moneda distinta
+- Permisos en DocTypes custom para ambos roles
+- Registro via Workflow Action nativo de Frappe (sin custom fields de aprobación)
+
+### Prioridad 4 — Post mortem
+Diferida. Requiere datos reales de Timesheets contra Tasks del Project.
+Arquitectura documentada en ADR-0002.
+
+### Prioridad 5 — Catálogo Base y Workspace ✅
+- 10 Proposal Sections con contenido instructivo (no texto comercial — guía para IA/usuario)
+- 3 Proposal Templates: Implementación ERPNext, Integración API, Bolsa de Horas/Soporte
+- Creados via `after_install` — **no se sobreescriben en migrate**
+- Workspace "ERPNext Proposals" con 4 secciones: Operación, Configuración, Reportes, Referencia
+- Desktop Icon y Workspace Sidebar en module folder (`{app_package}/desktop_icon/`)
+- Comando requerido post-instalación: `bench --site {site} sync-desktop-icons`
+
+**Decisiones RC 1.0:**
+- Proposal Sections/Templates: `after_install` idempotente, NO fixtures (evita sobreescritura)
+- Workspace Sidebar: se sincroniza en `bench migrate`
+- Desktop Icon: requiere `bench sync-desktop-icons` (paso manual documentado)
+- Workflow: `standard=0` no requerido — archivos en module folder evitan orphan removal
+- Pre-commit CI usa `ruff-pre-commit v0.14.10` — puede formatear diferente al ruff local; aplicar diff exacto del CI si falla
+
+## Pendiente post-RC 1.0
+
+- Post mortem estimado vs real (Timesheets / Sales Invoice)
+- Print Format HTML render issue (texto literal en Proposal Sections)
+- Approval digital en BD: `reviewed_by`, `approved_by` campos (Prioridad 3 futura)
+- Margen mínimo configurable para bloquear aprobación
 - Tests formales para flujo Quotation → Project → SO
