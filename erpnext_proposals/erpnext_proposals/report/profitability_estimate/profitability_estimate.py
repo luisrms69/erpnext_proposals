@@ -405,4 +405,4 @@ def _phase_header(phase: str) -> dict:
 
 
 def _spacer() -> dict:
-	return {"label": ""}
+	return {"label": _("")}
