@@ -10,6 +10,15 @@ app_license = "mit"
 
 required_apps = ["erpnext"]
 
+# Jinja
+# ------------------
+
+jinja = {
+	"methods": [
+		"erpnext_proposals.erpnext_proposals.report.profitability_estimate.profitability_estimate.get_profitability_data"
+	]
+}
+
 # Fixtures
 # ------------------
 
