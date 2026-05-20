@@ -1,0 +1,32 @@
+[
+ {
+  "doctype": "Workflow State",
+  "name": "Borrador",
+  "workflow_state_name": "Borrador",
+  "style": "Default"
+ },
+ {
+  "doctype": "Workflow State",
+  "name": "En Revision",
+  "workflow_state_name": "En Revision",
+  "style": "Warning"
+ },
+ {
+  "doctype": "Workflow State",
+  "name": "Aprobada",
+  "workflow_state_name": "Aprobada",
+  "style": "Success"
+ },
+ {
+  "doctype": "Workflow State",
+  "name": "Rechazada",
+  "workflow_state_name": "Rechazada",
+  "style": "Danger"
+ },
+ {
+  "doctype": "Workflow State",
+  "name": "Enviada al Cliente",
+  "workflow_state_name": "Enviada al Cliente",
+  "style": "Primary"
+ }
+]

@@ -1,0 +1,95 @@
+[
+ {
+  "doctype": "Workflow",
+  "name": "Propuesta Comercial",
+  "workflow_name": "Propuesta Comercial",
+  "document_type": "Quotation",
+  "workflow_state_field": "workflow_state",
+  "is_active": 1,
+  "override_status": 0,
+  "send_email_alert": 0,
+  "states": [
+   {
+    "state": "Borrador",
+    "doc_status": "0",
+    "allow_edit": "Proposals User",
+    "is_optional_state": 0
+   },
+   {
+    "state": "En Revision",
+    "doc_status": "0",
+    "allow_edit": "Proposals Manager",
+    "is_optional_state": 0
+   },
+   {
+    "state": "Aprobada",
+    "doc_status": "0",
+    "allow_edit": "Proposals Manager",
+    "is_optional_state": 0
+   },
+   {
+    "state": "Rechazada",
+    "doc_status": "0",
+    "allow_edit": "Proposals User",
+    "is_optional_state": 0
+   },
+   {
+    "state": "Enviada al Cliente",
+    "doc_status": "0",
+    "allow_edit": "Proposals Manager",
+    "is_optional_state": 0
+   }
+  ],
+  "transitions": [
+   {
+    "state": "Borrador",
+    "action": "Enviar a Revision",
+    "next_state": "En Revision",
+    "allowed": "Proposals User",
+    "allow_self_approval": 1
+   },
+   {
+    "state": "Borrador",
+    "action": "Enviar a Revision",
+    "next_state": "En Revision",
+    "allowed": "Proposals Manager",
+    "allow_self_approval": 1
+   },
+   {
+    "state": "En Revision",
+    "action": "Aprobar",
+    "next_state": "Aprobada",
+    "allowed": "Proposals Manager",
+    "allow_self_approval": 1
+   },
+   {
+    "state": "En Revision",
+    "action": "Rechazar",
+    "next_state": "Rechazada",
+    "allowed": "Proposals Manager",
+    "allow_self_approval": 1
+   },
+   {
+    "state": "Rechazada",
+    "action": "Revisar",
+    "next_state": "Borrador",
+    "allowed": "Proposals User",
+    "allow_self_approval": 1
+   },
+   {
+    "state": "Rechazada",
+    "action": "Revisar",
+    "next_state": "Borrador",
+    "allowed": "Proposals Manager",
+    "allow_self_approval": 1
+   },
+   {
+    "state": "Aprobada",
+    "action": "Enviar al Cliente",
+    "next_state": "Enviada al Cliente",
+    "allowed": "Proposals Manager",
+    "allow_self_approval": 1
+   }
+  ]
+ }
+]
