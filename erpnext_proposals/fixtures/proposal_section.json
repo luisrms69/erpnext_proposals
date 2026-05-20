@@ -1,0 +1,92 @@
+[
+ {
+  "doctype": "Proposal Section",
+  "name": "Resumen Ejecutivo",
+  "section_name": "Resumen Ejecutivo",
+  "section_type": "Resumen Ejecutivo",
+  "title": "Resumen Ejecutivo",
+  "enabled": 1,
+  "content": "<p>Presentamos esta propuesta con el objetivo de atender las necesidades identificadas por el cliente mediante una solución estructurada, medible y orientada a resultados. El alcance propuesto busca facilitar la implementación, integración o mejora de procesos apoyados en ERPNext y herramientas complementarias.</p><p>La propuesta considera actividades de análisis, configuración, validación, capacitación y acompañamiento, conforme al alcance descrito en el plan de trabajo. Los tiempos, entregables y condiciones están sujetos a la información disponible, participación del cliente y validaciones acordadas.</p>"
+ },
+ {
+  "doctype": "Proposal Section",
+  "name": "Objetivo del Proyecto",
+  "section_name": "Objetivo del Proyecto",
+  "section_type": "Objetivo",
+  "title": "Objetivo del Proyecto",
+  "enabled": 1,
+  "content": "<p>El objetivo del proyecto es implementar una solución funcional y operativa que permita mejorar la gestión del proceso definido, reducir trabajo manual, aumentar trazabilidad y facilitar la toma de decisiones.</p><p>El proyecto se enfocará en entregar una solución práctica, alineada al alcance autorizado, evitando personalizaciones innecesarias y priorizando el uso de funcionalidades nativas de ERPNext siempre que sea posible.</p>"
+ },
+ {
+  "doctype": "Proposal Section",
+  "name": "Modalidad de Trabajo",
+  "section_name": "Modalidad de Trabajo",
+  "section_type": "Modalidad",
+  "title": "Modalidad de Trabajo",
+  "enabled": 1,
+  "content": "<p>El servicio será prestado principalmente en modalidad remota, mediante sesiones de trabajo, revisión documental, configuración del sistema, validaciones funcionales y seguimiento de actividades.</p><p>Las sesiones se programarán de común acuerdo entre ambas partes. El cliente deberá asignar responsables funcionales y técnicos para facilitar la toma de decisiones, entrega de información y validación de entregables.</p>"
+ },
+ {
+  "doctype": "Proposal Section",
+  "name": "Metodologia",
+  "section_name": "Metodologia",
+  "section_type": "Metodologia",
+  "title": "Metodología",
+  "enabled": 1,
+  "content": "<p>El proyecto se ejecutará mediante una metodología por fases:</p><ul><li>Levantamiento y análisis de requerimientos.</li><li>Definición del alcance funcional y técnico.</li><li>Configuración o desarrollo conforme al alcance aprobado.</li><li>Validación con usuarios clave.</li><li>Ajustes derivados de pruebas.</li><li>Capacitación y transferencia de conocimiento.</li><li>Acompañamiento para salida a operación.</li></ul><p>Esta metodología permite controlar avances, reducir riesgos y mantener trazabilidad entre lo vendido, lo ejecutado y lo entregado.</p>"
+ },
+ {
+  "doctype": "Proposal Section",
+  "name": "Criterios de Aceptacion",
+  "section_name": "Criterios de Aceptacion",
+  "section_type": "Criterios de Aceptacion",
+  "title": "Criterios de Aceptación",
+  "enabled": 1,
+  "content": "<p>Los entregables se considerarán aceptados cuando se cumplan las condiciones definidas para cada actividad o fase del proyecto.</p><p>De forma general, se considerará aceptado un entregable cuando:</p><ul><li>La actividad descrita haya sido ejecutada conforme al alcance aprobado.</li><li>Exista evidencia funcional, técnica o documental del resultado.</li><li>El cliente haya tenido oportunidad de revisar y validar el entregable.</li><li>No existan observaciones críticas pendientes relacionadas directamente con el alcance contratado.</li></ul><p>Cualquier cambio, ampliación o requerimiento adicional será tratado como cambio de alcance.</p>"
+ },
+ {
+  "doctype": "Proposal Section",
+  "name": "Responsabilidades del Cliente",
+  "section_name": "Responsabilidades del Cliente",
+  "section_type": "Responsabilidades",
+  "title": "Responsabilidades del Cliente",
+  "enabled": 1,
+  "content": "<p>Para la correcta ejecución del proyecto, el cliente deberá:</p><ul><li>Asignar un responsable principal del proyecto.</li><li>Designar usuarios clave para validaciones funcionales.</li><li>Proporcionar información, accesos y documentación necesaria.</li><li>Validar entregables dentro de los tiempos acordados.</li><li>Comunicar oportunamente restricciones técnicas, operativas o administrativas.</li><li>Gestionar aprobaciones internas necesarias para avanzar entre fases.</li></ul><p>Los retrasos en información, accesos o validaciones pueden afectar el calendario del proyecto.</p>"
+ },
+ {
+  "doctype": "Proposal Section",
+  "name": "Supuestos",
+  "section_name": "Supuestos",
+  "section_type": "Supuestos",
+  "title": "Supuestos",
+  "enabled": 1,
+  "content": "<p>La propuesta se basa en los siguientes supuestos:</p><ul><li>El alcance descrito representa la necesidad conocida al momento de emitir la propuesta.</li><li>El cliente proporcionará información suficiente y oportuna.</li><li>Las decisiones funcionales serán tomadas por responsables autorizados.</li><li>Las actividades se ejecutarán dentro de horarios laborales, salvo acuerdo distinto.</li><li>El servicio no incluye actividades no descritas expresamente en esta propuesta.</li><li>Las herramientas, licencias, infraestructura o servicios de terceros no incluidos serán responsabilidad del cliente o se cotizarán por separado.</li></ul>"
+ },
+ {
+  "doctype": "Proposal Section",
+  "name": "Exclusiones",
+  "section_name": "Exclusiones",
+  "section_type": "Exclusiones",
+  "title": "Exclusiones",
+  "enabled": 1,
+  "content": "<p>Salvo que se indique expresamente en el alcance, esta propuesta no incluye:</p><ul><li>Licenciamiento de software de terceros.</li><li>Compra, renta o configuración de infraestructura no especificada.</li><li>Migración histórica completa de información.</li><li>Integraciones con sistemas externos no mencionadas.</li><li>Desarrollos personalizados fuera del alcance autorizado.</li><li>Soporte 7x24.</li><li>Actividades fiscales, legales o contables que requieran interpretación especializada externa.</li><li>Corrección de problemas originados por sistemas, proveedores o infraestructura fuera del control del proyecto.</li></ul>"
+ },
+ {
+  "doctype": "Proposal Section",
+  "name": "Control de Cambios",
+  "section_name": "Control de Cambios",
+  "section_type": "Control de Cambios",
+  "title": "Control de Cambios",
+  "enabled": 1,
+  "content": "<p>Cualquier requerimiento adicional, modificación de alcance, cambio de prioridad o actividad no contemplada deberá documentarse y evaluarse antes de su ejecución.</p><p>Los cambios aprobados podrán impactar costo, tiempo, entregables o calendario. Ningún cambio de alcance se considerará incluido hasta contar con autorización expresa de ambas partes.</p>"
+ },
+ {
+  "doctype": "Proposal Section",
+  "name": "Cierre del Proyecto",
+  "section_name": "Cierre del Proyecto",
+  "section_type": "Cierre",
+  "title": "Cierre del Proyecto",
+  "enabled": 1,
+  "content": "<p>El proyecto se considerará cerrado cuando los entregables definidos hayan sido ejecutados y puestos a disposición del cliente para revisión.</p><p>Al cierre podrán documentarse observaciones, recomendaciones, actividades futuras o necesidades adicionales que podrán ser atendidas mediante una nueva propuesta, bolsa de horas o fase posterior.</p>"
+ }
+]
