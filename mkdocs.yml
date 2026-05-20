@@ -1,0 +1,45 @@
+site_name: ERPNext Proposals
+site_description: Propuestas comerciales profesionales sobre ERPNext
+site_author: Consultoria en Negocios y Aplicaciones
+docs_dir: docs
+
+nav:
+  - Inicio: index.md
+  - Manual de usuario:
+    - Índice: usuario/index.md
+    - Flujo operativo: usuario/flujo-operativo.md
+    - Documentos del módulo: usuario/doctypes.md
+    - Campos principales: usuario/campos-principales.md
+    - Cómo crear una propuesta: usuario/crear-propuesta.md
+    - Generar y enviar al cliente: usuario/generar-enviar-propuesta.md
+    - Propuesta ganada: usuario/propuesta-ganada.md
+    - Proyecto generado: usuario/proyecto-generado.md
+    - Limitaciones del RC: usuario/limitaciones-rc.md
+  - Documentación técnica:
+    - Índice: tecnico/index.md
+  - Releases:
+    - Changelog: CHANGELOG.md
+    - ADR-0000 Estado inicial: adr/0000-estado-inicial-app.md
+    - ADR-0001 Implementación MVP: adr/0001-mvp-etapa-1-implementacion.md
+    - ADR-0002 Rentabilidad estimada: adr/0002-rentabilidad-estimada-propuesta.md
+
+theme:
+  name: material
+  language: es
+  palette:
+    primary: indigo
+    accent: blue
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - toc.integrate
+
+# Fallback si material no está instalado:
+# theme:
+#   name: mkdocs
+
+markdown_extensions:
+  - tables
+  - toc:
+      permalink: true
+  - admonition

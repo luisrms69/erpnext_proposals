@@ -78,13 +78,39 @@ sin reemplazar Quotation Items ni crear sistemas paralelos de precios.
 
 ## DocTypes principales
 
-*(pendiente de documentar al implementar)*
+| DocType | Tipo | Propósito |
+|---|---|---|
+| `Proposal Section` | Maestro | Sección narrativa reutilizable (bloque de texto del cuerpo de la propuesta) |
+| `Proposal Template` | Maestro | Agrupa secciones en orden — define estructura del PDF por tipo de proyecto |
+| `Proposal Template Section` | Child | Fila de sección en un template (con override opcional de título y contenido) |
+| `Scope Item` | Maestro | Catálogo de actividades/alcances — sin precio, sin costo |
+| `Quotation Scope Item` | Child | Copia congelada del catálogo dentro de una Quotation específica |
+
+**Custom Fields en Quotation (pestaña "Propuesta"):**
+`proposal_template`, `proposal_title`, `quotation_scope_items`, `proposal_cost_center`, `proposal_project`
+
+**Print Formats:** `Propuesta Comercial` (cliente), `Rentabilidad Estimada` (interno)
+**Script Report:** `Profitability Estimate` — fuente de cálculo compartida con el Print Format interno
+
+**Documentación de usuario:** `docs/usuario/`
 
 ---
 
 ## Fixtures
 
-*(pendiente — declarar en hooks.py al crear Custom Fields, Roles, Workspaces)*
+| Fixture | Archivo | Contenido |
+|---|---|---|
+| Custom Field | `fixtures/custom_field.json` | 6 campos en Quotation (pestaña Propuesta) |
+| Role | `fixtures/role.json` | `Proposals Manager`, `Proposals User` |
+| Workflow | `fixtures/workflow.json` | "Propuesta Comercial" — 5 estados, 7 transiciones en Quotation |
+| Workflow State | `fixtures/workflow_state.json` | Borrador, En Revision, Aprobada, Rechazada, Enviada al Cliente |
+
+**Workspace, Workspace Sidebar, Desktop Icon:** module folder (no fixtures).
+- Workspace Sidebar sincroniza en `bench migrate`
+- Desktop Icon requiere `bench --site {site} sync-desktop-icons`
+
+**Catálogo inicial (Proposal Sections + Templates):** creado por `after_install`, no por fixtures.
+No se sobreescribe en migrate. Ver `erpnext_proposals/erpnext_proposals/install.py`.
 
 ---
 
@@ -135,6 +161,12 @@ bench --site test-erpnext_proposals.localhost run-tests --app erpnext_proposals
 - [ ] Fixtures exportados si hubo cambios de Custom Fields, Roles, Workspaces
 - [ ] Patch creado si hay cambios de esquema — **requiere autorización explícita**
 - [ ] `bench --site proposals.dev migrate` limpio
+- [ ] `/doc-review` ejecutado — si hubo cambios en DocTypes, JS, utils, workflow o print formats:
+  - Declarar estado por área:
+    - `✅ Docs actualizadas` — se actualizó `docs/usuario/` en este PR
+    - `⚪ No aplica` — cambio interno sin impacto visible
+    - `⚠️ Pendiente / riesgo aceptado` — riesgo documentado
+  - `mkdocs build --strict` debe pasar antes de abrir el PR
 - [ ] Ver checklist global en `frappe-infrastructure/CONTRIBUTING.md`
 
 ### PROHIBICIÓN ABSOLUTA — NUNCA TRABAJAR EN version-16
