@@ -52,9 +52,11 @@ fixtures = [
 	{
 		"doctype": "Workflow State",
 		"filters": [
-			["workflow_state_name", "in", [
-				"Borrador", "En Revision", "Aprobada", "Rechazada", "Enviada al Cliente"
-			]]
+			[
+				"workflow_state_name",
+				"in",
+				["Borrador", "En Revision", "Aprobada", "Rechazada", "Enviada al Cliente"],
+			]
 		],
 	},
 ]
