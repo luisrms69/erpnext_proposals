@@ -81,13 +81,15 @@ Borrador → En Revisión → Aprobada → Enviada al Cliente
 
 ### Estados y quién actúa
 
-| Estado | Quién puede avanzar | Acción disponible |
-|---|---|---|
-| Borrador | Proposals User o Manager | Enviar a Revisión |
-| En Revisión | Proposals Manager | Aprobar o Rechazar |
-| Aprobada | Proposals Manager | Marcar como Enviada al Cliente |
-| Rechazada | Proposals User o Manager | Revisar (regresa a Borrador) |
-| Enviada al Cliente | — | Fin del workflow |
+| Estado | Editable | Quién puede avanzar | Acción disponible |
+|---|---|---|---|
+| Borrador | Sí | Proposals User o Manager | Enviar a Revisión |
+| En Revisión | **No — congelada** | Proposals Manager | Aprobar o Rechazar |
+| Aprobada | **No — congelada** | Proposals Manager | Marcar como Enviada al Cliente |
+| Rechazada | **No — congelada** | — | Sin acción disponible |
+| Enviada al Cliente | **No — congelada** | — | Fin del workflow |
+
+> **Importante:** al pasar a **En Revisión**, la Cotización queda bloqueada permanentemente. Si se rechaza, se debe duplicar o amendar la Cotización para crear una nueva versión — no es posible regresar a Borrador.
 
 ### Condiciones para avanzar cualquier estado
 
@@ -111,14 +113,19 @@ Las advertencias no impiden avanzar, pero indican datos incompletos que afectar�
 ## Etapa 3 — Generación del PDF y envío al cliente
 
 **Quién:** Proposals User o Manager
-**Tipo:** Manual
+**Tipo:** Automático al enviar a revisión + manual para envío
 
-El PDF de propuesta comercial se genera desde ERPNext usando el Print Format **"Propuesta Comercial"**.
+Al pasar a **En Revisión**, el sistema genera y adjunta automáticamente dos PDFs a la Cotización:
 
-**El envío al cliente es completamente manual:**
+- **Propuesta Comercial** (público) — el documento formal para el cliente
+- **Rentabilidad Estimada** (privado, solo interno) — análisis de costos y margen
 
-1. Generar el PDF desde ERPNext (imprimir o descargar)
-2. Adjuntar el PDF a un correo en el cliente de correo habitual
+Estos PDFs quedan en la sección de adjuntos de la Cotización y reflejan exactamente el contenido al momento de enviar a revisión.
+
+**El envío al cliente sigue siendo manual:**
+
+1. Descargar el PDF adjunto "Propuesta Comercial" desde la Cotización
+2. Adjuntarlo a un correo en el cliente de correo habitual
 3. Enviarlo al cliente
 
 El estado **"Enviada al Cliente"** en el workflow **únicamente indica que alguien marcó ese estado**. No envía ningún correo, no activa ninguna notificación ni integración.
@@ -129,14 +136,12 @@ Ver instrucciones detalladas en [Generar y enviar al cliente](generar-enviar-pro
 
 ## Etapa 4 — Propuesta ganada
 
-**Quién:** Proposals Manager o quien administre la Cotización
-**Tipo:** Manual
+**Quién:** Proposals Manager
+**Tipo:** Ya ocurrió al pasar a En Revisión
 
-Cuando el cliente acepta la propuesta, el siguiente paso es **Enviar (Submit)** la Cotización en ERPNext. Este es el mecanismo nativo de ERPNext para marcar una cotización como cerrada/ganada.
+La Cotización queda **automáticamente submitted (bloqueada)** cuando pasa a En Revisión. No se requiere un Submit manual adicional.
 
-El Submit de la Cotización es una acción separada e independiente del flujo de aprobación interna del módulo.
-
-Después del Submit, opcionalmente se puede crear una **Sales Order** desde la Cotización siguiendo el flujo comercial nativo de ERPNext.
+Una vez en estado **Aprobada** o **Enviada al Cliente**, opcionalmente se puede crear una **Sales Order** desde la Cotización siguiendo el flujo comercial nativo de ERPNext.
 
 Ver detalle en [Propuesta ganada](propuesta-ganada.md).
 
@@ -147,9 +152,9 @@ Ver detalle en [Propuesta ganada](propuesta-ganada.md).
 **Quién:** Proposals Manager
 **Tipo:** Manual (botón) + automático (creación de tareas)
 
-Con la Cotización en estado Submitted (enviada):
+El botón **"Crear Proyecto desde Propuesta"** aparece solo cuando la Cotización está en estado **Aprobada** o **Enviada al Cliente**.
 
-1. Usar el botón **"Crear Proyecto desde Propuesta"** que aparece en la Cotización
+1. Hacer clic en el botón en la barra superior de la Cotización
 2. El sistema crea automáticamente un **Proyecto** con el nombre, cliente y centro de costo de la propuesta
 3. Por cada actividad marcada como "Incluir en propuesta", el sistema crea una **Tarea** en el proyecto
 4. El campo **"Proyecto de propuesta"** en la Cotización se llena automáticamente

@@ -48,6 +48,7 @@ fixtures = [
 					"proposal_col_break_2",
 					"proposal_section_row3",
 					"proposal_col_break_3",
+					"proposal_sections_snapshot",
 				],
 			],
 		],
@@ -210,6 +211,7 @@ doc_events = {
 			"erpnext_proposals.erpnext_proposals.utils.workflow_validations.on_quotation_validate_workflow",
 		],
 		"before_submit": "erpnext_proposals.erpnext_proposals.utils.quotation.on_quotation_before_submit",
+		"before_update_after_submit": "erpnext_proposals.erpnext_proposals.utils.workflow_validations.on_quotation_validate_workflow",
 	},
 	"Sales Order": {
 		"validate": "erpnext_proposals.erpnext_proposals.utils.sales_order.on_sales_order_validate",

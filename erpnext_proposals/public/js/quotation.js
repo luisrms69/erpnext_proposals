@@ -6,7 +6,13 @@ frappe.ui.form.on("Quotation", {
 			});
 		}
 
-		if (!frm.is_new() && frm.doc.proposal_template) {
+		// Regenerar alcance: only in Borrador (docstatus=0) — document is editable
+		if (
+			!frm.is_new() &&
+			frm.doc.proposal_template &&
+			frm.doc.docstatus === 0 &&
+			frm.doc.workflow_state === "Borrador"
+		) {
 			frm.add_custom_button(
 				__("Regenerar alcance"),
 				() => {
@@ -23,9 +29,62 @@ frappe.ui.form.on("Quotation", {
 			);
 		}
 
-		// Button: Create Project — only when submitted with scope items
+		// PDF buttons — available in all states (including Borrador for preview)
+		if (!frm.is_new()) {
+			frm.add_custom_button(
+				__("Imprimir Propuesta Comercial"),
+				() => {
+					const url = `/printview?doctype=Quotation&name=${encodeURIComponent(
+						frm.doc.name
+					)}&format=Propuesta%20Comercial&no_letterhead=0`;
+					window.open(url, "_blank");
+				},
+				__("Propuesta")
+			);
+
+			frm.add_custom_button(
+				__("Imprimir Rentabilidad Estimada"),
+				() => {
+					const url = `/printview?doctype=Quotation&name=${encodeURIComponent(
+						frm.doc.name
+					)}&format=Rentabilidad%20Estimada&no_letterhead=0`;
+					window.open(url, "_blank");
+				},
+				__("Propuesta")
+			);
+
+			// Show attached PDFs if they exist
+			frappe.call({
+				method: "frappe.client.get_list",
+				args: {
+					doctype: "File",
+					filters: {
+						attached_to_doctype: "Quotation",
+						attached_to_name: frm.doc.name,
+						file_name: ["like", "%.pdf"],
+					},
+					fields: ["file_name", "file_url"],
+					limit: 10,
+				},
+				callback(r) {
+					if (r.message && r.message.length) {
+						r.message.forEach((f) => {
+							frm.add_custom_button(
+								__("↓ {0}", [f.file_name]),
+								() => window.open(f.file_url),
+								__("Propuesta")
+							);
+						});
+					}
+				},
+			});
+		}
+
+		// Button: Create Project — submitted + Aprobada or Enviada al Cliente
+		const _projectStates = ["Aprobada", "Enviada al Cliente"];
 		if (
 			frm.doc.docstatus === 1 &&
+			_projectStates.includes(frm.doc.workflow_state) &&
 			frm.doc.proposal_template &&
 			frm.doc.quotation_scope_items &&
 			frm.doc.quotation_scope_items.length > 0
