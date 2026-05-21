@@ -45,6 +45,17 @@ Cada fila de la tabla de alcance en la Cotización tiene estos campos editables.
 | Tipo de actividad | Tipo de actividad | Referencia | Tipo de trabajo (Desarrollo, Consultoría, etc.). Se usa para calcular el costo por hora en el reporte de rentabilidad. |
 | Perfil | Perfil | Referencia | Designación o perfil del profesional que ejecuta. Aparece en el Plan de Trabajo del PDF. |
 
+### Campos internos de costo (solo lectura, no visibles en PDF comercial)
+
+Estos campos se llenan automáticamente al **Enviar (Submit)** la Cotización. Registran el costo que se usó para calcular la rentabilidad en el momento de aprobar la propuesta. No se muestran al cliente.
+
+| Campo | Descripción |
+|---|---|
+| Tasa de costo | Costo/hora congelado al momento del submit. Viene de la Proposal Cost Matrix según el Perfil y Tipo de actividad. |
+| Fuente de tasa | De dónde provino el costo: `matrix` (tasa exacta), `matrix_general` (promedio del perfil), `activity_type` (fallback legacy), `sin_datos`. |
+| Costo congelado | Marcado automáticamente al submitir. Indica que la tasa ya no se recalcula aunque cambie la matriz. |
+| Congelado el | Fecha y hora en que se congeló el costo. |
+
 ### Notas sobre el alcance
 
 - Las filas generadas automáticamente están marcadas internamente como "generadas automáticamente". Se pueden editar sin restricción.

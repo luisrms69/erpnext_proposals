@@ -99,6 +99,46 @@ Estos documentos se generan o editan en el trabajo diario de cada propuesta.
 
 ---
 
+## Documentos de configuración de costos
+
+Estos documentos son generados y mantenidos automáticamente por el sistema. No se editan manualmente.
+
+### Matriz de costos por perfil (Proposal Cost Matrix)
+
+**Propósito:** Tabla interna que contiene el costo estimado por hora para cada combinación de Designation (perfil) y Activity Type (tipo de trabajo). Es la fuente principal que usa la Rentabilidad Estimada para calcular costos laborales.
+
+**Cuándo se usa:**
+- Se genera automáticamente al ejecutar "Recalcular Costos" desde el reporte **Costos estimados por Designation**
+- También se actualiza automáticamente cada noche via scheduler
+- Nunca se edita manualmente — se deriva de los datos de empleados
+
+**Qué contiene:**
+- Una fila por combinación de Designation + Activity Type (con tasa específica)
+- Una fila general por Designation (promedio de todos sus activity types)
+- Fuente de los datos: Activity Cost, Timesheets históricos o Salary Assignments
+- Estado: `ok`, `warning` (pocos datos), `sin_datos`
+
+**Relación con otros documentos:**
+- Alimenta la Rentabilidad Estimada de cada Cotización
+
+---
+
+### Historial de costos (Proposal Cost Matrix Log)
+
+**Propósito:** Registro histórico de cada cambio de tasa detectado durante rebuilds de la matriz. Permite auditar cuándo y cómo cambiaron los costos por perfil.
+
+**Cuándo se usa:**
+- Se consulta desde el reporte **Historial de costos por Designation** en el workspace
+- Se crea automáticamente — no requiere acción del usuario
+
+**Qué contiene por registro:**
+- Designation y Activity Type afectados
+- Tasa anterior y tasa nueva
+- Fuente de los datos
+- Fecha del cambio y ID del rebuild
+
+---
+
 ## Documentos de resultado
 
 Estos documentos son generados por el módulo como resultado del proceso.
