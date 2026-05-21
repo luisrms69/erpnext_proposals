@@ -1,4 +1,5 @@
 import frappe
+from frappe.utils import flt, now_datetime
 
 
 def on_quotation_validate(doc, method=None):
@@ -58,3 +59,24 @@ def _generate_scope_items(doc):
 				},
 			)
 			existing.add((item.item_code, si.name))
+
+
+def on_quotation_before_submit(doc, method=None):
+	"""Freeze costing rates in Quotation Scope Items at submit time.
+
+	Called via before_submit hook. Reads current Proposal Cost Matrix for each
+	scope item marked include_in_proposal and stores the rate, source and lock
+	timestamp. Submitted quotations use these frozen values for profitability;
+	Draft quotations always recalculate from the current matrix.
+	"""
+	from erpnext_proposals.erpnext_proposals.utils.cost_matrix import get_designation_cost
+
+	now = now_datetime()
+	for row in doc.quotation_scope_items or []:
+		if not row.include_in_proposal:
+			continue
+		rate, source = get_designation_cost(row.designation, row.activity_type)
+		row.costing_rate = flt(rate)
+		row.rate_source = source
+		row.rate_locked = 1
+		row.rate_locked_on = now

@@ -200,6 +200,7 @@ doc_events = {
 	"Quotation": {
 		"validate": "erpnext_proposals.erpnext_proposals.utils.quotation.on_quotation_validate",
 		"before_workflow_action": "erpnext_proposals.erpnext_proposals.utils.workflow_validations.before_workflow_action",
+		"before_submit": "erpnext_proposals.erpnext_proposals.utils.quotation.on_quotation_before_submit",
 	},
 	"Sales Order": {
 		"validate": "erpnext_proposals.erpnext_proposals.utils.sales_order.on_sales_order_validate",
@@ -210,23 +211,11 @@ doc_events = {
 # Scheduled Tasks
 # ---------------
 
-# scheduler_events = {
-# 	"all": [
-# 		"erpnext_proposals.tasks.all"
-# 	],
-# 	"daily": [
-# 		"erpnext_proposals.tasks.daily"
-# 	],
-# 	"hourly": [
-# 		"erpnext_proposals.tasks.hourly"
-# 	],
-# 	"weekly": [
-# 		"erpnext_proposals.tasks.weekly"
-# 	],
-# 	"monthly": [
-# 		"erpnext_proposals.tasks.monthly"
-# 	],
-# }
+scheduler_events = {
+	"daily": [
+		"erpnext_proposals.erpnext_proposals.utils.cost_matrix.rebuild_cost_matrix",
+	],
+}
 
 # Testing
 # -------

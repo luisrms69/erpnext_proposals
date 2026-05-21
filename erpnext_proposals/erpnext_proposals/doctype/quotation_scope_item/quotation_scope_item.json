@@ -22,7 +22,13 @@
   "estimated_hours",
   "activity_type",
   "designation",
-  "project_task"
+  "project_task",
+  "section_cost_snapshot",
+  "costing_rate",
+  "rate_source",
+  "col_break_snapshot",
+  "rate_locked",
+  "rate_locked_on"
  ],
  "fields": [
   {
@@ -136,6 +142,52 @@
    "options": "Task",
    "read_only": 1,
    "description": "Task de Project generada desde este Scope Item. Se llena al crear el Proyecto desde la Orden de Venta."
+  },
+  {
+   "fieldname": "section_cost_snapshot",
+   "fieldtype": "Section Break",
+   "label": "Costo estimado",
+   "collapsible": 1,
+   "description": "Snapshot del costo usado al cotizar. Read-only. No se expone en el PDF comercial."
+  },
+  {
+   "fieldname": "costing_rate",
+   "fieldtype": "Currency",
+   "label": "Tasa de costo",
+   "read_only": 1,
+   "allow_on_submit": 1,
+   "print_hide": 1,
+   "description": "Costo/hora congelado al momento de enviar la cotización."
+  },
+  {
+   "fieldname": "rate_source",
+   "fieldtype": "Data",
+   "label": "Fuente de tasa",
+   "read_only": 1,
+   "allow_on_submit": 1,
+   "print_hide": 1
+  },
+  {
+   "fieldname": "col_break_snapshot",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "rate_locked",
+   "fieldtype": "Check",
+   "label": "Costo congelado",
+   "default": "0",
+   "read_only": 1,
+   "allow_on_submit": 1,
+   "print_hide": 1,
+   "description": "1 = tasa congelada al submitir. 0 = Draft, usa tasa vigente."
+  },
+  {
+   "fieldname": "rate_locked_on",
+   "fieldtype": "Datetime",
+   "label": "Congelado el",
+   "read_only": 1,
+   "allow_on_submit": 1,
+   "print_hide": 1
   }
  ],
  "istable": 1,

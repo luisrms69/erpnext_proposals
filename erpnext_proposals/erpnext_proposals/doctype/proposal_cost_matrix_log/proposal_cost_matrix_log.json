@@ -1,0 +1,148 @@
+{
+ "actions": [],
+ "autoname": "hash",
+ "creation": "2026-05-20 00:00:00.000000",
+ "doctype": "DocType",
+ "document_type": "Document",
+ "editable_grid": 0,
+ "engine": "InnoDB",
+ "field_order": [
+  "designation",
+  "activity_type",
+  "is_general_rate",
+  "col_break_rates",
+  "old_rate",
+  "new_rate",
+  "section_meta",
+  "source",
+  "employee_count",
+  "col_break_meta",
+  "changed_on",
+  "rebuild_run_id",
+  "notes"
+ ],
+ "fields": [
+  {
+   "fieldname": "designation",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Designation",
+   "options": "Designation",
+   "reqd": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "activity_type",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Tipo de Actividad",
+   "options": "Activity Type",
+   "search_index": 1
+  },
+  {
+   "fieldname": "is_general_rate",
+   "fieldtype": "Check",
+   "label": "Es Tasa General"
+  },
+  {
+   "fieldname": "col_break_rates",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "old_rate",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Tasa Anterior",
+   "read_only": 1
+  },
+  {
+   "fieldname": "new_rate",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Tasa Nueva",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_meta",
+   "fieldtype": "Section Break",
+   "label": "Metadata del cambio"
+  },
+  {
+   "fieldname": "source",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Fuente",
+   "read_only": 1
+  },
+  {
+   "fieldname": "employee_count",
+   "fieldtype": "Int",
+   "label": "Empleados",
+   "read_only": 1
+  },
+  {
+   "fieldname": "col_break_meta",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "changed_on",
+   "fieldtype": "Datetime",
+   "in_list_view": 1,
+   "label": "Fecha del cambio",
+   "read_only": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "rebuild_run_id",
+   "fieldtype": "Data",
+   "label": "Rebuild Run ID",
+   "read_only": 1
+  },
+  {
+   "fieldname": "notes",
+   "fieldtype": "Small Text",
+   "label": "Notas",
+   "read_only": 1
+  }
+ ],
+ "in_create": 0,
+ "modified": "2026-05-20 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "ERPNext Proposals",
+ "name": "Proposal Cost Matrix Log",
+ "naming_rule": "Random",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "cancel": 0,
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "submit": 0,
+   "write": 1
+  },
+  {
+   "cancel": 0,
+   "create": 0,
+   "delete": 0,
+   "email": 0,
+   "export": 1,
+   "print": 0,
+   "read": 1,
+   "report": 1,
+   "role": "Proposals Manager",
+   "share": 0,
+   "submit": 0,
+   "write": 0
+  }
+ ],
+ "sort_field": "changed_on",
+ "sort_order": "DESC",
+ "track_changes": 0
+}

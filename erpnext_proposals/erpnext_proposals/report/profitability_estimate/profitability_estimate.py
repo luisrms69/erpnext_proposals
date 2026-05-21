@@ -2,6 +2,12 @@ import frappe
 from frappe import _
 from frappe.utils import flt
 
+from erpnext_proposals.erpnext_proposals.utils.cost_matrix import (
+	get_designation_cost,
+	get_matrix_last_updated,
+	is_matrix_populated,
+)
+
 TOLERANCE = 0.01  # tolerance for Q/C numeric checks
 
 
@@ -48,18 +54,40 @@ def get_profitability_data(quotation_name: str) -> dict:
 	total_labor_cost = 0.0
 	missing_activity = 0
 	missing_rate = 0
+	missing_designation = 0
+	missing_frozen_snapshot = 0
+	is_submitted = quotation.docstatus == 1
 
 	for row in scope_rows_raw:
-		costing_rate = 0.0
-		notes = ""
-		if not row.activity_type:
-			missing_activity += 1
-			notes = "sin_activity_type"
+		# Use frozen snapshot for submitted quotations; recalculate for drafts.
+		use_frozen = is_submitted and row.rate_locked and flt(row.costing_rate)
+
+		if use_frozen:
+			costing_rate = flt(row.costing_rate)
+			rate_source = row.rate_source or "frozen"
+			notes = rate_source
 		else:
-			costing_rate = flt(frappe.db.get_value("Activity Type", row.activity_type, "costing_rate") or 0)
-			if not costing_rate:
+			if is_submitted and not row.rate_locked:
+				missing_frozen_snapshot += 1
+			costing_rate, rate_source = get_designation_cost(row.designation, row.activity_type)
+			notes = rate_source
+
+			if rate_source == "sin_datos":
 				missing_rate += 1
-				notes = "sin_costing_rate"
+				if not row.designation and not row.activity_type:
+					missing_activity += 1
+					missing_designation += 1
+					notes = "sin_designation_ni_activity"
+				elif not row.designation:
+					missing_designation += 1
+					notes = "sin_designation"
+				elif not row.activity_type:
+					missing_activity += 1
+					notes = "sin_activity_type"
+				else:
+					notes = "sin_costing_rate"
+			elif not row.designation:
+				missing_designation += 1
 
 		hours = flt(row.estimated_hours or 0)
 		cost = flt(hours * costing_rate)
@@ -153,17 +181,46 @@ def get_profitability_data(quotation_name: str) -> dict:
 
 	# ── Warnings ─────────────────────────────────────────────────────────
 	warnings = []
+
+	# Matrix health warnings
+	if not is_matrix_populated():
+		warnings.append(
+			_(
+				"Tabla Proposal Cost Matrix vacía — ejecutar 'Recalcular Costos' desde el reporte en el workspace."
+			)
+		)
+	else:
+		oldest = get_matrix_last_updated()
+		if oldest:
+			from frappe.utils import now_datetime
+
+			days_old = (now_datetime() - oldest).days
+			if days_old > 30:
+				warnings.append(
+					_("Costos por Designation desactualizados — última actualización hace {0} días.").format(
+						days_old
+					)
+				)
+
 	if company_currency and currency != company_currency:
 		warnings.append(
 			_("Moneda de Quotation ({0}) distinta a moneda base ({1}) — comparacion no confiable.").format(
 				currency, company_currency
 			)
 		)
+	if missing_frozen_snapshot:
+		warnings.append(
+			_(
+				"{0} tarea(s) de propuesta enviada sin costo congelado — usando tasa vigente como aproximación."
+			).format(missing_frozen_snapshot)
+		)
+	if missing_designation:
+		warnings.append(
+			_("{0} tarea(s) sin Designation — costo por perfil no disponible.").format(missing_designation)
+		)
 	if missing_activity:
 		warnings.append(
-			_("{0} tarea(s) sin activity_type — costo laboral calculado parcialmente.").format(
-				missing_activity
-			)
+			_("{0} tarea(s) sin activity_type ni Designation — sin fuente de costo.").format(missing_activity)
 		)
 	if missing_rate:
 		warnings.append(
@@ -184,6 +241,11 @@ def get_profitability_data(quotation_name: str) -> dict:
 			"label": _("Venta neta cuadra con Quotation.net_total"),
 			"status": "ok" if abs(sum_net_amounts - net_total) <= TOLERANCE else "warning",
 			"detail": "{:,.2f} vs {:,.2f}".format(sum_net_amounts, net_total),
+		},
+		{
+			"label": _("Tareas sin Designation"),
+			"status": "ok" if missing_designation == 0 else "warning",
+			"detail": str(missing_designation),
 		},
 		{
 			"label": _("Tareas sin activity_type"),
