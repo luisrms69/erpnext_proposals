@@ -11,19 +11,11 @@ def on_quotation_validate_workflow(doc, method=None):
 	server-side — it is a JavaScript-only event). State transition is detected
 	by comparing doc.workflow_state against the persisted value.
 	"""
-	frappe.logger("proposals").debug(
-		f"on_quotation_validate_workflow called: doc={doc.name} "
-		f"is_new={doc.is_new()} workflow_state={doc.workflow_state} "
-		f"before_save={doc.get_value_before_save('workflow_state')}"
-	)
-
 	if doc.is_new():
 		return
 
 	old_state = doc.get_value_before_save("workflow_state") or "Borrador"
 	new_state = doc.workflow_state or "Borrador"
-
-	frappe.logger("proposals").debug(f"old={old_state!r} new={new_state!r}")
 
 	if old_state == new_state:
 		return  # regular save, not a workflow transition
@@ -34,10 +26,19 @@ def on_quotation_validate_workflow(doc, method=None):
 def _on_workflow_transition(doc, old_state: str, new_state: str):
 	"""Dispatch validation and traceability logic based on the state transition."""
 
-	# Borrador → En Revision: validate required fields and warn on cost gaps
+	# Borrador → En Revision: validate, warn, FREEZE proposal and attach PDFs
+	# Note: Rechazada → Borrador is impossible at doc level since Rechazada has
+	# doc_status=1. Frappe blocks all transitions from submitted to draft natively.
 	if old_state == "Borrador" and new_state == "En Revision":
 		_validate_blocking(doc)
 		_warn_non_blocking(doc)
+		from erpnext_proposals.erpnext_proposals.utils.quotation import (
+			attach_proposal_pdfs,
+			freeze_proposal,
+		)
+
+		freeze_proposal(doc)  # hard-fails if snapshot cannot be created
+		attach_proposal_pdfs(doc)  # non-blocking, warns if PDF fails
 		return
 
 	# En Revision → Aprobada or Rechazada: fill reviewer traceability
@@ -45,7 +46,6 @@ def _on_workflow_transition(doc, old_state: str, new_state: str):
 		_fill_traceability(doc, new_state)
 		return
 
-	# Rechazada → Borrador: no special action (user is revising)
 	# Aprobada → Enviada al Cliente: optionally add future logic here
 
 
@@ -102,13 +102,28 @@ def _warn_non_blocking(doc):
 
 
 def _fill_traceability(doc, new_state: str):
-	"""Fill reviewer/approver fields when transitioning to Aprobada or Rechazada."""
+	"""Fill reviewer/approver fields when transitioning to Aprobada or Rechazada.
+
+	Uses frappe.db.set_value to ensure the fields are written directly to DB.
+	This bypasses any submitted-doc field restriction in Frappe's save pipeline.
+	"""
 	user = frappe.session.user
 	now = now_datetime()
 
+	updates = {
+		"proposal_reviewed_by": user,
+		"proposal_reviewed_on": now,
+	}
+
+	if new_state == "Aprobada":
+		updates["proposal_approved_by"] = user
+		updates["proposal_approved_on"] = now
+
+	frappe.db.set_value("Quotation", doc.name, updates, update_modified=False)
+
+	# Keep in-memory doc in sync
 	doc.proposal_reviewed_by = user
 	doc.proposal_reviewed_on = now
-
 	if new_state == "Aprobada":
 		doc.proposal_approved_by = user
 		doc.proposal_approved_on = now

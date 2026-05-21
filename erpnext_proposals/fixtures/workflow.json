@@ -27,7 +27,7 @@
    {
     "allow_edit": "Proposals Manager",
     "avoid_status_override": 0,
-    "doc_status": "0",
+    "doc_status": "1",
     "evaluate_as_expression": 0,
     "is_optional_state": 0,
     "message": null,
@@ -41,7 +41,7 @@
    {
     "allow_edit": "Proposals Manager",
     "avoid_status_override": 0,
-    "doc_status": "0",
+    "doc_status": "1",
     "evaluate_as_expression": 0,
     "is_optional_state": 0,
     "message": null,
@@ -55,7 +55,7 @@
    {
     "allow_edit": "Proposals User",
     "avoid_status_override": 0,
-    "doc_status": "0",
+    "doc_status": "1",
     "evaluate_as_expression": 0,
     "is_optional_state": 0,
     "message": null,
@@ -69,7 +69,7 @@
    {
     "allow_edit": "Proposals Manager",
     "avoid_status_override": 0,
-    "doc_status": "0",
+    "doc_status": "1",
     "evaluate_as_expression": 0,
     "is_optional_state": 0,
     "message": null,
@@ -123,28 +123,6 @@
     "next_state": "Rechazada",
     "send_email_to_creator": 0,
     "state": "En Revision",
-    "transition_tasks": null,
-    "workflow_builder_id": null
-   },
-   {
-    "action": "Revisar",
-    "allow_self_approval": 1,
-    "allowed": "Proposals User",
-    "condition": null,
-    "next_state": "Borrador",
-    "send_email_to_creator": 0,
-    "state": "Rechazada",
-    "transition_tasks": null,
-    "workflow_builder_id": null
-   },
-   {
-    "action": "Revisar",
-    "allow_self_approval": 1,
-    "allowed": "Proposals Manager",
-    "condition": null,
-    "next_state": "Borrador",
-    "send_email_to_creator": 0,
-    "state": "Rechazada",
     "transition_tasks": null,
     "workflow_builder_id": null
    },

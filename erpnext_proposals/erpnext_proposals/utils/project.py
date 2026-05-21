@@ -9,6 +9,15 @@ def create_project_from_quotation(quotation_name: str):
 	if quotation.docstatus != 1:
 		frappe.throw(_("La Cotización debe estar en estado Submitted para crear el Proyecto."))
 
+	_allowed_states = ("Aprobada", "Enviada al Cliente")
+	if quotation.workflow_state not in _allowed_states:
+		frappe.throw(
+			_(
+				"El Proyecto solo puede crearse cuando la propuesta está Aprobada o Enviada al Cliente. "
+				"Estado actual: {0}"
+			).format(quotation.workflow_state)
+		)
+
 	if not quotation.proposal_template:
 		frappe.throw(_("La Cotización no tiene Proposal Template asignado."))
 

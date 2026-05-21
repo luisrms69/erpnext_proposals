@@ -252,10 +252,32 @@ Arquitectura documentada en ADR-0002.
 - Workflow: `standard=0` no requerido — archivos en module folder evitan orphan removal
 - Pre-commit CI usa `ruff-pre-commit v0.14.10` — puede formatear diferente al ruff local; aplicar diff exacto del CI si falla
 
+## Actualización de producción — Congelación operativa de cotización y generación de PDFs (2026-05-21)
+
+### Problema crítico identificado
+El Print Format leía Proposal Sections dinámicamente en cada render. Editar una sección en el catálogo modificaba retroactivamente todas las propuestas históricas. Inaceptable para documento comercial formal.
+
+### Decisión arquitectónica
+**Punto de congelación único: `Borrador → En Revisión`.**
+
+Una vez enviada a revisión, la versión del documento queda congelada permanentemente. No existe `unfreeze` automático.
+
+**Estados y comportamiento:**
+- `Borrador`: editable, catálogo vivo
+- `En Revisión` / `Aprobada` / `Rechazada` / `Enviada al Cliente` / `Submitted`: snapshot congelado
+
+**Campo agregado:** `proposal_sections_snapshot` (Long Text JSON, hidden) en Quotation.
+Formato: `[{"sequence": 100, "title": "...", "content": "raw Jinja sin renderizar", "source_section": "...", "captured_on": "..."}]`
+
+**Costing rates:** también se congelan en `Borrador → En Revisión` (antes era solo `before_submit`).
+
+**Correcciones post-rechazo:** la transición `Rechazada → Borrador` está BLOQUEADA con error explícito. El usuario debe duplicar o amendar la Cotización para crear una nueva versión. Ver Issue #13 para el diseño de versionado futuro.
+
+**Print Format:** usa snapshot si existe; catálogo vivo como fallback para documentos históricos. Warning visible si propuesta en estado congelado no tiene snapshot.
+
 ## Pendiente post-RC 1.0
 
 - Post mortem estimado vs real (Timesheets / Sales Invoice)
-- Print Format HTML render issue (texto literal en Proposal Sections)
-- Approval digital en BD: `reviewed_by`, `approved_by` campos (Prioridad 3 futura)
 - Margen mínimo configurable para bloquear aprobación
 - Tests formales para flujo Quotation → Project → SO
+- Versionado de propuestas: mecanismo explícito para nueva versión post-rechazo (Issue #13)
