@@ -34,13 +34,13 @@ El módulo no tiene integración con correo electrónico ni portal de cliente. E
 
 No existe mecanismo para registrar la aceptación formal del cliente dentro del sistema. El bloque de firmas en el PDF es solo un espacio visual para imprimir y firmar físicamente.
 
-### 3. Sin aprobación digital interna
+### 3. Sin firma digital o registro de aceptación del cliente en el sistema
 
-El workflow registra los cambios de estado pero no guarda quién aprobó ni quién rechazó en campos específicos de la Cotización. El registro queda en el historial nativo de ERPNext (campo "Historial de workflow"), no en un campo visible en la forma.
+No existe mecanismo para registrar la aceptación formal del cliente dentro del sistema. Los campos **Aprobado por** y **Revisado por** registran quién aprobó/rechazó internamente, pero no la aceptación del cliente externo.
 
-### 4. Sin estado "Ganada" propio
+### 4. Sin correcciones post-rechazo en la misma Cotización
 
-El módulo no tiene un estado "Ganada" en el workflow. El indicador de propuesta ganada es el Submit de la Cotización en ERPNext (mecanismo nativo), que es una acción separada al workflow del módulo.
+Si una propuesta es rechazada, no es posible regresarla a Borrador para edición. Se debe duplicar o amendar la Cotización para crear una nueva versión. La propuesta rechazada queda como evidencia histórica congelada.
 
 ### 5. Sin post-mortem de rentabilidad estimado vs real
 
