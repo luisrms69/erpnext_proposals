@@ -3,15 +3,50 @@ from frappe import _
 from frappe.utils import flt, now_datetime
 
 
-def before_workflow_action(doc, method=None):
+def on_quotation_validate_workflow(doc, method=None):
 	"""
-	Validates Quotation before any workflow transition.
-	Blocking: proposal_template, proposal_cost_center, net_total > 0.
-	Warnings only: missing costs, activity_type, margin, currency.
+	Handles workflow-related validation and traceability for Quotation.
+
+	Called on every validate (Frappe v16 does not fire before_workflow_action
+	server-side — it is a JavaScript-only event). State transition is detected
+	by comparing doc.workflow_state against the persisted value.
 	"""
-	_validate_blocking(doc)
-	_warn_non_blocking(doc)
-	_fill_traceability(doc)
+	frappe.logger("proposals").debug(
+		f"on_quotation_validate_workflow called: doc={doc.name} "
+		f"is_new={doc.is_new()} workflow_state={doc.workflow_state} "
+		f"before_save={doc.get_value_before_save('workflow_state')}"
+	)
+
+	if doc.is_new():
+		return
+
+	old_state = doc.get_value_before_save("workflow_state") or "Borrador"
+	new_state = doc.workflow_state or "Borrador"
+
+	frappe.logger("proposals").debug(f"old={old_state!r} new={new_state!r}")
+
+	if old_state == new_state:
+		return  # regular save, not a workflow transition
+
+	_on_workflow_transition(doc, old_state, new_state)
+
+
+def _on_workflow_transition(doc, old_state: str, new_state: str):
+	"""Dispatch validation and traceability logic based on the state transition."""
+
+	# Borrador → En Revision: validate required fields and warn on cost gaps
+	if old_state == "Borrador" and new_state == "En Revision":
+		_validate_blocking(doc)
+		_warn_non_blocking(doc)
+		return
+
+	# En Revision → Aprobada or Rechazada: fill reviewer traceability
+	if old_state == "En Revision" and new_state in ("Aprobada", "Rechazada"):
+		_fill_traceability(doc, new_state)
+		return
+
+	# Rechazada → Borrador: no special action (user is revising)
+	# Aprobada → Enviada al Cliente: optionally add future logic here
 
 
 def _validate_blocking(doc):
@@ -66,24 +101,14 @@ def _warn_non_blocking(doc):
 		)
 
 
-def _fill_traceability(doc):
-	"""Fill review/approval traceability fields based on the workflow action being executed.
-
-	Frappe sets doc.workflow_action before firing before_workflow_action.
-	- "Aprobar" or "Rechazar": fill proposal_reviewed_by / proposal_reviewed_on.
-	- "Aprobar" only: also fill proposal_approved_by / proposal_approved_on.
-	"""
-	action = getattr(doc, "workflow_action", None)
-	if not action:
-		return
-
+def _fill_traceability(doc, new_state: str):
+	"""Fill reviewer/approver fields when transitioning to Aprobada or Rechazada."""
 	user = frappe.session.user
 	now = now_datetime()
 
-	if action in ("Aprobar", "Rechazar"):
-		doc.proposal_reviewed_by = user
-		doc.proposal_reviewed_on = now
+	doc.proposal_reviewed_by = user
+	doc.proposal_reviewed_on = now
 
-	if action == "Aprobar":
+	if new_state == "Aprobada":
 		doc.proposal_approved_by = user
 		doc.proposal_approved_on = now

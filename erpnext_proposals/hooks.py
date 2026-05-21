@@ -41,6 +41,12 @@ fixtures = [
 					"proposal_reviewed_on",
 					"proposal_approved_by",
 					"proposal_approved_on",
+					"proposal_section_row1",
+					"proposal_col_break_1",
+					"proposal_section_row2",
+					"proposal_col_break_2",
+					"proposal_section_row3",
+					"proposal_col_break_3",
 				],
 			],
 		],
@@ -198,8 +204,10 @@ after_install = "erpnext_proposals.erpnext_proposals.install.after_install"
 
 doc_events = {
 	"Quotation": {
-		"validate": "erpnext_proposals.erpnext_proposals.utils.quotation.on_quotation_validate",
-		"before_workflow_action": "erpnext_proposals.erpnext_proposals.utils.workflow_validations.before_workflow_action",
+		"validate": [
+			"erpnext_proposals.erpnext_proposals.utils.quotation.on_quotation_validate",
+			"erpnext_proposals.erpnext_proposals.utils.workflow_validations.on_quotation_validate_workflow",
+		],
 		"before_submit": "erpnext_proposals.erpnext_proposals.utils.quotation.on_quotation_before_submit",
 	},
 	"Sales Order": {
