@@ -51,4 +51,5 @@ El JSON en Git es siempre la fuente de verdad.
 
 | Archivo | Rama | PR | Descripción |
 |---|---|---|---|
-| `propuesta-comercial-baseline-2026-05-21.pdf` | `feature/pdf-polish` | #15 | Baseline completo: portada, resumen ejecutivo, tipografía, tablas |
+| `propuesta-comercial-baseline-2026-05-21.pdf` | `feature/pdf-polish` | #15 | Baseline antes de sección Inversión: portada, resumen ejecutivo, tipografía, tablas |
+| `propuesta-comercial-investment-v1.pdf` | `feature/pdf-polish` | #15 | Inversión rediseñada: tabla comercial, total full-width, condiciones de pago como tabla |
