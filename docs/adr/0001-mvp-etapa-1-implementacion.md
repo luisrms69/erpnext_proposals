@@ -277,7 +277,17 @@ Formato: `[{"sequence": 100, "title": "...", "content": "raw Jinja sin renderiza
 
 ## Pendiente post-RC 1.0
 
-- Post mortem estimado vs real (Timesheets / Sales Invoice)
-- Margen mínimo configurable para bloquear aprobación
-- Tests formales para flujo Quotation → Project → SO
-- Versionado de propuestas: mecanismo explícito para nueva versión post-rechazo (Issue #13)
+- Post mortem estimado vs real (Timesheets / Sales Invoice) — pendiente
+- Tests formales flujo Quotation → Project → SO — ✅ realizados manualmente en proposals.dev
+- Margen mínimo configurable para bloquear aprobación — **descartado**, no se implementará
+- Botones GUI para regenerar/descargar PDFs adjuntos — ✅ implementados (Imprimir Propuesta Comercial, Imprimir Rentabilidad Estimada)
+- Renderizado HTML en secciones narrativas — ✅ resuelto mediante render_section_content() con detección WYSIWYG/Markdown
+- Versionado de propuestas: mecanismo explícito para nueva versión post-rechazo (Issue #13) — pendiente
+
+## Trabajo pendiente actual
+
+| Prioridad | Ítem |
+|---|---|
+| 1 | **Versionado de propuestas** — nueva versión post-rechazo con trazabilidad (Issue #13) |
+| 2 | **Embellecimiento del PDF** — diseño visual, portada ejecutiva, tablas, tipografía |
+| 3 | **Post-mortem** — comparar costos estimados vs costos reales de ejecución (Timesheets/Invoices) |

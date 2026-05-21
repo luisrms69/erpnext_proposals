@@ -8,17 +8,7 @@ Este documento lista las limitaciones conocidas del RC actual. Se actualiza con 
 
 Problemas confirmados en el código que producen comportamiento incorrecto.
 
-### 1. El contenido HTML de las Secciones de propuesta puede no renderizarse en el PDF
-
-**Síntoma:** El contenido de las Secciones de propuesta aparece en el PDF como texto con etiquetas visibles. Por ejemplo: `<p>Texto del párrafo</p>` en lugar de "Texto del párrafo".
-
-**Causa:** El entorno de renderizado del PDF de Frappe en algunas configuraciones no interpreta el HTML del campo de texto enriquecido.
-
-**Impacto:** El PDF puede verse con marcas HTML visibles en las secciones narrativas.
-
-**Solución temporal:** Escribir el contenido de las secciones en texto plano, sin usar las opciones de formato del editor. El texto plano se renderiza correctamente.
-
-**Estado:** Pendiente de resolución técnica.
+El renderizado HTML de Proposal Sections está resuelto. El sistema detecta automáticamente si el contenido es HTML/WYSIWYG o texto plano/Markdown y lo procesa correctamente. No hay errores conocidos activos.
 
 ---
 
@@ -98,10 +88,12 @@ Condiciones que el módulo asume sin verificarlas explícitamente.
 
 ## Pendientes confirmados para versión siguiente
 
-Mejoras identificadas que no están en el RC actual:
+| Prioridad | Ítem | Notas |
+|---|---|---|
+| 1 | **Versionado de propuestas** | Si una propuesta es rechazada, se debe duplicar/amendar. No hay mecanismo de nueva versión con trazabilidad. Ver Issue #13. |
+| 2 | **Embellecimiento del PDF** | Diseño visual, portada ejecutiva, jerarquía tipográfica, tablas más ejecutivas. |
+| 3 | **Post-mortem de rentabilidad** | Comparar costos estimados de la propuesta vs costos reales de ejecución (Timesheets, facturas). |
 
-- Resolución del problema de renderizado HTML en el PDF
-- Estado "Ganada" en el workflow vinculado al Submit de la Cotización
-- Reporte de post-mortem: estimado vs real con Timesheets
-- Margen mínimo configurable como condición de aprobación
-- Campos `Revisado por` y `Aprobado por` siempre se llenan juntos al aprobar (sin paso de revisión separado)
+Los siguientes ítems **no se implementarán:**
+- Margen mínimo configurable como condición de aprobación — descartado
+- Estado "Ganada" propio en workflow — el Submit de la Cotización cumple esa función
