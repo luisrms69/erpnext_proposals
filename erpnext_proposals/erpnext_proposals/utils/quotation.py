@@ -119,6 +119,7 @@ def _freeze_section_content(doc) -> None:
 					"title": row.custom_title or ps.title or ps.section_name,
 					"content": content,
 					"source_section": ps.section_name,
+					"is_executive_summary": ps.is_executive_summary or 0,
 					"captured_on": now,
 				}
 			)
