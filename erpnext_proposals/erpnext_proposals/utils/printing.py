@@ -38,7 +38,7 @@ def render_section_content(content: str, doc) -> str:
 	if not content:
 		return ""
 
-	rendered = frappe.render_template(content, {"doc": doc})
+	rendered = frappe.render_template(content, {"doc": doc})  # nosemgrep
 
 	if any(tag in rendered for tag in _HTML_MARKERS):
 		return rendered

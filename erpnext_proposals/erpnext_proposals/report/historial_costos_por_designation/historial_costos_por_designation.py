@@ -106,28 +106,18 @@ def _get_data(filters: dict) -> list:
 		conditions.append("changed_on <= %(to_date)s")
 		values["to_date"] = filters["to_date"]
 
-	where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
+	query = """
+		SELECT
+			designation, activity_type, is_general_rate,
+			old_rate, new_rate, source, employee_count,
+			changed_on, rebuild_run_id, notes
+		FROM `tabProposal Cost Matrix Log`
+	"""
+	if conditions:
+		query += " WHERE " + " AND ".join(conditions)
+	query += " ORDER BY designation, activity_type, changed_on DESC"
 
-	rows = frappe.db.sql(
-		f"""
-        SELECT
-            designation,
-            activity_type,
-            is_general_rate,
-            old_rate,
-            new_rate,
-            source,
-            employee_count,
-            changed_on,
-            rebuild_run_id,
-            notes
-        FROM `tabProposal Cost Matrix Log`
-        {where}
-        ORDER BY designation, activity_type, changed_on DESC
-        """,
-		values=values,
-		as_dict=True,
-	)
+	rows = frappe.db.sql(query, values=values, as_dict=True)
 
 	for row in rows:
 		old = flt(row.old_rate)

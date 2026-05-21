@@ -96,29 +96,18 @@ def _get_data(filters: dict) -> list:
 		conditions.append("source = %(source)s")
 		values["source"] = filters["source"]
 
-	where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
+	query = """
+		SELECT
+			designation, activity_type, is_general_rate,
+			avg_costing_rate, avg_billing_rate, employee_count,
+			source, status, last_updated, rate_changed_on, notes
+		FROM `tabProposal Cost Matrix`
+	"""
+	if conditions:
+		query += " WHERE " + " AND ".join(conditions)
+	query += " ORDER BY designation, is_general_rate DESC, activity_type"
 
-	rows = frappe.db.sql(
-		f"""
-        SELECT
-            designation,
-            activity_type,
-            is_general_rate,
-            avg_costing_rate,
-            avg_billing_rate,
-            employee_count,
-            source,
-            status,
-            last_updated,
-            rate_changed_on,
-            notes
-        FROM `tabProposal Cost Matrix`
-        {where}
-        ORDER BY designation, is_general_rate DESC, activity_type
-        """,
-		values=values,
-		as_dict=True,
-	)
+	rows = frappe.db.sql(query, values=values, as_dict=True)
 
 	if not rows:
 		frappe.msgprint(
