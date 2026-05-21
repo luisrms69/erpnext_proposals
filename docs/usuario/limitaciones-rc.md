@@ -75,7 +75,10 @@ Condiciones que deben estar configuradas en el sistema para que ciertas funciona
 
 | Requisito | Qué falla si no está | Dónde configurar |
 |---|---|---|
-| Activity Types con costo por hora | El reporte de Rentabilidad Estimada no puede calcular el costo laboral. Muestra advertencias y margen incompleto. | ERPNext → Activity Type → campo "Costing Rate" |
+| Activity Types con costo por hora | Fallback del reporte de Rentabilidad si no hay datos en la matriz. | ERPNext → Activity Type → campo "Costing Rate" |
+| Employees con Designation asignada | La Proposal Cost Matrix no puede derivar costos. El reporte muestra la matriz vacía. | HR → Employee → campo "Designation" |
+| Activity Cost configurado por empleado | Sin esto la matriz usa fuentes de menor prioridad (Timesheets o Salary). | Projects → Activity Cost → New |
+| Ejecutar "Recalcular Costos" al menos una vez | La Proposal Cost Matrix queda vacía hasta el primer rebuild. | Workspace → Reportes → Costos estimados por Designation |
 | Scope Items vinculados a ERPNext Items | La generación automática de alcances al guardar la cotización no produce resultados. La tabla queda vacía. | Módulo → Alcance → campo "Ítem ERPNext" |
 | Centro de costo existente | El campo Centro de costo en la pestaña Propuesta no tiene opciones disponibles. | ERPNext → Plan de Cuentas → Cost Center |
 | Proposal Templates configurados | No hay opciones en el selector de template de la Cotización. El PDF queda sin secciones narrativas. | Módulo → Template de propuesta |
@@ -101,3 +104,4 @@ Mejoras identificadas que no están en el RC actual:
 - Estado "Ganada" en el workflow vinculado al Submit de la Cotización
 - Reporte de post-mortem: estimado vs real con Timesheets
 - Margen mínimo configurable como condición de aprobación
+- Campos `Revisado por` y `Aprobado por` siempre se llenan juntos al aprobar (sin paso de revisión separado)

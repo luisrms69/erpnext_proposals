@@ -1,0 +1,171 @@
+{
+ "actions": [],
+ "autoname": "hash",
+ "creation": "2026-05-20 00:00:00.000000",
+ "doctype": "DocType",
+ "document_type": "Document",
+ "editable_grid": 0,
+ "engine": "InnoDB",
+ "field_order": [
+  "designation",
+  "activity_type",
+  "is_general_rate",
+  "col_break_rates",
+  "avg_costing_rate",
+  "avg_billing_rate",
+  "section_meta",
+  "employee_count",
+  "source",
+  "col_break_meta",
+  "status",
+  "last_updated",
+  "rate_changed_on",
+  "notes"
+ ],
+ "fields": [
+  {
+   "fieldname": "designation",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Designation",
+   "options": "Designation",
+   "reqd": 1
+  },
+  {
+   "fieldname": "activity_type",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Tipo de Actividad",
+   "options": "Activity Type"
+  },
+  {
+   "fieldname": "is_general_rate",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "label": "Es Tasa General",
+   "description": "1 = tasa promedio para esta Designation sin distinción de Activity Type."
+  },
+  {
+   "fieldname": "col_break_rates",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "avg_costing_rate",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Costo/hora Promedio",
+   "read_only": 1
+  },
+  {
+   "fieldname": "avg_billing_rate",
+   "fieldtype": "Currency",
+   "label": "Precio/hora Promedio",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_meta",
+   "fieldtype": "Section Break",
+   "label": "Metadata del cálculo"
+  },
+  {
+   "fieldname": "employee_count",
+   "fieldtype": "Int",
+   "in_list_view": 1,
+   "label": "Empleados",
+   "read_only": 1
+  },
+  {
+   "fieldname": "source",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Fuente",
+   "options": "\nactivity_cost\ntimesheet\nsalary",
+   "read_only": 1
+  },
+  {
+   "fieldname": "col_break_meta",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Estado",
+   "options": "\nok\nwarning\nsin_datos",
+   "read_only": 1
+  },
+  {
+   "fieldname": "last_updated",
+   "fieldtype": "Datetime",
+   "label": "Última Actualización",
+   "read_only": 1
+  },
+  {
+   "fieldname": "rate_changed_on",
+   "fieldtype": "Datetime",
+   "label": "Última Variación",
+   "read_only": 1,
+   "description": "Fecha en que avg_costing_rate cambió por última vez. Se actualiza solo cuando el valor varía."
+  },
+  {
+   "fieldname": "notes",
+   "fieldtype": "Small Text",
+   "label": "Notas",
+   "read_only": 1
+  }
+ ],
+ "in_create": 0,
+ "modified": "2026-05-20 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "ERPNext Proposals",
+ "name": "Proposal Cost Matrix",
+ "naming_rule": "Random",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "cancel": 0,
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "submit": 0,
+   "write": 1
+  },
+  {
+   "cancel": 0,
+   "create": 0,
+   "delete": 0,
+   "email": 0,
+   "export": 1,
+   "print": 0,
+   "read": 1,
+   "report": 1,
+   "role": "Proposals Manager",
+   "share": 0,
+   "submit": 0,
+   "write": 0
+  },
+  {
+   "cancel": 0,
+   "create": 0,
+   "delete": 0,
+   "email": 0,
+   "export": 0,
+   "print": 0,
+   "read": 1,
+   "report": 1,
+   "role": "Proposals User",
+   "share": 0,
+   "submit": 0,
+   "write": 0
+  }
+ ],
+ "sort_field": "designation",
+ "sort_order": "ASC",
+ "track_changes": 0
+}

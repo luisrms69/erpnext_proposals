@@ -5,9 +5,21 @@ import frappe
 
 class TestQuotationScopeItem(unittest.TestCase):
 	def test_no_price_fields(self):
-		"""Child table must never carry price, cost or rate fields."""
+		"""Child table must never carry price, cost or rate fields.
+
+		Excluded: Section Break / Column Break field types (they are UI organizers,
+		not data fields), and the internal cost snapshot fields (costing_rate,
+		rate_source, rate_locked, rate_locked_on) which are read-only, print_hide=1
+		and only used for internal profitability — never shown in the commercial PDF.
+		"""
 		meta = frappe.get_meta("Quotation Scope Item")
-		field_names = [f.fieldname for f in meta.fields]
+		internal_snapshot_fields = {"costing_rate", "rate_source", "rate_locked", "rate_locked_on"}
+		layout_types = {"Section Break", "Column Break", "Tab Break"}
+		field_names = [
+			f.fieldname
+			for f in meta.fields
+			if f.fieldname not in internal_snapshot_fields and f.fieldtype not in layout_types
+		]
 		forbidden = {"rate", "price", "cost", "amount", "margin"}
 		for fname in field_names:
 			parts = set(fname.split("_"))
