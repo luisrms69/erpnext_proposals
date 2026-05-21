@@ -29,6 +29,28 @@ Estas reglas anulan cualquier otra instrucción. No hay excepción ni autorizaci
 
 ---
 
+## Print Format — Control de cambios
+
+El Print Format `Propuesta Comercial` (`print_format/propuesta_comercial/propuesta_comercial.json`) es el único archivo que controla el PDF de propuesta. Su fuente de verdad es Git.
+
+**Regla de producción:** nunca editar el Print Format directamente en ERPNext UI como cambio permanente. Si se prueba en UI → replicar en el JSON → commit → PR.
+
+**Flujo obligatorio para cambios al Print Format:**
+1. Rama `feature/print-*`
+2. Editar solo `propuesta_comercial.json` (CSS/HTML/Jinja)
+3. `bench --site proposals.dev execute "frappe.reload_doc('ERPNext Proposals', 'Print Format', 'Propuesta Comercial', force=True)"`
+4. Generar PDF y revisar visualmente
+5. Commit con prefijo `style(print):` o `feat(print):` o `refactor(print):`
+6. Agregar PDF de evidencia a `docs/visual-regression/propuesta-comercial/`
+7. PR con PDF adjunto en la descripción
+8. Merge
+9. En producción: `bench --site <site> execute "frappe.reload_doc(..., force=True)"`
+
+**Carpeta de evidencia visual:** `docs/visual-regression/propuesta-comercial/`
+Ver `docs/visual-regression/propuesta-comercial/README.md` para convención de nombres.
+
+---
+
 ## Estado del proyecto
 
 - **App nueva:** creada en frappe-bench-v16
