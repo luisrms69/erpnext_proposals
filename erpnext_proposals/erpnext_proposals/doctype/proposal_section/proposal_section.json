@@ -7,7 +7,7 @@
  "engine": "InnoDB",
  "field_order": [
   "section_name",
-  "section_type",
+  "is_executive_summary",
   "title",
   "enabled",
   "content"
@@ -22,12 +22,12 @@
    "unique": 1
   },
   {
-   "fieldname": "section_type",
-   "fieldtype": "Select",
+   "default": "0",
+   "fieldname": "is_executive_summary",
+   "fieldtype": "Check",
    "in_list_view": 1,
-   "label": "Section Type",
-   "options": "Objetivo\nModalidad\nMetodologia\nAlcance\nSupuestos\nExclusiones\nEntregables\nCriterios de Aceptacion\nResponsabilidades\nControl de Cambios\nCierre\nCondiciones Comerciales\nResumen Ejecutivo\nPersonalizado",
-   "description": "Informativo — clasifica el tipo de contenido de la sección. No afecta la lógica del app ni el PDF. Se evaluará su uso funcional en etapas posteriores."
+   "label": "Es Resumen Ejecutivo",
+   "description": "Marca esta sección para renderizarla con diseño especial en la portada del PDF."
   },
   {
    "fieldname": "title",
@@ -36,8 +36,8 @@
    "description": "Título visible en la propuesta. Si vacío, usa Section Name."
   },
   {
-   "fieldname": "enabled",
    "default": "1",
+   "fieldname": "enabled",
    "fieldtype": "Check",
    "in_list_view": 1,
    "label": "Enabled"
@@ -49,7 +49,7 @@
   }
  ],
  "links": [],
- "modified": "2026-05-18 00:00:00.000000",
+ "modified": "2026-05-21 00:00:00.000000",
  "modified_by": "Administrator",
  "module": "ERPNext Proposals",
  "name": "Proposal Section",

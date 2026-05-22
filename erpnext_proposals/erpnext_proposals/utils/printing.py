@@ -44,3 +44,27 @@ def render_section_content(content: str, doc) -> str:
 		return rendered
 
 	return frappe.utils.markdown(rendered)
+
+
+def parse_json(val) -> list:
+	"""Wrapper around frappe.parse_json for Jinja sandbox (module attrs are restricted)."""
+	return frappe.parse_json(val) or []
+
+
+def get_logo_url(logo_path: str) -> str:
+	"""
+	Return an absolute URL for the logo image suitable for wkhtmltopdf.
+
+	Uses frappe.utils.get_url to build the absolute URL (includes port when
+	developer_mode is active). Private files return empty string — wkhtmltopdf
+	cannot authenticate private endpoints.
+	"""
+	if not logo_path:
+		return ""
+
+	if logo_path.startswith("/private/"):
+		return ""
+
+	from urllib.parse import quote
+
+	return frappe.utils.get_url(quote(logo_path, safe="/"))

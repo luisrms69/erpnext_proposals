@@ -17,6 +17,8 @@ jinja = {
 	"methods": [
 		"erpnext_proposals.erpnext_proposals.report.profitability_estimate.profitability_estimate.get_profitability_data",
 		"erpnext_proposals.erpnext_proposals.utils.printing.render_section_content",
+		"erpnext_proposals.erpnext_proposals.utils.printing.parse_json",
+		"erpnext_proposals.erpnext_proposals.utils.printing.get_logo_url",
 	]
 }
 

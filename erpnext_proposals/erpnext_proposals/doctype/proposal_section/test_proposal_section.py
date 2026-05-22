@@ -9,7 +9,6 @@ class TestProposalSection(unittest.TestCase):
 			{
 				"doctype": "Proposal Section",
 				"section_name": "_Test Section",
-				"section_type": "Objetivo",
 				"content": "<p>Contenido de prueba.</p>",
 			}
 		)
@@ -22,7 +21,6 @@ class TestProposalSection(unittest.TestCase):
 			{
 				"doctype": "Proposal Section",
 				"section_name": "_Test Title Default",
-				"section_type": "Personalizado",
 			}
 		)
 		doc.insert()
@@ -33,7 +31,6 @@ class TestProposalSection(unittest.TestCase):
 		doc = frappe.get_doc(
 			{
 				"doctype": "Proposal Section",
-				"section_type": "Objetivo",
 			}
 		)
 		with self.assertRaises(frappe.exceptions.ValidationError):

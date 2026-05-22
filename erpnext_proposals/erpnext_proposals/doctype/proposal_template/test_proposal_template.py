@@ -52,7 +52,6 @@ class TestProposalTemplate(unittest.TestCase):
 			{
 				"doctype": "Proposal Section",
 				"section_name": "_Test Section For Custom",
-				"section_type": "Personalizado",
 				"content": "<p>Original content</p>",
 			}
 		)

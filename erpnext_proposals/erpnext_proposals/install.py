@@ -22,61 +22,52 @@ def _create_sections():
 	sections = [
 		{
 			"section_name": "Resumen Ejecutivo",
-			"section_type": "Resumen Ejecutivo",
+			"is_executive_summary": 1,
 			"title": "Resumen Ejecutivo",
 			"content": "<p>En esta sección debe redactarse un resumen breve de la propuesta. Debe explicar el problema o necesidad del cliente, la solución propuesta, los beneficios esperados, el alcance general y el valor de negocio. Evitar detalles técnicos excesivos. Idealmente debe poder ser leído por dirección en menos de dos minutos.</p>",
 		},
 		{
 			"section_name": "Objetivo del Proyecto",
-			"section_type": "Objetivo",
 			"title": "Objetivo del Proyecto",
 			"content": "<p>En esta sección debe describirse el objetivo principal del proyecto. Debe indicar qué se busca lograr, qué proceso o necesidad se atenderá, qué resultado esperado tendrá el cliente y cómo se relaciona con el alcance propuesto.</p>",
 		},
 		{
 			"section_name": "Modalidad de Trabajo",
-			"section_type": "Modalidad",
 			"title": "Modalidad de Trabajo",
 			"content": "<p>En esta sección debe indicarse cómo se prestará el servicio: remoto, presencial o híbrido; horarios base; mecanismos de comunicación; sesiones de trabajo; responsables; y condiciones operativas relevantes.</p>",
 		},
 		{
 			"section_name": "Metodologia",
-			"section_type": "Metodologia",
 			"title": "Metodología",
 			"content": "<p>En esta sección debe describirse la metodología de ejecución del proyecto. Puede incluir fases como levantamiento, análisis, configuración, desarrollo, validación, capacitación, salida a operación y acompañamiento. Debe explicar cómo se controlarán avances y entregables.</p>",
 		},
 		{
 			"section_name": "Criterios de Aceptacion",
-			"section_type": "Criterios de Aceptacion",
 			"title": "Criterios de Aceptación",
 			"content": "<p>En esta sección deben definirse las condiciones bajo las cuales los entregables serán considerados aceptados. Debe incluir criterios de validación, evidencia esperada, responsables de revisión y tratamiento de observaciones.</p>",
 		},
 		{
 			"section_name": "Responsabilidades del Cliente",
-			"section_type": "Responsabilidades",
 			"title": "Responsabilidades del Cliente",
 			"content": "<p>En esta sección deben describirse las responsabilidades del cliente: entrega de información, accesos, usuarios clave, validaciones, aprobaciones internas, disponibilidad para sesiones y restricciones que puedan impactar el proyecto.</p>",
 		},
 		{
 			"section_name": "Supuestos",
-			"section_type": "Supuestos",
 			"title": "Supuestos",
 			"content": "<p>En esta sección deben documentarse los supuestos bajo los cuales se preparó la propuesta. Deben incluir condiciones de información disponible, alcance conocido, disponibilidad de usuarios, ambiente técnico, licencias, infraestructura y dependencias externas.</p>",
 		},
 		{
 			"section_name": "Exclusiones",
-			"section_type": "Exclusiones",
 			"title": "Exclusiones",
 			"content": "<p>En esta sección debe aclararse qué no está incluido en la propuesta. Debe mencionar actividades, servicios, licencias, infraestructura, integraciones, migraciones, soporte o desarrollos que solo se realizarán si se cotizan por separado.</p>",
 		},
 		{
 			"section_name": "Control de Cambios",
-			"section_type": "Control de Cambios",
 			"title": "Control de Cambios",
 			"content": "<p>En esta sección debe explicarse cómo se manejarán cambios de alcance, nuevas solicitudes, ajustes de prioridad o actividades no contempladas. Debe indicar que cualquier cambio puede impactar costo, tiempo y entregables.</p>",
 		},
 		{
 			"section_name": "Cierre del Proyecto",
-			"section_type": "Cierre",
 			"title": "Cierre del Proyecto",
 			"content": "<p>En esta sección debe describirse cómo se cerrará el proyecto: validación final, entrega de evidencias, documentación, observaciones pendientes, recomendaciones y posibles fases futuras.</p>",
 		},
