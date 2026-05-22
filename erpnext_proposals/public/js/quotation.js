@@ -1,5 +1,33 @@
+// Reload attachments when server signals PDFs are ready (after_commit)
+frappe.realtime.on("erpnext_proposals_pdfs_attached", (data) => {
+	if (cur_frm && cur_frm.doctype === data.doctype && cur_frm.docname === data.name) {
+		cur_frm.attachments.refresh();
+		cur_frm.reload_doc();
+	}
+});
+
 frappe.ui.form.on("Quotation", {
+	// Reload after workflow transition so PDF attachments appear immediately
+	after_workflow_action(frm) {
+		if (frm.doc.proposal_group) {
+			frm.reload_doc();
+		}
+	},
+
 	refresh(frm) {
+		// proposal_version is assigned by server — lock UI editing
+		frm.set_df_property("proposal_version", "read_only", 1);
+
+		// Hide Cancel for submitted proposals managed by this app
+		if (frm.doc.docstatus === 1 && frm.doc.proposal_group) {
+			frm.page.btn_secondary.hide();
+			// requestAnimationFrame ensures ERPNext has finished adding its buttons
+			requestAnimationFrame(() => {
+				frm.remove_custom_button(__("Sales Order"), __("Create"));
+				frm.page.remove_inner_button(__("Sales Order"), __("Create"));
+			});
+		}
+
 		if (frm.fields_dict.quotation_scope_items) {
 			frm.fields_dict.quotation_scope_items.grid.get_field("scope_item").get_query = () => ({
 				filters: { enabled: 1 },
@@ -78,6 +106,56 @@ frappe.ui.form.on("Quotation", {
 					}
 				},
 			});
+		}
+
+		// Button: Nueva versión — submitted + Rechazada + not yet superseded
+		if (
+			frm.doc.docstatus === 1 &&
+			frm.doc.workflow_state === "Rechazada" &&
+			frm.doc.proposal_group &&
+			!frm.doc.superseded_by_proposal
+		) {
+			frm.add_custom_button(
+				__("Crear nueva versión"),
+				() => {
+					const fields = [
+						{
+							fieldname: "reason",
+							label: __("Motivo de revisión"),
+							fieldtype: "Small Text",
+							reqd: 1,
+						},
+						{
+							fieldname: "summary",
+							label: __("Resumen de cambios"),
+							fieldtype: "Small Text",
+						},
+					];
+					frappe.prompt(
+						fields,
+						({ reason, summary }) => {
+							frappe.call({
+								method: "erpnext_proposals.erpnext_proposals.utils.proposal_versioning.create_new_proposal_version",
+								args: {
+									quotation_name: frm.doc.name,
+									reason,
+									summary: summary || "",
+								},
+								freeze: true,
+								freeze_message: __("Creando nueva versión…"),
+								callback(r) {
+									if (r.message) {
+										frappe.set_route("Form", "Quotation", r.message);
+									}
+								},
+							});
+						},
+						__("Nueva versión de propuesta"),
+						__("Crear versión")
+					);
+				},
+				__("Propuesta")
+			);
 		}
 
 		// Button: Create Project — submitted + Aprobada or Enviada al Cliente

@@ -93,31 +93,12 @@ def assert_can_create_project(doc) -> None:
 
 
 def _next_version(proposal_group: str) -> int:
-	"""Calculate next proposal_version. Must be called inside Proposal Group lock."""
+	"""Calculate next proposal_version. Must be called inside the quotation lock."""
 	result = frappe.db.sql(
 		"SELECT COALESCE(MAX(proposal_version), 0) FROM `tabQuotation` WHERE proposal_group = %s",
 		proposal_group,
 	)
 	return (result[0][0] or 0) + 1
-
-
-def _find_or_create_proposal_group(doc) -> str:
-	opportunity = getattr(doc, "opportunity", None)
-	if opportunity:
-		existing = frappe.db.get_value("Proposal Group", {"opportunity": opportunity}, "name")
-		if existing:
-			return existing
-	pg = frappe.get_doc(
-		{
-			"doctype": "Proposal Group",
-			"customer": doc.party_name,
-			"description": getattr(doc, "proposal_title", None) or (doc.party_name or ""),
-			"opportunity": opportunity,
-			"creation_date": frappe.utils.today(),
-		}
-	)
-	pg.insert(ignore_permissions=True)
-	return pg.name
 
 
 def _validate_previous_proposal_basic(doc) -> None:
@@ -207,6 +188,9 @@ def _copy_payment_schedule(ps) -> dict:
 
 def _copy_scope_item(scope) -> dict:
 	return {
+		"scope_item": scope.scope_item,  # master catalog ref — needed to deduplicate on validate
+		"item_code": scope.item_code,  # quotation item link — needed for catalog matching
+		"auto_generated": scope.auto_generated,
 		"title": scope.title,
 		"code": scope.code,
 		"phase": scope.phase,
@@ -239,11 +223,11 @@ def create_new_proposal_version(quotation_name: str, reason: str, summary: str =
 	old = frappe.get_doc("Quotation", quotation_name)
 	assert_can_create_new_version(old)
 
-	# Lock Proposal Group row — all concurrent version attempts for this
-	# group will serialize here.
+	# Lock the old Quotation row — serializes concurrent version attempts
+	# on the same Quotation. After acquiring the lock, revalidate state.
 	frappe.db.sql(
-		"SELECT name FROM `tabProposal Group` WHERE name = %s FOR UPDATE",
-		old.proposal_group,
+		"SELECT name FROM `tabQuotation` WHERE name = %s FOR UPDATE",
+		old.name,
 	)
 
 	# Revalidate inside lock with fresh DB data
@@ -284,6 +268,7 @@ def create_new_proposal_version(quotation_name: str, reason: str, summary: str =
 	# Internal flag: allows before_insert to accept previous_proposal.
 	# frappe.flags is Python-only, not persisted, not settable via REST API.
 	new_doc.flags.from_proposal_versioning = True
+	new_doc.flags.skip_scope_generation = True  # scope already copied — don't regenerate
 
 	# No ignore_mandatory — all mandatory fields must be explicitly in the dict.
 	new_doc.insert(ignore_permissions=True)

@@ -8,11 +8,9 @@ from frappe.utils import flt, now_datetime
 def on_quotation_before_insert(doc, method=None):
 	"""
 	Last line of defense for Quotation creation.
-	Enforces Proposal Group invariants on ALL creation paths:
-	UI, API, import, or the controlled versioning flow.
+	proposal_group is a required Data field — user enters their CRM deal ID.
 	"""
 	from erpnext_proposals.erpnext_proposals.utils.proposal_versioning import (
-		_find_or_create_proposal_group,
 		_next_version,
 		_validate_previous_proposal_basic,
 		_validate_previous_proposal_under_lock,
@@ -24,8 +22,7 @@ def on_quotation_before_insert(doc, method=None):
 	has_group = bool(getattr(doc, "proposal_group", None))
 
 	if has_previous:
-		# ── Path 2: Versioning ──────────────────────────────────────────
-		# Only allowed via create_new_proposal_version (sets the internal flag).
+		# ── Path 2: Versioning — controlled flow only ───────────────────
 		if not doc.flags.get("from_proposal_versioning"):
 			frappe.throw(
 				_(
@@ -34,35 +31,37 @@ def on_quotation_before_insert(doc, method=None):
 					"No se permite crear versiones directamente."
 				)
 			)
-		# Caller already holds the lock. These validations are defense-in-depth.
 		_validate_previous_proposal_basic(doc)
 		_validate_previous_proposal_under_lock(doc)
 		assert_single_live_proposal_for_group(doc.proposal_group)
 		_validate_proposal_version_sequential(doc)
 
 	elif has_group:
-		# ── Path 3: Manual/API with existing Proposal Group ────────────
-		frappe.db.sql(
-			"SELECT name FROM `tabProposal Group` WHERE name = %s FOR UPDATE",
-			doc.proposal_group,
-		)
+		# ── Path 3: New quotation with explicit proposal_group ──────────
 		assert_single_live_proposal_for_group(doc.proposal_group)
 		if not getattr(doc, "proposal_version", None):
-			doc.proposal_version = _next_version(doc.proposal_group)
+			doc.set("proposal_version", int(_next_version(doc.proposal_group) or 1))
 
 	else:
-		# ── Path 1: First Quotation — create/assign Proposal Group ─────
-		pg_name = _find_or_create_proposal_group(doc)
-		doc.proposal_group = pg_name
-		frappe.db.sql(
-			"SELECT name FROM `tabProposal Group` WHERE name = %s FOR UPDATE",
-			doc.proposal_group,
+		frappe.throw(
+			_(
+				"El campo 'Grupo de propuesta' es obligatorio. "
+				"Ingresa el ID del deal de tu CRM (HubSpot, Salesforce, etc.)."
+			)
 		)
-		doc.proposal_version = 1
-		assert_single_live_proposal_for_group(doc.proposal_group)
 
 
 def on_quotation_validate(doc, method=None):
+	# Assign proposal_version = 1 when not set and not a new version created by create_new_proposal_version.
+	# Uses validate (not before_insert) because validate is confirmed to run in web context.
+	if not doc.get("proposal_version") and not doc.get("previous_proposal"):
+		doc.proposal_version = 1
+	# Skip scope generation when creating a new version (scope already copied)
+	if doc.flags.get("skip_scope_generation"):
+		return
+	# Structural guard: if this is a new version with scope already copied, skip regeneration
+	if doc.get("previous_proposal") and doc.quotation_scope_items:
+		return
 	# Protect proposal_group from being changed when versions exist
 	if not doc.is_new() and doc.has_value_changed("proposal_group"):
 		other = frappe.db.count(
@@ -240,6 +239,13 @@ def attach_proposal_pdfs(doc) -> None:
 		print_format="Rentabilidad Estimada",
 		filename=f"Rentabilidad Estimada - {doc.name}",
 		is_private=1,
+	)
+	# Signal client to reload attachments once files are committed
+	frappe.publish_realtime(
+		"erpnext_proposals_pdfs_attached",
+		{"doctype": doc.doctype, "name": doc.name},
+		user=frappe.session.user,
+		after_commit=True,
 	)
 
 

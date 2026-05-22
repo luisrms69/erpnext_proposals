@@ -48,12 +48,7 @@ class TestProposalVersioning(unittest.TestCase):
 						frappe.delete_doc("Quotation", n, force=True, ignore_permissions=True)
 					except Exception:
 						pass
-		# Clean up proposal groups created for tests
-		for pg in frappe.db.get_all("Proposal Group", {"customer": "_Test Version Customer"}):
-			try:
-				frappe.delete_doc("Proposal Group", pg.name, force=True, ignore_permissions=True)
-			except Exception:
-				pass
+		# No Proposal Group DocType to clean up — proposal_group is now a Data field
 		super().tearDownClass()
 
 	@classmethod
@@ -125,6 +120,17 @@ class TestProposalVersioning(unittest.TestCase):
 			).insert(ignore_permissions=True)
 			cls.cost_center = cc.name
 
+		# Proposal Template — required since proposal_template is now reqd=1
+		if not frappe.db.exists("Proposal Template", "_Test Version Template"):
+			frappe.get_doc(
+				{
+					"doctype": "Proposal Template",
+					"template_name": "_Test Version Template",
+					"description": "Template for versioning tests",
+				}
+			).insert(ignore_permissions=True)
+		cls.proposal_template = "_Test Version Template"
+
 	@classmethod
 	def _make_submitted_rejected_quotation(cls, suffix="") -> object:
 		"""Create, submit, and move to Rechazada a Quotation."""
@@ -136,6 +142,9 @@ class TestProposalVersioning(unittest.TestCase):
 				"company": cls.company,
 				"currency": "MXN",
 				"transaction_date": frappe.utils.today(),
+				"proposal_group": f"TEST-GROUP-{frappe.generate_hash(length=6)}{suffix}",
+				"proposal_template": cls.proposal_template,
+				"proposal_title": f"Test Proposal{suffix}",
 				"items": [
 					{
 						"item_code": cls.item,
@@ -186,14 +195,18 @@ class TestProposalVersioning(unittest.TestCase):
 			self.skipTest("superseded_by_proposal not in meta")
 		self.assertEqual(field.allow_on_submit, 1)
 
-	def test_03_proposal_group_table_exists(self):
-		self.assertTrue(frappe.db.table_exists("Proposal Group"))
+	def test_03_proposal_group_is_data_field(self):
+		meta = frappe.get_meta("Quotation")
+		field = next((f for f in meta.fields if f.fieldname == "proposal_group"), None)
+		if field is None:
+			self.skipTest("proposal_group not in meta")
+		self.assertEqual(field.fieldtype, "Data")
 
-	# ── before_insert: Path 1 — auto Proposal Group ──────────────────────────
+	# ── before_insert: proposal_group required ───────────────────────────────
 
-	def test_04_new_quotation_gets_proposal_group_auto(self):
+	def test_04_new_quotation_has_proposal_group(self):
 		self.assertIsNotNone(self.v1.proposal_group)
-		self.assertTrue(frappe.db.exists("Proposal Group", self.v1.proposal_group))
+		self.assertTrue(len(self.v1.proposal_group) > 0)
 
 	def test_05_first_quotation_gets_version_1(self):
 		self.assertEqual(self.v1.proposal_version, 1)
