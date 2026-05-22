@@ -76,7 +76,10 @@ def freeze_proposal(doc) -> None:
 	Idempotent: if snapshot already exists, does nothing.
 	Hard-fails if the snapshot cannot be created — no silent fallback.
 	"""
-	if doc.proposal_sections_snapshot:
+	if not getattr(doc, "proposal_template", None):
+		return  # no template — nothing to freeze
+
+	if getattr(doc, "proposal_sections_snapshot", None):
 		return  # already frozen — never overwrite
 
 	_freeze_section_content(doc)
