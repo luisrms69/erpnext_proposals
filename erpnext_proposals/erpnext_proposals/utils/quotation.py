@@ -5,15 +5,82 @@ from frappe import _
 from frappe.utils import flt, now_datetime
 
 
-def on_quotation_before_submit(doc, method=None):
-	"""Fallback freeze at submit time for documents without a prior snapshot."""
-	freeze_proposal(doc)
+def on_quotation_before_insert(doc, method=None):
+	"""
+	Last line of defense for Quotation creation.
+	Enforces Proposal Group invariants on ALL creation paths:
+	UI, API, import, or the controlled versioning flow.
+	"""
+	from erpnext_proposals.erpnext_proposals.utils.proposal_versioning import (
+		_find_or_create_proposal_group,
+		_next_version,
+		_validate_previous_proposal_basic,
+		_validate_previous_proposal_under_lock,
+		_validate_proposal_version_sequential,
+		assert_single_live_proposal_for_group,
+	)
+
+	has_previous = bool(getattr(doc, "previous_proposal", None))
+	has_group = bool(getattr(doc, "proposal_group", None))
+
+	if has_previous:
+		# ── Path 2: Versioning ──────────────────────────────────────────
+		# Only allowed via create_new_proposal_version (sets the internal flag).
+		if not doc.flags.get("from_proposal_versioning"):
+			frappe.throw(
+				_(
+					"Las versiones de propuesta deben crearse usando la acción "
+					"'Crear nueva versión de propuesta'. "
+					"No se permite crear versiones directamente."
+				)
+			)
+		# Caller already holds the lock. These validations are defense-in-depth.
+		_validate_previous_proposal_basic(doc)
+		_validate_previous_proposal_under_lock(doc)
+		assert_single_live_proposal_for_group(doc.proposal_group)
+		_validate_proposal_version_sequential(doc)
+
+	elif has_group:
+		# ── Path 3: Manual/API with existing Proposal Group ────────────
+		frappe.db.sql(
+			"SELECT name FROM `tabProposal Group` WHERE name = %s FOR UPDATE",
+			doc.proposal_group,
+		)
+		assert_single_live_proposal_for_group(doc.proposal_group)
+		if not getattr(doc, "proposal_version", None):
+			doc.proposal_version = _next_version(doc.proposal_group)
+
+	else:
+		# ── Path 1: First Quotation — create/assign Proposal Group ─────
+		pg_name = _find_or_create_proposal_group(doc)
+		doc.proposal_group = pg_name
+		frappe.db.sql(
+			"SELECT name FROM `tabProposal Group` WHERE name = %s FOR UPDATE",
+			doc.proposal_group,
+		)
+		doc.proposal_version = 1
+		assert_single_live_proposal_for_group(doc.proposal_group)
 
 
 def on_quotation_validate(doc, method=None):
+	# Protect proposal_group from being changed when versions exist
+	if not doc.is_new() and doc.has_value_changed("proposal_group"):
+		other = frappe.db.count(
+			"Quotation",
+			{"proposal_group": doc.get_db_value("proposal_group"), "name": ("!=", doc.name)},
+		)
+		if other:
+			frappe.throw(
+				_("No se puede cambiar el Proposal Group: ya existen otras versiones en este grupo.")
+			)
 	if not doc.proposal_template:
 		return
 	_generate_scope_items(doc)
+
+
+def on_quotation_before_submit(doc, method=None):
+	"""Fallback freeze at submit time for documents without a prior snapshot."""
+	freeze_proposal(doc)
 
 
 def _generate_scope_items(doc):

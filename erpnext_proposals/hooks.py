@@ -51,6 +51,12 @@ fixtures = [
 					"proposal_section_row3",
 					"proposal_col_break_3",
 					"proposal_sections_snapshot",
+					"proposal_group",
+					"proposal_version",
+					"previous_proposal",
+					"superseded_by_proposal",
+					"proposal_revision_reason",
+					"proposal_revision_summary",
 				],
 			],
 		],
@@ -208,6 +214,7 @@ after_install = "erpnext_proposals.erpnext_proposals.install.after_install"
 
 doc_events = {
 	"Quotation": {
+		"before_insert": "erpnext_proposals.erpnext_proposals.utils.quotation.on_quotation_before_insert",
 		"validate": [
 			"erpnext_proposals.erpnext_proposals.utils.quotation.on_quotation_validate",
 			"erpnext_proposals.erpnext_proposals.utils.workflow_validations.on_quotation_validate_workflow",
