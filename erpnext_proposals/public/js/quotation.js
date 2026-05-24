@@ -1,5 +1,52 @@
+// Patch ERPNext's QuotationController to suppress "Update Items" on proposals.
+// ERPNext adds this button inside its own controller.refresh(), which runs before
+// frappe.ui.form.on handlers. Patching here ensures removal after the button is added.
+frappe.ui.form.on("Quotation", "onload", function (frm) {
+	const ctrl = frm.cscript;
+	if (!ctrl || ctrl.__proposal_patch_applied) return;
+	const _origRefresh = ctrl.refresh.bind(ctrl);
+	ctrl.refresh = function (...args) {
+		_origRefresh(...args);
+		if (frm.doc.proposal_group && frm.doc.docstatus === 1) {
+			frm.remove_custom_button(__("Update Items"));
+		}
+	};
+	ctrl.__proposal_patch_applied = true;
+});
+
 frappe.ui.form.on("Quotation", {
+	onload(frm) {
+		// Reload attachments when server signals PDFs are ready (after_commit)
+		frappe.realtime.on("erpnext_proposals_pdfs_attached", (data) => {
+			if (frm.doctype === data.doctype && frm.docname === data.name) {
+				frm.attachments.refresh();
+				frm.reload_doc();
+			}
+		});
+	},
+
+	// Reload after workflow transition so PDF attachments appear immediately
+	after_workflow_action(frm) {
+		if (frm.doc.proposal_group) {
+			frm.reload_doc();
+		}
+	},
+
 	refresh(frm) {
+		// proposal_version and proposal_group are server-assigned — lock UI editing
+		frm.set_df_property("proposal_version", "read_only", 1);
+		if (frm.doc.proposal_version >= 1) {
+			frm.set_df_property("proposal_group", "read_only", 1);
+		}
+
+		// Submitted proposals: hide Cancel button
+		// Update Items: blocked in backend (before_update_after_submit). UI hide pending —
+		// button origin unknown without runtime inspection; see TODO in PR.
+		// Sales Order: left visible — Aprobada → SO is an accepted flow.
+		if (frm.doc.docstatus === 1 && frm.doc.proposal_group) {
+			frm.page.btn_secondary.hide();
+		}
+
 		if (frm.fields_dict.quotation_scope_items) {
 			frm.fields_dict.quotation_scope_items.grid.get_field("scope_item").get_query = () => ({
 				filters: { enabled: 1 },
@@ -78,6 +125,56 @@ frappe.ui.form.on("Quotation", {
 					}
 				},
 			});
+		}
+
+		// Button: Nueva versión — submitted + Rechazada + not yet superseded
+		if (
+			frm.doc.docstatus === 1 &&
+			frm.doc.workflow_state === "Rechazada" &&
+			frm.doc.proposal_group &&
+			!frm.doc.superseded_by_proposal
+		) {
+			frm.add_custom_button(
+				__("Crear nueva versión"),
+				() => {
+					const fields = [
+						{
+							fieldname: "reason",
+							label: __("Motivo de revisión"),
+							fieldtype: "Small Text",
+							reqd: 1,
+						},
+						{
+							fieldname: "summary",
+							label: __("Resumen de cambios"),
+							fieldtype: "Small Text",
+						},
+					];
+					frappe.prompt(
+						fields,
+						({ reason, summary }) => {
+							frappe.call({
+								method: "erpnext_proposals.erpnext_proposals.utils.proposal_versioning.create_new_proposal_version",
+								args: {
+									quotation_name: frm.doc.name,
+									reason,
+									summary: summary || "",
+								},
+								freeze: true,
+								freeze_message: __("Creando nueva versión…"),
+								callback(r) {
+									if (r.message) {
+										frappe.set_route("Form", "Quotation", r.message);
+									}
+								},
+							});
+						},
+						__("Nueva versión de propuesta"),
+						__("Crear versión")
+					);
+				},
+				__("Propuesta")
+			);
 		}
 
 		// Button: Create Project — submitted + Aprobada or Enviada al Cliente

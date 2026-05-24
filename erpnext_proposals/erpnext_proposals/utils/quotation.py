@@ -5,15 +5,95 @@ from frappe import _
 from frappe.utils import flt, now_datetime
 
 
-def on_quotation_before_submit(doc, method=None):
-	"""Fallback freeze at submit time for documents without a prior snapshot."""
-	freeze_proposal(doc)
+def on_quotation_before_insert(doc, method=None):
+	"""
+	Last line of defense for Quotation creation.
+	proposal_group is a required Data field — user enters their CRM deal ID.
+	"""
+	from erpnext_proposals.erpnext_proposals.utils.proposal_versioning import (
+		_next_version,
+		_validate_previous_proposal_basic,
+		_validate_previous_proposal_under_lock,
+		_validate_proposal_version_sequential,
+		assert_single_live_proposal_for_group,
+	)
+
+	has_previous = bool(getattr(doc, "previous_proposal", None))
+	has_group = bool(getattr(doc, "proposal_group", None))
+
+	if has_previous:
+		# ── Path 2: Versioning — controlled flow only ───────────────────
+		if not doc.flags.get("from_proposal_versioning"):
+			frappe.throw(
+				_(
+					"Las versiones de propuesta deben crearse usando la acción "
+					"'Crear nueva versión de propuesta'. "
+					"No se permite crear versiones directamente."
+				)
+			)
+		_validate_previous_proposal_basic(doc)
+		_validate_previous_proposal_under_lock(doc)
+		assert_single_live_proposal_for_group(doc.proposal_group)
+		_validate_proposal_version_sequential(doc)
+
+	elif has_group:
+		# ── Path 3: New quotation with explicit proposal_group ──────────
+		assert_single_live_proposal_for_group(doc.proposal_group)
+		if not getattr(doc, "proposal_version", None):
+			doc.set("proposal_version", int(_next_version(doc.proposal_group) or 1))
+
+	else:
+		frappe.throw(
+			_(
+				"El campo 'Grupo de propuesta' es obligatorio. "
+				"Ingresa el ID del deal de tu CRM (HubSpot, Salesforce, etc.)."
+			)
+		)
 
 
 def on_quotation_validate(doc, method=None):
+	# Assign proposal_version = 1 when not set and not a new version created by create_new_proposal_version.
+	# Uses validate (not before_insert) because validate is confirmed to run in web context.
+	if not doc.get("proposal_version") and not doc.get("previous_proposal"):
+		doc.proposal_version = 1
+	# Skip scope generation when creating a new version (scope already copied)
+	if doc.flags.get("skip_scope_generation"):
+		return
+	# Structural guard: if this is a new version with scope already copied, skip regeneration
+	if doc.get("previous_proposal") and doc.quotation_scope_items:
+		return
+	# Protect proposal_group: immutable once proposal_version is assigned
+	if not doc.is_new() and doc.has_value_changed("proposal_group"):
+		if int(doc.proposal_version or 0) >= 1:
+			frappe.throw(
+				_("El Grupo de propuesta no puede modificarse una vez que la versión ha sido asignada.")
+			)
 	if not doc.proposal_template:
 		return
 	_generate_scope_items(doc)
+
+
+def on_quotation_before_update_after_submit(doc, method=None):
+	"""Block Update Items on submitted proposals — changes must go through a new version.
+
+	Workflow state transitions also trigger this hook, so we only block
+	when workflow_state has NOT changed (i.e. not a workflow action).
+	"""
+	if not doc.proposal_group:
+		return
+	if doc.has_value_changed("workflow_state"):
+		return
+	frappe.throw(
+		_(
+			"No se permite modificar una propuesta enviada a revisión. "
+			"Para realizar cambios, crea una nueva versión desde la propuesta rechazada."
+		)
+	)
+
+
+def on_quotation_before_submit(doc, method=None):
+	"""Fallback freeze at submit time for documents without a prior snapshot."""
+	freeze_proposal(doc)
 
 
 def _generate_scope_items(doc):
@@ -173,6 +253,13 @@ def attach_proposal_pdfs(doc) -> None:
 		print_format="Rentabilidad Estimada",
 		filename=f"Rentabilidad Estimada - {doc.name}",
 		is_private=1,
+	)
+	# Signal client to reload attachments once files are committed
+	frappe.publish_realtime(
+		"erpnext_proposals_pdfs_attached",
+		{"doctype": doc.doctype, "name": doc.name},
+		user=frappe.session.user,
+		after_commit=True,
 	)
 
 

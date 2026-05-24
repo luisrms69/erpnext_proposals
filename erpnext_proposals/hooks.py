@@ -51,6 +51,17 @@ fixtures = [
 					"proposal_section_row3",
 					"proposal_col_break_3",
 					"proposal_sections_snapshot",
+					"proposal_group",
+					"proposal_version",
+					"previous_proposal",
+					"superseded_by_proposal",
+					"proposal_revision_reason",
+					"proposal_revision_summary",
+					"proposal_versioning_section",
+					"proposal_versioning_col1",
+					"proposal_versioning_row2",
+					"proposal_versioning_col2",
+					"proposal_revision_section",
 				],
 			],
 		],
@@ -208,12 +219,16 @@ after_install = "erpnext_proposals.erpnext_proposals.install.after_install"
 
 doc_events = {
 	"Quotation": {
+		"before_insert": "erpnext_proposals.erpnext_proposals.utils.quotation.on_quotation_before_insert",
 		"validate": [
 			"erpnext_proposals.erpnext_proposals.utils.quotation.on_quotation_validate",
 			"erpnext_proposals.erpnext_proposals.utils.workflow_validations.on_quotation_validate_workflow",
 		],
 		"before_submit": "erpnext_proposals.erpnext_proposals.utils.quotation.on_quotation_before_submit",
-		"before_update_after_submit": "erpnext_proposals.erpnext_proposals.utils.workflow_validations.on_quotation_validate_workflow",
+		"before_update_after_submit": [
+			"erpnext_proposals.erpnext_proposals.utils.workflow_validations.on_quotation_validate_workflow",
+			"erpnext_proposals.erpnext_proposals.utils.quotation.on_quotation_before_update_after_submit",
+		],
 	},
 	"Sales Order": {
 		"validate": "erpnext_proposals.erpnext_proposals.utils.sales_order.on_sales_order_validate",

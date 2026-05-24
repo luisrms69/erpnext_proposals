@@ -186,6 +186,7 @@ class TestLiveCalculationVariables(unittest.TestCase):
 				"doctype": "Quotation",
 				"quotation_to": "Customer",
 				"party_name": cls.customer,
+				"proposal_group": "TEST-" + frappe.generate_hash(length=8),
 				"company": cls.company,
 				"currency": "MXN",
 				"transaction_date": frappe.utils.today(),
