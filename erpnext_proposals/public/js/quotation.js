@@ -14,15 +14,17 @@ frappe.ui.form.on("Quotation", "onload", function (frm) {
 	ctrl.__proposal_patch_applied = true;
 });
 
-// Reload attachments when server signals PDFs are ready (after_commit)
-frappe.realtime.on("erpnext_proposals_pdfs_attached", (data) => {
-	if (cur_frm && cur_frm.doctype === data.doctype && cur_frm.docname === data.name) {
-		cur_frm.attachments.refresh();
-		cur_frm.reload_doc();
-	}
-});
-
 frappe.ui.form.on("Quotation", {
+	onload(frm) {
+		// Reload attachments when server signals PDFs are ready (after_commit)
+		frappe.realtime.on("erpnext_proposals_pdfs_attached", (data) => {
+			if (frm.doctype === data.doctype && frm.docname === data.name) {
+				frm.attachments.refresh();
+				frm.reload_doc();
+			}
+		});
+	},
+
 	// Reload after workflow transition so PDF attachments appear immediately
 	after_workflow_action(frm) {
 		if (frm.doc.proposal_group) {
