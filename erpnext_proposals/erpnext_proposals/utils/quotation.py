@@ -62,19 +62,33 @@ def on_quotation_validate(doc, method=None):
 	# Structural guard: if this is a new version with scope already copied, skip regeneration
 	if doc.get("previous_proposal") and doc.quotation_scope_items:
 		return
-	# Protect proposal_group from being changed when versions exist
+	# Protect proposal_group: immutable once proposal_version is assigned
 	if not doc.is_new() and doc.has_value_changed("proposal_group"):
-		other = frappe.db.count(
-			"Quotation",
-			{"proposal_group": doc.get_db_value("proposal_group"), "name": ("!=", doc.name)},
-		)
-		if other:
+		if int(doc.proposal_version or 0) >= 1:
 			frappe.throw(
-				_("No se puede cambiar el Proposal Group: ya existen otras versiones en este grupo.")
+				_("El Grupo de propuesta no puede modificarse una vez que la versión ha sido asignada.")
 			)
 	if not doc.proposal_template:
 		return
 	_generate_scope_items(doc)
+
+
+def on_quotation_before_update_after_submit(doc, method=None):
+	"""Block Update Items on submitted proposals — changes must go through a new version.
+
+	Workflow state transitions also trigger this hook, so we only block
+	when workflow_state has NOT changed (i.e. not a workflow action).
+	"""
+	if not doc.proposal_group:
+		return
+	if doc.has_value_changed("workflow_state"):
+		return
+	frappe.throw(
+		_(
+			"No se permite modificar una propuesta enviada a revisión. "
+			"Para realizar cambios, crea una nueva versión desde la propuesta rechazada."
+		)
+	)
 
 
 def on_quotation_before_submit(doc, method=None):

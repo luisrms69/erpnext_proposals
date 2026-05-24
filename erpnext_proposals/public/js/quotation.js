@@ -1,3 +1,19 @@
+// Patch ERPNext's QuotationController to suppress "Update Items" on proposals.
+// ERPNext adds this button inside its own controller.refresh(), which runs before
+// frappe.ui.form.on handlers. Patching here ensures removal after the button is added.
+frappe.ui.form.on("Quotation", "onload", function (frm) {
+	const ctrl = frm.cscript;
+	if (!ctrl || ctrl.__proposal_patch_applied) return;
+	const _origRefresh = ctrl.refresh.bind(ctrl);
+	ctrl.refresh = function (...args) {
+		_origRefresh(...args);
+		if (frm.doc.proposal_group && frm.doc.docstatus === 1) {
+			frm.remove_custom_button(__("Update Items"));
+		}
+	};
+	ctrl.__proposal_patch_applied = true;
+});
+
 // Reload attachments when server signals PDFs are ready (after_commit)
 frappe.realtime.on("erpnext_proposals_pdfs_attached", (data) => {
 	if (cur_frm && cur_frm.doctype === data.doctype && cur_frm.docname === data.name) {
@@ -15,17 +31,18 @@ frappe.ui.form.on("Quotation", {
 	},
 
 	refresh(frm) {
-		// proposal_version is assigned by server — lock UI editing
+		// proposal_version and proposal_group are server-assigned — lock UI editing
 		frm.set_df_property("proposal_version", "read_only", 1);
+		if (frm.doc.proposal_version >= 1) {
+			frm.set_df_property("proposal_group", "read_only", 1);
+		}
 
-		// Hide Cancel for submitted proposals managed by this app
+		// Submitted proposals: hide Cancel button
+		// Update Items: blocked in backend (before_update_after_submit). UI hide pending —
+		// button origin unknown without runtime inspection; see TODO in PR.
+		// Sales Order: left visible — Aprobada → SO is an accepted flow.
 		if (frm.doc.docstatus === 1 && frm.doc.proposal_group) {
 			frm.page.btn_secondary.hide();
-			// requestAnimationFrame ensures ERPNext has finished adding its buttons
-			requestAnimationFrame(() => {
-				frm.remove_custom_button(__("Sales Order"), __("Create"));
-				frm.page.remove_inner_button(__("Sales Order"), __("Create"));
-			});
 		}
 
 		if (frm.fields_dict.quotation_scope_items) {

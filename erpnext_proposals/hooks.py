@@ -225,7 +225,10 @@ doc_events = {
 			"erpnext_proposals.erpnext_proposals.utils.workflow_validations.on_quotation_validate_workflow",
 		],
 		"before_submit": "erpnext_proposals.erpnext_proposals.utils.quotation.on_quotation_before_submit",
-		"before_update_after_submit": "erpnext_proposals.erpnext_proposals.utils.workflow_validations.on_quotation_validate_workflow",
+		"before_update_after_submit": [
+			"erpnext_proposals.erpnext_proposals.utils.workflow_validations.on_quotation_validate_workflow",
+			"erpnext_proposals.erpnext_proposals.utils.quotation.on_quotation_before_update_after_submit",
+		],
 	},
 	"Sales Order": {
 		"validate": "erpnext_proposals.erpnext_proposals.utils.sales_order.on_sales_order_validate",
