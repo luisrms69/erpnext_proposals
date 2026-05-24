@@ -1,147 +1,161 @@
 # Documento de Continuidad — erpnext_proposals
 
-**Fecha:** 2026-05-18
-**Para:** Nueva sesión Claude Code abriendo este app en VS Code
-**Desde:** Sesión anterior (llantascs_customs + diseño arquitectónico)
+**Fecha:** 2026-05-23
+**Para:** Nueva sesión Claude Code abriendo este app
+**Desde:** PR #19 — feat(proposals): proposal versioning — new version from rejected quotation
 
 ---
 
 ## Qué es este app
 
-`erpnext_proposals` es una app Frappe/ERPNext nueva, recién scaffoldeada.
-Agrega propuestas comerciales profesionales sobre ERPNext Quotation — no la reemplaza.
+`erpnext_proposals` es una app Frappe/ERPNext que agrega propuestas comerciales
+profesionales sobre ERPNext Quotation — no la reemplaza.
 
 **Concepto central:** ERPNext maneja números (precios, impuestos, costos).
-Esta app agrega narrativa (secciones de propuesta, alcance técnico, PDF profesional).
+Esta app agrega narrativa (secciones de propuesta, alcance técnico, versionado, PDF profesional).
 
 ---
 
 ## Estado actual del app
 
-- **Versión:** 0.0.1 — solo scaffold, sin DocTypes implementados todavía
-- **Branch:** `version-16` (estándar Frappe upstream — NO `main` ni `develop`)
+- **Versión:** 0.0.1 (en desarrollo)
+- **Branch protegida:** `version-16` — NUNCA commitear directo ahí
+- **Branch activa:** `feature/proposal-versioning` → PR #19 abierto (pendiente de merge)
 - **GitHub:** https://github.com/luisrms69/erpnext_proposals
 - **Site de desarrollo:** `proposals.dev` → `localhost:8405`
 - **Site de tests:** `test-erpnext_proposals.localhost`
-- **Apps instaladas en ambos sites:** frappe + erpnext + erpnext_proposals
+- **Remote:** `upstream` (no `origin`)
 
 ---
 
 ## Cómo ponerte al tanto
 
-### Paso 1 — Leer los 3 niveles de CLAUDE.md
+### Paso 1 — Leer los CLAUDE.md
 
 ```
-1. /home/erpnext/Developer/frappe-infrastructure/.claude/CLAUDE.md  ← reglas globales del ecosistema
-2. /home/erpnext/frappe-bench-v16/.claude/CLAUDE.md                 ← contexto del bench v16
-3. /home/erpnext/frappe-bench-v16/apps/erpnext_proposals/CLAUDE.md  ← este app
+1. /home/erpnext/frappe-bench-v16/.claude/CLAUDE.md          ← reglas globales del ecosistema
+2. /home/erpnext/frappe-bench-v16/apps/erpnext_proposals/CLAUDE.md  ← este app
 ```
 
-Los 3 son obligatorios antes de tocar nada.
-
-### Paso 2 — Leer la arquitectura aprobada
-
-La arquitectura del app fue diseñada y aprobada en la sesión anterior.
-Está documentada en:
+### Paso 2 — Leer la arquitectura
 
 ```
-docs/adr/0000-estado-inicial-app.md
+docs/adr/0000-estado-inicial-app.md   ← arquitectura MVP aprobada
+docs/adr/0001-mvp-etapa-1-implementacion.md
+docs/adr/0002-rentabilidad-estimada-propuesta.md
 ```
 
-El resumen:
-- 4 DocTypes nuevos: `Proposal Section`, `Proposal Template`, `Scope Item`, `Quotation Scope Item` (child)
-- Custom Fields en Quotation: `proposal_template`, `proposal_title`, tabla `quotation_scope_items`
-- Print Format Jinja para PDF profesional (8 secciones)
-- Sin lógica de precios ni costos en el app — todo viene de ERPNext nativo
+### Paso 3 — Verificar estado del PR
 
-### Paso 3 — Entender el ecosistema de comandos
-
-Tienes disponibles los slash commands de frappe-infrastructure vía symlink:
+```bash
+gh pr list --state open
+gh pr view 19
 ```
-.claude/commands/ → /home/erpnext/Developer/frappe-infrastructure/.claude/commands/
-```
-
-Comandos clave:
-- `/ship commit` / `/ship push` / `/ship pr` — flujo de git seguro
-- `/safe-point` — backup antes de cambios delicados
-- `/new-doctype` — crear DocTypes con la guía del ecosistema
-- `/audit-frappe-app` — auditoría estática del código
-- `/test-guard` — correr tests de forma segura
-
-### Paso 4 — Entender las reglas git
-
-- Rama protegida: `version-16` — NUNCA commitear directo ahí
-- Todo cambio: crear feature branch desde `version-16`, PR → `version-16`
-- Remote se llama `upstream` (no `origin`)
-- `/ship pr` apunta a `version-16`
 
 ---
 
-## Arquitectura MVP — Etapa 1 (lo que hay que implementar)
+## Funcionalidades implementadas
 
-### DocTypes a crear (en orden recomendado)
+### DocTypes
 
-1. **`Proposal Section`** — bloques de texto reutilizables
-   - Campos: `section_name`, `section_type` (Select), `title`, `content` (Text Editor), `enabled`
+| DocType | Tipo | Propósito |
+|---|---|---|
+| `Proposal Section` | Maestro | Sección narrativa reutilizable |
+| `Proposal Template` | Maestro | Agrupa secciones en orden |
+| `Proposal Template Section` | Child | Fila de sección en template |
+| `Scope Item` | Maestro | Catálogo de alcances sin precio |
+| `Quotation Scope Item` | Child | Copia congelada en Quotation |
 
-2. **`Proposal Template`** — agrupa secciones en orden
-   - Campos: `template_name`, `description`
-   - Child table: `Proposal Template Section` (sequence, proposal_section Link, custom_title, include_by_default)
+### Custom Fields en Quotation (fixtures)
 
-3. **`Scope Item`** — alcance técnico vendible (sin precios)
-   - Campos: `code`, `title`, `description` (Text Editor), `deliverable` (Text Editor)
-   - `phase` (Data — solo narrativo), `erpnext_item` (Link:Item)
-   - `default_activity_type` (Link:Activity Type), `default_designation` (Link:Designation)
-   - `estimated_hours` (Float), `visible_in_proposal` (Check), `enabled` (Check)
-   - Nota: `phase`, `activity_type`, `designation` son preparatorios para Etapa 3 — no funcionales en MVP
+**Sección Propuesta:**
+`proposal_template`, `proposal_title`, `quotation_scope_items`,
+`proposal_cost_center`, `proposal_project`
 
-4. **`Quotation Scope Item`** — child table para Quotation (datos congelados)
-   - Campos: `scope_item` (Link), `code`, `title`, `description`, `deliverable`, `phase`
-   - `erpnext_item` (Link:Item), `activity_type` (Link), `designation` (Link)
-   - `estimated_hours` (Float), `include_in_proposal` (Check)
+**Sección Versionado:**
+`proposal_group`, `proposal_version`, `previous_proposal`,
+`superseded_by_proposal`
 
-5. **Custom Fields en Quotation** (via fixtures, no DocType):
-   - `proposal_template` (Link:Proposal Template)
-   - `proposal_title` (Data)
-   - `quotation_scope_items` (Table:Quotation Scope Item)
+**Sección Revisión:**
+`proposal_revision_reason`, `proposal_revision_summary`,
+`proposal_reviewed_by`, `proposal_reviewed_on`,
+`proposal_approved_by`, `proposal_approved_on`
 
-6. **JS en Quotation** (`doctype_js`):
-   - Al seleccionar `proposal_template` → cargar secciones marcadas `include_by_default`
-   - Al agregar fila en `quotation_scope_items` → congelar campos del Scope Item
+**Snapshot (freeze):**
+`proposal_sections_snapshot`
 
-7. **Print Format "Propuesta Comercial"** (Jinja HTML):
-   Estructura aprobada del PDF:
-   ```
-   1. Portada (logo, cliente, título, fecha, vigencia, autor)
-   2. Objetivo y modalidad
-   3. Alcance propuesto (tabla Scope Items por Phase)
-   4. Perfiles considerados (Designations de Scope Items)
-   5. Entregables
-   6. Supuestos y exclusiones (Proposal Sections)
-   7. Inversión (Quotation Items nativos)
-   8. Condiciones comerciales (Terms and Conditions)
-   ```
+### Workflow
 
-### Lo que NO entra en Etapa 1
+`Propuesta Comercial` — 5 estados, 7 transiciones en Quotation:
+- Borrador → En Revision → Aprobada
+- En Revision → Rechazada
+- Aprobada → Enviada al Cliente
 
-- Botón "Agregar Scope Items a Items" (Etapa 2)
-- Conversión a Project/Tasks (Etapa 3)
-- Aprobación interna de propuesta
+### Print Formats
+
+- `Propuesta Comercial` — PDF cliente (portada navy, secciones narrativas, scope, inversión)
+- `Rentabilidad Estimada` — PDF interno (costos, márgenes por designación)
+
+### Roles
+
+`Proposals Manager`, `Proposals User`
+
+### Lógica backend
+
+| Archivo | Propósito |
+|---|---|
+| `utils/quotation.py` | Hooks de Quotation, freeze de snapshot, generación de scope items |
+| `utils/proposal_versioning.py` | Versionado controlado — `create_new_proposal_version`, guards de unicidad |
+| `utils/workflow_validations.py` | Validaciones de transición de workflow |
+| `utils/cost_matrix.py` | Matriz de costos por designación/actividad |
+| `utils/printing.py` | Helpers Jinja para Print Formats |
+| `utils/project.py` | Creación de Project desde Scope Items |
+| `utils/sales_order.py` | Hook de Sales Order |
+
+### Flujo de versionado (implementado en PR #19)
+
+1. Propuesta llega a **Rechazada** (submitted, docstatus=1)
+2. Botón **"Crear nueva versión"** solicita motivo y resumen
+3. Se crea nueva Quotation con `proposal_version = N+1`, `previous_proposal = nombre_anterior`
+4. La anterior queda marcada con `superseded_by_proposal` — bloqueada en workflow
+5. La nueva arranca en Borrador lista para editar
+
+**Guards activos:**
+- `proposal_group` inmutable una vez asignada versión (backend + JS read_only)
+- Solo una versión activa por `proposal_group` (`assert_single_live_proposal_for_group`)
+- `Update Items` bloqueado en `before_update_after_submit` + oculto vía controller patch
+- `Project` solo creatable desde versión vigente (no superseded)
 
 ---
 
-## Decisiones arquitectónicas importantes (no negociar sin consultar)
+## Issues abiertos relevantes
 
-1. **Scope Item no tiene precios ni costos** — todo precio viene de ERPNext Item/Item Price
-2. **Quotation Items es la única tabla comercial** — no crear tabla paralela de precios
-3. **Al agregar Scope Item a Quotation, los datos se CONGELAN** — cambiar el catálogo no afecta propuestas históricas
-4. **`phase` es Data simple** — no crear DocType para fases en MVP
-5. **`designation` y `activity_type` en Scope Item son preparatorios** — no tienen uso funcional en Etapa 1
-6. **Las dos tablas son independientes**: puede haber Scope Items sin Quotation Items y viceversa
+| # | Título | Prioridad |
+|---|---|---|
+| #18 | fix(ui): ocultar Sales Order y Set as Lost en proposals submitted | Alta — siguiente |
+| #17 | feat: auto-populate proposal_group desde Frappe CRM Opportunity | Media |
+| #15 | feat: selector de paleta de colores por cotización | Baja |
+
+**#18 es el siguiente a implementar.** Usa el mismo patrón de monkey-patch ya aplicado
+para `Update Items` en `public/js/quotation.js` (onload handler).
 
 ---
 
-## Comandos de trabajo frecuentes
+## Tests
+
+```bash
+bench --site test-erpnext_proposals.localhost run-tests --app erpnext_proposals
+```
+
+- **70 passed / 3 skipped** (estado al merge de PR #19)
+- Tests unitarios en: `erpnext_proposals/erpnext_proposals/tests/`
+  - `test_proposal_versioning.py` — suite de versionado, guards, trazabilidad
+  - `test_frozen_quotation_integrity.py` — integridad del snapshot congelado
+  - `test_print_format_integrity.py` — integridad del Print Format
+
+---
+
+## Comandos frecuentes
 
 ```bash
 # Desarrollo
@@ -152,38 +166,17 @@ bench build --app erpnext_proposals
 # Tests
 bench --site test-erpnext_proposals.localhost run-tests --app erpnext_proposals
 
-# Abrir en navegador (correr en terminal externo)
-frappe-multisite   # seleccionar opción 4 (erpnext_proposals → localhost:8405)
+# Abrir en navegador
+frappe-multisite   # opción para erpnext_proposals → localhost:8405
 ```
 
 ---
 
-## Contexto del ecosistema Buzola
+## Reglas git del proyecto
 
-- **Infraestructura:** `frappe-infrastructure` en `/home/erpnext/Developer/frappe-infrastructure/`
-- **Comandos globales:** `.claude/commands/` (symlink desde cada app)
-- **Checkpoints/backups:** `frappe-infrastructure/checkpoints/`
-- **Multisite script:** `/home/erpnext/bin/frappe-multisite`
-- **GitHub owner:** `luisrms69`
-- **Email Buzola:** `it@buzola.mx`
-
-### Otras apps del ecosistema (referencia)
-
-| App | Branch | Bench | Site dev |
-|---|---|---|---|
-| `llantascs_customs` | `develop` | frappe-bench-v16 | llantascs-v16.dev |
-| `facturacion_mexico` | `main` | frappe-bench-v16 | facturacion-v16.dev |
-| `erpnext_proposals` | `version-16` | frappe-bench-v16 | proposals.dev:8405 |
-
-Nota: el ecosistema tiene inconsistencia histórica en nombres de rama protegida.
-Los apps nuevos usan `version-16` (estándar Frappe upstream).
-
----
-
-## Próximo paso
-
-Implementar los DocTypes del MVP Etapa 1, en el orden listado arriba.
-Usar `/new-doctype` para cada uno.
-
-Antes del primer `bench migrate` real → correr `/safe-point site=proposals.dev app=erpnext_proposals`.
-
+- Remote: `upstream` (no `origin`)
+- PRs siempre a `version-16`
+- Nunca commitear en `version-16` directamente
+- Linters antes de commit: `ruff check` + `ruff format` (.py), `prettier@2.7.1` (.js)
+- Semgrep corre en CI — reglas Frappe: no usar `cur_frm`, no `frappe.throw` sin `_()`, etc.
+- Fixtures: exportar con `bench export-fixtures` después de cambios de Custom Fields
