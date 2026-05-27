@@ -1,6 +1,6 @@
-// Patch ERPNext's QuotationController to suppress "Update Items" on proposals.
-// ERPNext adds this button inside its own controller.refresh(), which runs before
-// frappe.ui.form.on handlers. Patching here ensures removal after the button is added.
+// Patch ERPNext's QuotationController to suppress native buttons on proposals.
+// ERPNext adds these buttons inside its own controller.refresh(), which runs before
+// frappe.ui.form.on handlers. Patching here ensures removal after they are added.
 frappe.ui.form.on("Quotation", "onload", function (frm) {
 	const ctrl = frm.cscript;
 	if (!ctrl || ctrl.__proposal_patch_applied) return;
@@ -9,6 +9,11 @@ frappe.ui.form.on("Quotation", "onload", function (frm) {
 		_origRefresh(...args);
 		if (frm.doc.proposal_group && frm.doc.docstatus === 1) {
 			frm.remove_custom_button(__("Update Items"));
+			frm.remove_custom_button(__("Set as Lost"));
+			// Sales Order only valid after client accepts (Ganada)
+			if (frm.doc.workflow_state !== "Ganada") {
+				frm.remove_custom_button(__("Sales Order"), __("Create"));
+			}
 		}
 	};
 	ctrl.__proposal_patch_applied = true;
@@ -177,8 +182,8 @@ frappe.ui.form.on("Quotation", {
 			);
 		}
 
-		// Button: Create Project — submitted + Aprobada or Enviada al Cliente
-		const _projectStates = ["Aprobada", "Enviada al Cliente"];
+		// Button: Create Project — submitted + Ganada (client accepted)
+		const _projectStates = ["Ganada"];
 		if (
 			frm.doc.docstatus === 1 &&
 			_projectStates.includes(frm.doc.workflow_state) &&

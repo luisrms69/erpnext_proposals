@@ -80,7 +80,7 @@ fixtures = [
 			[
 				"workflow_state_name",
 				"in",
-				["Borrador", "En Revision", "Aprobada", "Rechazada", "Enviada al Cliente"],
+				["Borrador", "En Revision", "Aprobada", "Rechazada", "Enviada al Cliente", "Ganada"],
 			]
 		],
 	},
@@ -252,11 +252,10 @@ scheduler_events = {
 
 # Extend DocType Class
 # ------------------------------
-#
-# Specify custom mixins to extend the standard doctype controller.
-# extend_doctype_class = {
-# 	"Task": "erpnext_proposals.custom.task.CustomTaskMixin"
-# }
+
+extend_doctype_class = {
+	"Quotation": "erpnext_proposals.erpnext_proposals.overrides.quotation_override.QuotationProposalMixin"
+}
 
 # Overriding Methods
 # ------------------------------

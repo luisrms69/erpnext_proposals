@@ -1,143 +1,108 @@
-# Documento de Continuidad — erpnext_proposals
+# CONTINUITY.md — erpnext_proposals
 
-**Fecha:** 2026-05-23
-**Para:** Nueva sesión Claude Code abriendo este app
-**Desde:** PR #19 — feat(proposals): proposal versioning — new version from rejected quotation
-
----
-
-## Qué es este app
-
-`erpnext_proposals` es una app Frappe/ERPNext que agrega propuestas comerciales
-profesionales sobre ERPNext Quotation — no la reemplaza.
-
-**Concepto central:** ERPNext maneja números (precios, impuestos, costos).
-Esta app agrega narrativa (secciones de propuesta, alcance técnico, versionado, PDF profesional).
+**Fecha:** 2026-05-27
+**Rama activa:** `feature/issue18-hide-native-buttons`
+**Tarea actual:** Issue #18 — ocultar botones nativos ERPNext en proposals + estado Ganada
 
 ---
 
-## Estado actual del app
+## Recuperación rápida
 
-- **Versión:** 0.0.1 (en desarrollo)
-- **Branch protegida:** `version-16` — NUNCA commitear directo ahí
-- **Branch activa:** `feature/proposal-versioning` → PR #19 abierto (pendiente de merge)
-- **GitHub:** https://github.com/luisrms69/erpnext_proposals
-- **Site de desarrollo:** `proposals.dev` → `localhost:8405`
-- **Site de tests:** `test-erpnext_proposals.localhost`
-- **Remote:** `upstream` (no `origin`)
+Estoy trabajando en:
+Issue #18: ocultar `Update Items`, `Set as Lost` y `Sales Order` en Quotations con
+`proposal_group`. `Sales Order` solo se muestra en estado `Ganada` (cliente aceptó).
+Se extendió el workflow agregando el estado `Ganada` con dos transiciones nuevas
+desde `Enviada al Cliente`.
 
----
+Plan que estoy siguiendo:
+Issue #18 en GitHub — feature/issue18-hide-native-buttons
 
-## Cómo ponerte al tanto
+Objetivo inmediato:
+Commit está listo y confirmado por el usuario. Siguiente: `/ship push` → `/ship pr`.
 
-### Paso 1 — Leer los CLAUDE.md
-
-```
-1. /home/erpnext/frappe-bench-v16/.claude/CLAUDE.md          ← reglas globales del ecosistema
-2. /home/erpnext/frappe-bench-v16/apps/erpnext_proposals/CLAUDE.md  ← este app
-```
-
-### Paso 2 — Leer la arquitectura
-
-```
-docs/adr/0000-estado-inicial-app.md   ← arquitectura MVP aprobada
-docs/adr/0001-mvp-etapa-1-implementacion.md
-docs/adr/0002-rentabilidad-estimada-propuesta.md
-```
-
-### Paso 3 — Verificar estado del PR
-
-```bash
-gh pr list --state open
-gh pr view 19
-```
+Criterio de avance:
+PR mergeado a version-16. Issue #18 cerrado.
 
 ---
 
-## Funcionalidades implementadas
+## Estado actual
 
-### DocTypes
+### Ya cerrado
+- Issue #13 — versionado de propuestas (PR #19, mergeado)
+- Issue #16 — PDF polish (PR #16, mergeado)
+- Issue #14 — submit quotations on review + PDF attach (PR #14, mergeado)
 
-| DocType | Tipo | Propósito |
-|---|---|---|
-| `Proposal Section` | Maestro | Sección narrativa reutilizable |
-| `Proposal Template` | Maestro | Agrupa secciones en orden |
-| `Proposal Template Section` | Child | Fila de sección en template |
-| `Scope Item` | Maestro | Catálogo de alcances sin precio |
-| `Quotation Scope Item` | Child | Copia congelada en Quotation |
+### En progreso
+- Issue #18 — commit listo, pendiente push + PR
 
-### Custom Fields en Quotation (fixtures)
+### Pendiente inmediato
+1. `/ship push` a upstream/feature/issue18-hide-native-buttons
+2. `/ship pr` a version-16 (Closes #18)
+3. `/sync-check` post-merge + actualizar CONTINUITY.md
 
-**Sección Propuesta:**
-`proposal_template`, `proposal_title`, `quotation_scope_items`,
-`proposal_cost_center`, `proposal_project`
+### No repetir
+- No usar `cur_frm` en JS — Frappe v16 lo deprecó, semgrep en CI lo bloquea.
+  Usar siempre el parámetro `frm` del event handler.
+- No commitear en `version-16` directamente — siempre rama feature.
+- Remote es `upstream`, no `origin`.
+- CONTINUITY.md se genera con `/update-continuity` post-confirmación de commit,
+  no antes de confirmar y no en commit separado.
 
-**Sección Versionado:**
-`proposal_group`, `proposal_version`, `previous_proposal`,
-`superseded_by_proposal`
+---
 
-**Sección Revisión:**
-`proposal_revision_reason`, `proposal_revision_summary`,
-`proposal_reviewed_by`, `proposal_reviewed_on`,
-`proposal_approved_by`, `proposal_approved_on`
+## Decisiones vigentes
 
-**Snapshot (freeze):**
-`proposal_sections_snapshot`
+- **`Ganada`** es el único estado donde `Sales Order` es válida — cliente aceptó formalmente.
+- **`Rechazada`** se reutiliza para rechazo de cliente (desde `Enviada al Cliente`) y
+  rechazo interno (desde `En Revision`) — mismo estado, dos caminos de entrada.
+- **Crear Proyecto** restringido a `Ganada` — solo cuando cliente acepta.
+- `declare_enquiry_lost` bloqueado via `extend_doctype_class` mixin (backend guard) porque
+  usa `db_set` y bypassa todos los hooks de Frappe.
+- `custom_field.json` tiene reorden de campos del export-fixtures — es ruido cosmético, se incluye
+  en el commit para mantener el round-trip limpio.
 
-### Workflow
+---
 
-`Propuesta Comercial` — 5 estados, 7 transiciones en Quotation:
-- Borrador → En Revision → Aprobada
-- En Revision → Rechazada
-- Aprobada → Enviada al Cliente
+## Archivos relevantes ahora
+
+### Leer primero
+- `erpnext_proposals/public/js/quotation.js` — lógica de botones y monkey-patch
+- `erpnext_proposals/erpnext_proposals/overrides/quotation_override.py` — backend guard
+- `erpnext_proposals/fixtures/workflow.json` — workflow con Ganada + 2 transiciones nuevas
+
+### Probablemente editar
+- Ninguno hasta el próximo issue
+
+### No tocar
+- `version-16` directamente
+- `test-erpnext_proposals.localhost` manualmente
+
+---
+
+## Funcionalidades implementadas (acumulado)
+
+### Workflow Propuesta Comercial
+6 estados: Borrador → En Revision → Aprobada → Enviada al Cliente → Ganada
+                                  ↓ Rechazada (interno o por cliente)
+9 transiciones totales.
+
+### Guards de botones nativos (Issue #18)
+- `Update Items`: oculto en todas las proposals submitted
+- `Set as Lost`: oculto en todas las proposals submitted
+- `Sales Order`: oculto excepto en Ganada
+- `declare_enquiry_lost`: bloqueado en backend (mixin)
+
+### Versionado (PR #19)
+- `proposal_group` / `proposal_version` / `previous_proposal` / `superseded_by_proposal`
+- Botón "Crear nueva versión" desde Rechazada
+- Guard: una sola versión activa por grupo
 
 ### Print Formats
+- `Propuesta Comercial` — PDF cliente
+- `Rentabilidad Estimada` — PDF interno
 
-- `Propuesta Comercial` — PDF cliente (portada navy, secciones narrativas, scope, inversión)
-- `Rentabilidad Estimada` — PDF interno (costos, márgenes por designación)
-
-### Roles
-
-`Proposals Manager`, `Proposals User`
-
-### Lógica backend
-
-| Archivo | Propósito |
-|---|---|
-| `utils/quotation.py` | Hooks de Quotation, freeze de snapshot, generación de scope items |
-| `utils/proposal_versioning.py` | Versionado controlado — `create_new_proposal_version`, guards de unicidad |
-| `utils/workflow_validations.py` | Validaciones de transición de workflow |
-| `utils/cost_matrix.py` | Matriz de costos por designación/actividad |
-| `utils/printing.py` | Helpers Jinja para Print Formats |
-| `utils/project.py` | Creación de Project desde Scope Items |
-| `utils/sales_order.py` | Hook de Sales Order |
-
-### Flujo de versionado (implementado en PR #19)
-
-1. Propuesta llega a **Rechazada** (submitted, docstatus=1)
-2. Botón **"Crear nueva versión"** solicita motivo y resumen
-3. Se crea nueva Quotation con `proposal_version = N+1`, `previous_proposal = nombre_anterior`
-4. La anterior queda marcada con `superseded_by_proposal` — bloqueada en workflow
-5. La nueva arranca en Borrador lista para editar
-
-**Guards activos:**
-- `proposal_group` inmutable una vez asignada versión (backend + JS read_only)
-- Solo una versión activa por `proposal_group` (`assert_single_live_proposal_for_group`)
-- `Update Items` bloqueado en `before_update_after_submit` + oculto vía controller patch
-- `Project` solo creatable desde versión vigente (no superseded)
-
----
-
-## Issues abiertos relevantes
-
-| # | Título | Prioridad |
-|---|---|---|
-| #18 | fix(ui): ocultar Sales Order y Set as Lost en proposals submitted | Alta — siguiente |
-| #17 | feat: auto-populate proposal_group desde Frappe CRM Opportunity | Media |
-| #15 | feat: selector de paleta de colores por cotización | Baja |
-
-**#18 es el siguiente a implementar.** Usa el mismo patrón de monkey-patch ya aplicado
-para `Update Items` en `public/js/quotation.js` (onload handler).
+### Proyecto desde Scope Items
+- Botón "Crear Proyecto desde Propuesta" — solo en Ganada
 
 ---
 
@@ -147,28 +112,17 @@ para `Update Items` en `public/js/quotation.js` (onload handler).
 bench --site test-erpnext_proposals.localhost run-tests --app erpnext_proposals
 ```
 
-- **70 passed / 3 skipped** (estado al merge de PR #19)
-- Tests unitarios en: `erpnext_proposals/erpnext_proposals/tests/`
-  - `test_proposal_versioning.py` — suite de versionado, guards, trazabilidad
-  - `test_frozen_quotation_integrity.py` — integridad del snapshot congelado
-  - `test_print_format_integrity.py` — integridad del Print Format
+- **72 passed / 3 skipped** (estado en feature/issue18-hide-native-buttons)
+- `test_native_button_guards.py` — 2 tests: backend guard declare_enquiry_lost
 
 ---
 
-## Comandos frecuentes
+## Issues abiertos
 
-```bash
-# Desarrollo
-bench --site proposals.dev migrate
-bench --site proposals.dev export-fixtures --app erpnext_proposals
-bench build --app erpnext_proposals
-
-# Tests
-bench --site test-erpnext_proposals.localhost run-tests --app erpnext_proposals
-
-# Abrir en navegador
-frappe-multisite   # opción para erpnext_proposals → localhost:8405
-```
+| # | Título | Prioridad |
+|---|---|---|
+| #17 | feat: auto-populate proposal_group desde Frappe CRM Opportunity | Media |
+| #15 | feat: selector de paleta de colores por cotización | Baja |
 
 ---
 
@@ -176,7 +130,7 @@ frappe-multisite   # opción para erpnext_proposals → localhost:8405
 
 - Remote: `upstream` (no `origin`)
 - PRs siempre a `version-16`
-- Nunca commitear en `version-16` directamente
-- Linters antes de commit: `ruff check` + `ruff format` (.py), `prettier@2.7.1` (.js)
-- Semgrep corre en CI — reglas Frappe: no usar `cur_frm`, no `frappe.throw` sin `_()`, etc.
-- Fixtures: exportar con `bench export-fixtures` después de cambios de Custom Fields
+- Linters: `ruff check` + `ruff format` (.py), `prettier@2.7.1` (.js)
+- Semgrep en CI — no `cur_frm`, no `frappe.throw` sin `_()`, type hints en funciones
+- Site dev: `proposals.dev` → `localhost:8405`
+- Site tests: `test-erpnext_proposals.localhost`
