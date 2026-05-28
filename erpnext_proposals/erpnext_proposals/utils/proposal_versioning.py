@@ -75,8 +75,8 @@ def assert_can_create_new_version(old_doc) -> None:
 def assert_can_create_project(doc) -> None:
 	if doc.docstatus != 1:
 		frappe.throw(_("El Proyecto solo puede crearse desde una Quotation submitted."))
-	if doc.workflow_state not in ("Aprobada", "Enviada al Cliente"):
-		frappe.throw(_("El Proyecto requiere estado Aprobada o Enviada al Cliente."))
+	if doc.workflow_state != "Ganada":
+		frappe.throw(_("El Proyecto solo puede crearse desde una propuesta Ganada."))
 	if getattr(doc, "superseded_by_proposal", None):
 		frappe.throw(
 			_("Esta versión fue reemplazada por {0}. Use la versión vigente.").format(
