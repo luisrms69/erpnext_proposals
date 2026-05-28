@@ -10,8 +10,8 @@ frappe.ui.form.on("Quotation", "onload", function (frm) {
 		if (frm.doc.proposal_group && frm.doc.docstatus === 1) {
 			frm.remove_custom_button(__("Update Items"));
 			frm.remove_custom_button(__("Set as Lost"));
-			// Sales Order only valid after client accepts (Ganada)
-			if (frm.doc.workflow_state !== "Ganada") {
+			// Sales Order only after client accepts (Ganada) and project exists
+			if (frm.doc.workflow_state !== "Ganada" || !frm.doc.proposal_project) {
 				frm.remove_custom_button(__("Sales Order"), __("Create"));
 			}
 		}

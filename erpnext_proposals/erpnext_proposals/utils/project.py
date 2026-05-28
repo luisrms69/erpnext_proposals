@@ -25,17 +25,23 @@ def create_project_from_quotation(quotation_name: str):
 		customer = quotation.party_name
 		customer_name = frappe.db.get_value("Customer", customer, "customer_name") or customer
 
-		project = frappe.get_doc(
-			{
-				"doctype": "Project",
-				"project_name": quotation.proposal_title or f"Proyecto — {customer_name}",
-				"customer": customer,
-				"cost_center": quotation.proposal_cost_center or None,
-				"expected_start_date": quotation.transaction_date,
-				"status": "Open",
-			}
-		)
-		project.insert(ignore_permissions=True)
+		project_name = quotation.proposal_title or f"{customer_name} — {quotation.proposal_group}"
+
+		# Recovery: reuse if project exists but reference wasn't saved (partial failure)
+		if frappe.db.exists("Project", project_name):
+			project = frappe.get_doc("Project", project_name)
+		else:
+			project = frappe.get_doc(
+				{
+					"doctype": "Project",
+					"project_name": project_name,
+					"customer": customer,
+					"cost_center": quotation.proposal_cost_center or None,
+					"expected_start_date": quotation.transaction_date,
+					"status": "Open",
+				}
+			)
+			project.insert(ignore_permissions=True)
 
 		# Store reference on Quotation (allow_on_submit=1 on the field)
 		frappe.db.set_value(
