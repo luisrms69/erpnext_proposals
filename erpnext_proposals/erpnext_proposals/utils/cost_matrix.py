@@ -5,6 +5,8 @@ import frappe
 from frappe import _
 from frappe.utils import flt, now_datetime
 
+from erpnext_proposals.erpnext_proposals.utils.permissions import assert_can_manage_proposals
+
 
 @frappe.whitelist()
 def rebuild_cost_matrix() -> dict:
@@ -22,6 +24,8 @@ def rebuild_cost_matrix() -> dict:
 	and on first insert (old_rate=0).
 	Returns a summary dict.
 	"""
+	assert_can_manage_proposals()
+
 	run_id = _generate_run_id()
 	created = updated = skipped = logged = 0
 

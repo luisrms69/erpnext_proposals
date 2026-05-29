@@ -1,9 +1,13 @@
 import frappe
 from frappe import _
 
+from erpnext_proposals.erpnext_proposals.utils.permissions import assert_can_manage_proposals
+
 
 @frappe.whitelist()
 def create_project_from_quotation(quotation_name: str):
+	assert_can_manage_proposals()
+
 	from erpnext_proposals.erpnext_proposals.utils.proposal_versioning import (
 		assert_can_create_project,
 	)
