@@ -14,6 +14,8 @@ Design:
 import frappe
 from frappe import _
 
+from erpnext_proposals.erpnext_proposals.utils.permissions import assert_can_manage_proposals
+
 # ── Dead states — a Quotation in these states is NOT considered live ──────────
 _DEAD_STATES = frozenset(("Rechazada", "Cancelada"))
 
@@ -85,8 +87,9 @@ def assert_can_create_project(doc) -> None:
 		)
 	if getattr(doc, "proposal_group", None):
 		assert_single_live_proposal_for_group(doc.proposal_group, current=doc.name)
-	if doc.proposal_project and frappe.db.exists("Project", doc.proposal_project):
-		frappe.throw(_("Esta propuesta ya tiene un Proyecto: {0}.").format(doc.proposal_project))
+	# proposal_project check intentionally removed: idempotency is handled in
+	# project.py (reuses existing project). Superseded versions are already blocked
+	# above via superseded_by_proposal. See test_17 and test_ganada_with_existing_project.
 
 
 # ── Internal helpers ──────────────────────────────────────────────────────────
@@ -217,6 +220,8 @@ def create_new_proposal_version(quotation_name: str, reason: str, summary: str =
 	Frappe transaction. No manual commit. Lock on Proposal Group prevents
 	race conditions.
 	"""
+	assert_can_manage_proposals()
+
 	if not reason:
 		frappe.throw(_("El motivo de revisión es obligatorio."))
 

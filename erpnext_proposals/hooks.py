@@ -68,7 +68,7 @@ fixtures = [
 	},
 	{
 		"doctype": "Role",
-		"filters": [["name", "=", "Proposals Manager"]],
+		"filters": [["name", "in", ["Proposals Manager", "Proposals User"]]],
 	},
 	{
 		"doctype": "Workflow",

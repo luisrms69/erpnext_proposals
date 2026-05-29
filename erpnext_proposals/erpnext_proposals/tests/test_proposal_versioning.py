@@ -323,3 +323,55 @@ class TestProposalVersioning(unittest.TestCase):
 		# v1_fresh is Rechazada, no v2 yet
 		live = get_live_proposal_for_group(self.v1_fresh.proposal_group)
 		self.assertIsNone(live)
+
+	def test_17_superseded_version_with_project_cannot_touch_project(self):
+		"""
+		Regression guard: removing the proposal_project check from assert_can_create_project
+		must NOT allow a superseded version to create or update a project.
+
+		Protection comes from superseded_by_proposal — independent of proposal_project.
+		Even if the old version already has a project, the superseded check fires first.
+		"""
+		from erpnext_proposals.erpnext_proposals.utils.proposal_versioning import (
+			assert_can_create_project,
+		)
+
+		superseded_with_project = frappe._dict(
+			{
+				"docstatus": 1,
+				"workflow_state": "Ganada",
+				"superseded_by_proposal": "SAL-QTN-V2",  # replaced by a newer version
+				"proposal_group": "TEST-GROUP-REGR",
+				"proposal_project": "_Test Existing Project",  # already has a project
+				"name": "_TEST-QTN-SUPERSEDED-WITH-PROJ",
+			}
+		)
+
+		with self.assertRaises(
+			frappe.exceptions.ValidationError,
+			msg="Superseded version with project must be blocked by superseded_by_proposal check",
+		):
+			assert_can_create_project(superseded_with_project)
+
+	def test_16_cannot_version_from_proposal_with_active_project(self):
+		"""assert_can_create_new_version must block if proposal_project references an existing Project."""
+		from unittest.mock import patch
+
+		from erpnext_proposals.erpnext_proposals.utils.proposal_versioning import (
+			assert_can_create_new_version,
+		)
+
+		mock_doc = frappe._dict(
+			{
+				"docstatus": 1,
+				"workflow_state": "Rechazada",
+				"superseded_by_proposal": None,
+				"proposal_group": "TEST-GROUP-ACTIVE-PROJ",
+				"proposal_project": "_Test Active Project",
+				"name": "_TEST-QTN-WITH-PROJECT",
+			}
+		)
+
+		with patch("frappe.db.exists", return_value=True):
+			with self.assertRaises(frappe.exceptions.ValidationError):
+				assert_can_create_new_version(mock_doc)
