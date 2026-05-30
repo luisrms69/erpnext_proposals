@@ -1,97 +1,86 @@
 # CONTINUITY.md — erpnext_proposals
 
-**Fecha:** 2026-05-28
-**Rama activa:** `continuity/update-after-pr22`
-**Tarea actual:** Commit listo — permission guards + role fixture + project idempotency fix
+**Fecha:** 2026-05-30
+**Rama activa:** `docs/mkdocs-standard-fase1-fase2`
+**Tarea actual:** Fase 1 + Fase 2 de estructura MkDocs estándar — pendiente commit
 
 ---
 
 ## Recuperación rápida
 
 Estoy trabajando en:
-Rama `continuity/update-after-pr22` con commit pendiente de ejecutar.
-Incluye: guard de permisos en endpoints críticos, Proposals User en fixture,
-fix de idempotencia en "Ver / Actualizar Proyecto", y 51 tests nuevos.
+Implementación del estándar documental MkDocs del ecosistema en erpnext_proposals.
+Fase 1 (estructura limpia) y Fase 2 (generador de referencia) completadas y listas para commit.
 
 Plan que estoy siguiendo:
-/ship commit → /ship push → /ship pr → merge a version-16
+`facturacion_mexico/working_docs/active/PLAN_MKDOCS_SETUP_ECOSISTEMA.md`
 
 Objetivo inmediato:
-Escribir CONTINUITY.md, ejecutar commit, push y PR.
+Commit de Fase 1 + Fase 2, luego PR a `version-16`.
 
 Criterio de avance:
-PR abierto en GitHub con CI verde.
+Commit creado, `mkdocs build --strict` limpio, PR abierto.
 
 ---
 
 ## Estado actual
 
 ### Ya cerrado
-- PR #22 — project guard, SO button, default project name (mergeado)
-- PR #21 — hide native buttons + Ganada workflow state (mergeado)
-- PR #19 — proposal versioning (mergeado)
-- PR #16 — PDF polish (mergeado)
+- PR #23 — permission guards, role fixture, project idempotency fix
+- PR #22 — project guard, SO button, default project name
+- Diagnóstico completo de erpnext_proposals contra el procedimiento piloto
 
 ### En progreso
-- `continuity/update-after-pr22` — permission guards + idempotency fix + tests
+- Rama `docs/mkdocs-standard-fase1-fase2` — listo para commit
 
 ### Pendiente inmediato
-1. Confirmar CONTINUITY.md (este archivo)
-2. Commit 10 archivos en esta rama
-3. Push y PR a `version-16`
+1. Commit con mensaje ya confirmado
+2. Push + PR a `version-16`
+3. Fase 3 + 4 + 7 (segundo PR): escribir `arquitectura.md`, `setup.md`, verificar usuario/
 
 ### No repetir
-- No usar `cur_frm` en JS — Frappe v16 lo deprecó, semgrep CI lo bloquea.
+- No usar `cur_frm` en JS — Frappe v16 lo deprecó.
 - Remote es `upstream` (no `origin`).
 - No commitear en `version-16` directamente.
 - CONTINUITY.md se actualiza con `/update-continuity`, nunca manualmente.
-- No instalar Playwright ni herramientas nuevas para validación GUI — usar curl/bench.
+- `docs/referencia/` es generada — no editar manualmente.
 
 ---
 
 ## Decisiones vigentes
 
-- `assert_can_manage_proposals()` permite System Manager + Proposals Manager.
-  Proposals User está explícitamente bloqueado en endpoints críticos.
-- `assert_can_create_project` NO verifica `proposal_project` — la idempotencia
-  está en `project.py`. Versiones superseded bloqueadas por `superseded_by_proposal`.
-  Ver test_17 y test_ganada_with_existing_project_passes_guard.
-- `Proposals User` ahora en `fixtures/role.json` — faltaba desde el inicio.
-- Permisos de catálogo (Proposal Section, Template, Scope Item), allow_self_approval,
-  y allow_edit en Rechazada quedan pendientes para siguiente tarea.
+- `visual-regression/` PDFs → `working_docs/archive/visual-regression/` (evidencia histórica)
+- READMEs de visual-regression → consolidados en `docs/tecnico/print-formats.md`
+- `scripts/generate_reference.py` copiado de facturacion_mexico, idempotente
+- Anchor links INFO en referencia/api.md no bloquean el build — deuda del generador, existe en facturacion_mexico también
+- No se usa `_quarantine/` en erpnext_proposals — docs/ estaba limpia
+- `assert_can_manage_proposals()` permite System Manager + Proposals Manager
+- `assert_can_create_project` NO verifica `proposal_project` — idempotencia en `project.py`
 
 ---
 
 ## Archivos relevantes ahora
 
 ### Leer primero
-- `CONTINUITY.md` — este archivo
-- `utils/permissions.py` — helper assert_can_manage_proposals
-- `tests/test_proposal_permissions.py` — tests de guards de rol
+- `facturacion_mexico/working_docs/active/PLAN_MKDOCS_SETUP_ECOSISTEMA.md` — procedimiento completo
+- `mkdocs.yml` — nav actualizado con referencia/ y print-formats
 
-### Probablemente editar
-- Nada — código listo para commit
+### Probablemente editar (Fase 3+4+7)
+- `docs/tecnico/index.md` — reemplazar placeholder por índice real
+- `docs/tecnico/arquitectura.md` — crear desde template
+- `docs/tecnico/setup.md` — crear con entorno real
+- `docs/usuario/*.md` — verificar 8 páginas contra código real
 
 ### No tocar
+- `docs/referencia/` — generado, no editar manualmente
 - `version-16` directamente
 
 ---
 
-## Validación GUI pendiente
+## Riesgos / cuidados
 
-- Permisos Proposals User — sin usuario disponible en proposals.dev
-- Rechazada con proyecto no puede versionar — no validado en GUI
-
----
-
-## Issues abiertos
-
-| # | Título | Prioridad |
-|---|---|---|
-| #17 | feat: auto-populate proposal_group desde Frappe CRM Opportunity | Media |
-| #15 | feat: selector de paleta de colores por cotización | Baja |
-
-### Pendiente de issue
-- Permisos catálogo maestro (Proposals User puede editar Proposal Section/Template/Scope Item)
-- allow_self_approval en todas las transiciones
-- allow_edit = Proposals User en estado Rechazada
+- Fase 7 debe verificar `propuesta-ganada.md` y `proyecto-generado.md` contra `project.py`
+  — ese flujo tuvo un bug corregido en PR #22/#23 (idempotencia segundo clic)
+- ADR candidatos de PR #22/#23 identificados pero no convertidos — no en este PR
+- Custom fields en Quotation no aparecen como DocType propio en referencia/doctypes.md
+  — viven en fixtures/custom_field.json
