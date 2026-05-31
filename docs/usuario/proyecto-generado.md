@@ -2,14 +2,17 @@
 
 ## Cómo se crea el proyecto
 
-El proyecto de ejecución se crea usando el botón **"Crear Proyecto desde Propuesta"** que aparece en la Cotización cuando está en estado **Submitted** (enviada).
+El proyecto de ejecución se crea usando el botón **"Crear Proyecto desde Propuesta"** que aparece en la Cotización en estado **Ganada**.
 
 El botón está disponible en la barra superior de la Cotización, en el grupo "Propuesta".
 
 **Condiciones para que el botón aparezca:**
-- La Cotización debe estar en estado Submitted (docstatus = Enviado)
+- La Cotización debe estar en estado **Ganada** (workflow)
+- La Cotización debe estar en docstatus Submitted (ocurre automáticamente al pasar a En Revisión)
 - La Cotización debe tener un Template de propuesta asignado
 - Debe haber al menos un alcance marcado como "Incluir en propuesta"
+
+Si ya existe un proyecto vinculado, el botón cambia de label a **"Ver / Actualizar Proyecto"**.
 
 Al presionar el botón, el sistema crea el proyecto y las tareas automáticamente y muestra un mensaje con el nombre del proyecto y un enlace para abrirlo.
 

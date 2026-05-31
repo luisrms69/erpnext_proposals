@@ -17,6 +17,14 @@ nav:
     - Limitaciones del RC: usuario/limitaciones-rc.md
   - Documentación técnica:
     - Índice: tecnico/index.md
+    - Arquitectura: tecnico/arquitectura.md
+    - Entorno de desarrollo: tecnico/setup.md
+    - Print Formats: tecnico/print-formats.md
+  - Referencia:
+    - Índice: referencia/index.md
+    - DocTypes: referencia/doctypes.md
+    - Hooks: referencia/hooks.md
+    - API: referencia/api.md
   - Releases:
     - Changelog: CHANGELOG.md
     - ADR-0000 Estado inicial: adr/0000-estado-inicial-app.md

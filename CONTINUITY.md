@@ -1,97 +1,78 @@
 # CONTINUITY.md — erpnext_proposals
 
-**Fecha:** 2026-05-28
-**Rama activa:** `continuity/update-after-pr22`
-**Tarea actual:** Commit listo — permission guards + role fixture + project idempotency fix
+**Fecha:** 2026-05-30
+**Rama activa:** `docs/mkdocs-standard-fase1-fase2`
+**Tarea actual:** PR #24 abierto — normalización MkDocs pendiente de merge
 
 ---
 
 ## Recuperación rápida
 
 Estoy trabajando en:
-Rama `continuity/update-after-pr22` con commit pendiente de ejecutar.
-Incluye: guard de permisos en endpoints críticos, Proposals User en fixture,
-fix de idempotencia en "Ver / Actualizar Proyecto", y 51 tests nuevos.
+PR #24 `docs(proposals): normalize mkdocs structure and documentation` — en revisión.
 
 Plan que estoy siguiendo:
-/ship commit → /ship push → /ship pr → merge a version-16
+`facturacion_mexico/working_docs/active/PLAN_MKDOCS_SETUP_ECOSISTEMA.md`
 
 Objetivo inmediato:
-Escribir CONTINUITY.md, ejecutar commit, push y PR.
+Esperar merge del PR #24, luego /sync-check y actualizar tabla de transición en frappe-infrastructure.
 
 Criterio de avance:
-PR abierto en GitHub con CI verde.
+PR #24 mergeado a `version-16`.
 
 ---
 
 ## Estado actual
 
 ### Ya cerrado
-- PR #22 — project guard, SO button, default project name (mergeado)
-- PR #21 — hide native buttons + Ganada workflow state (mergeado)
-- PR #19 — proposal versioning (mergeado)
-- PR #16 — PDF polish (mergeado)
+- PR #23 — permission guards, role fixture, project idempotency fix
+- PR #22 — project guard, SO button, default project name
+- Normalización MkDocs (Fases 1–4+7) commiteada en rama
 
 ### En progreso
-- `continuity/update-after-pr22` — permission guards + idempotency fix + tests
+- PR #24 — normalización MkDocs — abierto, pendiente review/merge
 
 ### Pendiente inmediato
-1. Confirmar CONTINUITY.md (este archivo)
-2. Commit 10 archivos en esta rama
-3. Push y PR a `version-16`
+1. Merge PR #24
+2. /sync-check post-merge
+3. Actualizar tabla de transición en `frappe-infrastructure/docs/architecture/documentation-standard.md`
+4. ADRs candidatos (idempotencia proyecto, permission guards, submit en En Revision) — tarea separada
 
 ### No repetir
-- No usar `cur_frm` en JS — Frappe v16 lo deprecó, semgrep CI lo bloquea.
+- No usar `cur_frm` en JS — Frappe v16 lo deprecó.
 - Remote es `upstream` (no `origin`).
 - No commitear en `version-16` directamente.
-- CONTINUITY.md se actualiza con `/update-continuity`, nunca manualmente.
-- No instalar Playwright ni herramientas nuevas para validación GUI — usar curl/bench.
+- `docs/referencia/` es generada — no editar manualmente.
+- Tests Frappe requieren `bench run-tests`, no `pytest` directo.
 
 ---
 
 ## Decisiones vigentes
 
-- `assert_can_manage_proposals()` permite System Manager + Proposals Manager.
-  Proposals User está explícitamente bloqueado en endpoints críticos.
-- `assert_can_create_project` NO verifica `proposal_project` — la idempotencia
-  está en `project.py`. Versiones superseded bloqueadas por `superseded_by_proposal`.
-  Ver test_17 y test_ganada_with_existing_project_passes_guard.
-- `Proposals User` ahora en `fixtures/role.json` — faltaba desde el inicio.
-- Permisos de catálogo (Proposal Section, Template, Scope Item), allow_self_approval,
-  y allow_edit en Rechazada quedan pendientes para siguiente tarea.
+- Estado "Ganada" es workflow state real — transición "Marcar como Ganada" desde "Enviada al Cliente"
+- Botón "Crear Proyecto" requiere docstatus=1 Y workflow_state="Ganada"
+- Submit automático ocurre en transición Borrador → En Revision (doc_status=1 en fixture)
+- `assert_can_manage_proposals()` permite System Manager + Proposals Manager
+- `docs/referencia/` generada con `python3 scripts/generate_reference.py`
+- `frappe-multisite --docs erpnext_proposals` disponible en puerto 8767
 
 ---
 
 ## Archivos relevantes ahora
 
 ### Leer primero
-- `CONTINUITY.md` — este archivo
-- `utils/permissions.py` — helper assert_can_manage_proposals
-- `tests/test_proposal_permissions.py` — tests de guards de rol
+- PR #24: https://github.com/luisrms69/erpnext_proposals/pull/24
 
-### Probablemente editar
-- Nada — código listo para commit
+### Probablemente editar post-merge
+- `frappe-infrastructure/docs/architecture/documentation-standard.md` — eliminar fila erpnext_proposals de tabla de transición
 
 ### No tocar
+- `docs/referencia/` — generado, no editar manualmente
 - `version-16` directamente
 
 ---
 
-## Validación GUI pendiente
+## Riesgos / cuidados
 
-- Permisos Proposals User — sin usuario disponible en proposals.dev
-- Rechazada con proyecto no puede versionar — no validado en GUI
-
----
-
-## Issues abiertos
-
-| # | Título | Prioridad |
-|---|---|---|
-| #17 | feat: auto-populate proposal_group desde Frappe CRM Opportunity | Media |
-| #15 | feat: selector de paleta de colores por cotización | Baja |
-
-### Pendiente de issue
-- Permisos catálogo maestro (Proposals User puede editar Proposal Section/Template/Scope Item)
-- allow_self_approval en todas las transiciones
-- allow_edit = Proposals User en estado Rechazada
+- Anchor links INFO en `referencia/api.md` — no bloquean build, deuda del generador
+- ADRs candidatos NO incluidos en PR #24 — pendiente commit posterior

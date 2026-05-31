@@ -72,11 +72,11 @@ Los cambios hechos aquí son independientes del catálogo — no modifican el ca
 **Quién:** Proposals User inicia. Proposals Manager aprueba o rechaza.
 **Tipo:** Manual
 
-La Cotización pasa por un flujo de aprobación interna con cinco estados:
+La Cotización pasa por un flujo de aprobación interna con seis estados:
 
 ```
-Borrador → En Revisión → Aprobada → Enviada al Cliente
-                     ↘ Rechazada → Borrador (para corregir)
+Borrador → En Revisión → Aprobada → Enviada al Cliente → Ganada
+                     ↘ Rechazada          ↘ Rechazada (por cliente)
 ```
 
 ### Estados y quién actúa
@@ -85,11 +85,12 @@ Borrador → En Revisión → Aprobada → Enviada al Cliente
 |---|---|---|---|
 | Borrador | Sí | Proposals User o Manager | Enviar a Revisión |
 | En Revisión | **No — congelada** | Proposals Manager | Aprobar o Rechazar |
-| Aprobada | **No — congelada** | Proposals Manager | Marcar como Enviada al Cliente |
-| Rechazada | **No — congelada** | — | Sin acción disponible |
-| Enviada al Cliente | **No — congelada** | — | Fin del workflow |
+| Aprobada | **No — congelada** | Proposals Manager | Enviar al Cliente |
+| Rechazada | **No — congelada** | Proposals Manager | Crear nueva versión |
+| Enviada al Cliente | **No — congelada** | Proposals Manager | Marcar como Ganada / Rechazar por Cliente |
+| Ganada | **No — congelada** | — | Crear Proyecto desde Propuesta |
 
-> **Importante:** al pasar a **En Revisión**, la Cotización queda bloqueada permanentemente. Si se rechaza, se debe duplicar o amendar la Cotización para crear una nueva versión — no es posible regresar a Borrador.
+> **Importante:** al pasar a **En Revisión**, la Cotización queda bloqueada permanentemente (submitted). Si se rechaza, se puede crear una nueva versión con trazabilidad desde el botón "Crear nueva versión" en la propuesta rechazada.
 
 ### Condiciones para avanzar cualquier estado
 
@@ -137,11 +138,11 @@ Ver instrucciones detalladas en [Generar y enviar al cliente](generar-enviar-pro
 ## Etapa 4 — Propuesta ganada
 
 **Quién:** Proposals Manager
-**Tipo:** Ya ocurrió al pasar a En Revisión
+**Tipo:** Acción de workflow
 
-La Cotización queda **automáticamente submitted (bloqueada)** cuando pasa a En Revisión. No se requiere un Submit manual adicional.
+Cuando el cliente acepta la propuesta, el Proposals Manager ejecuta la acción **"Marcar como Ganada"** desde la Cotización en estado "Enviada al Cliente". Este paso mueve el estado al estado final **Ganada** del workflow.
 
-Una vez en estado **Aprobada** o **Enviada al Cliente**, opcionalmente se puede crear una **Sales Order** desde la Cotización siguiendo el flujo comercial nativo de ERPNext.
+Si el cliente rechaza la propuesta, usar la acción **"Rechazar por Cliente"** en su lugar. Esto permite crear una nueva versión para una propuesta revisada.
 
 Ver detalle en [Propuesta ganada](propuesta-ganada.md).
 
@@ -152,7 +153,7 @@ Ver detalle en [Propuesta ganada](propuesta-ganada.md).
 **Quién:** Proposals Manager
 **Tipo:** Manual (botón) + automático (creación de tareas)
 
-El botón **"Crear Proyecto desde Propuesta"** aparece solo cuando la Cotización está en estado **Aprobada** o **Enviada al Cliente**.
+El botón **"Crear Proyecto desde Propuesta"** aparece solo cuando la Cotización está en estado **Ganada**.
 
 1. Hacer clic en el botón en la barra superior de la Cotización
 2. El sistema crea automáticamente un **Proyecto** con el nombre, cliente y centro de costo de la propuesta

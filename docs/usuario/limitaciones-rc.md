@@ -24,13 +24,9 @@ El módulo no tiene integración con correo electrónico ni portal de cliente. E
 
 No existe mecanismo para registrar la aceptación formal del cliente dentro del sistema. El bloque de firmas en el PDF es solo un espacio visual para imprimir y firmar físicamente.
 
-### 3. Sin firma digital o registro de aceptación del cliente en el sistema
+### 3. Sin correcciones post-rechazo en la misma Cotización
 
-No existe mecanismo para registrar la aceptación formal del cliente dentro del sistema. Los campos **Aprobado por** y **Revisado por** registran quién aprobó/rechazó internamente, pero no la aceptación del cliente externo.
-
-### 4. Sin correcciones post-rechazo en la misma Cotización
-
-Si una propuesta es rechazada, no es posible regresarla a Borrador para edición. Se debe duplicar o amendar la Cotización para crear una nueva versión. La propuesta rechazada queda como evidencia histórica congelada.
+Si una propuesta es rechazada, no es posible regresarla a Borrador para edición en el mismo documento. Usar el botón **"Crear nueva versión"** desde la propuesta Rechazada — crea una nueva Cotización vinculada con trazabilidad completa.
 
 ### 5. Sin post-mortem de rentabilidad estimado vs real
 
@@ -90,10 +86,8 @@ Condiciones que el módulo asume sin verificarlas explícitamente.
 
 | Prioridad | Ítem | Notas |
 |---|---|---|
-| 1 | **Versionado de propuestas** | Si una propuesta es rechazada, se debe duplicar/amendar. No hay mecanismo de nueva versión con trazabilidad. Ver Issue #13. |
-| 2 | **Embellecimiento del PDF** | Diseño visual, portada ejecutiva, jerarquía tipográfica, tablas más ejecutivas. |
-| 3 | **Post-mortem de rentabilidad** | Comparar costos estimados de la propuesta vs costos reales de ejecución (Timesheets, facturas). |
+| 1 | **Post-mortem de rentabilidad** | Comparar costos estimados de la propuesta vs costos reales de ejecución (Timesheets, facturas). |
+| 2 | **Integración con CRM** | Auto-populate `proposal_group` desde Frappe CRM Opportunity. Ver Issue #17. |
 
 Los siguientes ítems **no se implementarán:**
 - Margen mínimo configurable como condición de aprobación — descartado
-- Estado "Ganada" propio en workflow — el Submit de la Cotización cumple esa función
