@@ -2,42 +2,41 @@
 
 **Fecha:** 2026-05-30
 **Rama activa:** `docs/mkdocs-standard-fase1-fase2`
-**Tarea actual:** Normalización MkDocs completa — pendiente commit y PR
+**Tarea actual:** PR #24 abierto — normalización MkDocs pendiente de merge
 
 ---
 
 ## Recuperación rápida
 
 Estoy trabajando en:
-Rama única `docs/mkdocs-standard-fase1-fase2` con todo el trabajo de normalización MkDocs:
-Fase 1+2 (commit a36ef21) y Fase 4+3+7 listos para segundo commit.
+PR #24 `docs(proposals): normalize mkdocs structure and documentation` — en revisión.
 
 Plan que estoy siguiendo:
 `facturacion_mexico/working_docs/active/PLAN_MKDOCS_SETUP_ECOSISTEMA.md`
 
 Objetivo inmediato:
-Commit Fase 4+3+7, luego PR a `version-16`.
+Esperar merge del PR #24, luego /sync-check y actualizar tabla de transición en frappe-infrastructure.
 
 Criterio de avance:
-PR abierto, `mkdocs build --strict` limpio, 36 tests pasando.
+PR #24 mergeado a `version-16`.
 
 ---
 
 ## Estado actual
 
 ### Ya cerrado
-- Commit a36ef21: Fase 1+2 — working_docs/, referencia generada, print-formats.md
-- Discrepancias críticas corregidas en docs/usuario/ (estado Ganada, condición botón proyecto)
 - PR #23 — permission guards, role fixture, project idempotency fix
 - PR #22 — project guard, SO button, default project name
+- Normalización MkDocs (Fases 1–4+7) commiteada en rama
 
 ### En progreso
-- Rama `docs/mkdocs-standard-fase1-fase2` — pendiente segundo commit
+- PR #24 — normalización MkDocs — abierto, pendiente review/merge
 
 ### Pendiente inmediato
-1. Commit Fase 4+3+7 con mensaje confirmado
-2. Push + PR a `version-16`
-3. ADRs candidatos identificados — tarea separada (no en este PR)
+1. Merge PR #24
+2. /sync-check post-merge
+3. Actualizar tabla de transición en `frappe-infrastructure/docs/architecture/documentation-standard.md`
+4. ADRs candidatos (idempotencia proyecto, permission guards, submit en En Revision) — tarea separada
 
 ### No repetir
 - No usar `cur_frm` en JS — Frappe v16 lo deprecó.
@@ -50,24 +49,22 @@ PR abierto, `mkdocs build --strict` limpio, 36 tests pasando.
 
 ## Decisiones vigentes
 
-- Estado "Ganada" es un workflow state real — transición "Marcar como Ganada" desde "Enviada al Cliente"
+- Estado "Ganada" es workflow state real — transición "Marcar como Ganada" desde "Enviada al Cliente"
 - Botón "Crear Proyecto" requiere docstatus=1 Y workflow_state="Ganada"
-- Botón "Sales Order" requiere "Ganada" Y proposal_project set
-- Submit automático ocurre en la transición Borrador → En Revision (doc_status=1 en fixture)
+- Submit automático ocurre en transición Borrador → En Revision (doc_status=1 en fixture)
 - `assert_can_manage_proposals()` permite System Manager + Proposals Manager
-- Idempotencia en project.py — no verifica proposal_project en el guard
 - `docs/referencia/` generada con `python3 scripts/generate_reference.py`
-- Custom fields en Quotation no aparecen en referencia/doctypes.md (están en fixtures/)
+- `frappe-multisite --docs erpnext_proposals` disponible en puerto 8767
 
 ---
 
 ## Archivos relevantes ahora
 
 ### Leer primero
-- `facturacion_mexico/working_docs/active/PLAN_MKDOCS_SETUP_ECOSISTEMA.md`
+- PR #24: https://github.com/luisrms69/erpnext_proposals/pull/24
 
-### Probablemente editar (ADRs — tarea posterior)
-- `docs/adr/` — 3 candidatos: idempotencia proyecto, permission guards, submit automático
+### Probablemente editar post-merge
+- `frappe-infrastructure/docs/architecture/documentation-standard.md` — eliminar fila erpnext_proposals de tabla de transición
 
 ### No tocar
 - `docs/referencia/` — generado, no editar manualmente
@@ -77,6 +74,5 @@ PR abierto, `mkdocs build --strict` limpio, 36 tests pasando.
 
 ## Riesgos / cuidados
 
-- ADRs candidatos identificados pero NO incluidos en este PR — pendiente commit posterior
-- Anchor links INFO en referencia/api.md preexistentes — no bloquean build
-- frappe-multisite necesita puerto 8767 para docs de erpnext_proposals — pendiente al finalizar PR
+- Anchor links INFO en `referencia/api.md` — no bloquean build, deuda del generador
+- ADRs candidatos NO incluidos en PR #24 — pendiente commit posterior
