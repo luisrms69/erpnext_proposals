@@ -1,50 +1,50 @@
 # Propuesta ganada
 
-## Qué significa "propuesta ganada"
+## Qué significa el estado "Ganada"
 
-El módulo no tiene un estado propio llamado "Ganada". El indicador de que una propuesta fue aceptada por el cliente es el **Submit (Envío) de la Cotización** en ERPNext. Este es el mecanismo nativo de ERPNext para cerrar una cotización.
+**Ganada** es el estado final del workflow de propuesta cuando el cliente acepta la propuesta.
+Se activa con la acción **"Marcar como Ganada"** desde una propuesta en estado "Enviada al Cliente".
 
-El estado "Enviada al Cliente" del workflow de aprobación interna solo indica que el documento fue enviado al cliente para su revisión — no que el cliente lo haya aceptado.
+El estado Ganada habilita:
+- El botón **"Crear Proyecto desde Propuesta"**
+- El botón **"Crear → Sales Order"** (nativo ERPNext) — solo después de crear el proyecto
 
 ---
 
 ## Flujo cuando el cliente acepta
 
-### Paso 1 — Submit de la Cotización
+### Paso 1 — Confirmar aceptación del cliente
 
-Cuando el cliente confirma la aceptación de la propuesta:
+Cuando el cliente comunica que acepta la propuesta:
 
-1. Abrir la Cotización en ERPNext
-2. Hacer clic en **Enviar** (Submit) en la barra superior
+1. Abrir la Cotización en estado **Enviada al Cliente**
+2. Usar el botón de workflow **"Marcar como Ganada"** (parte superior derecha)
+3. La Cotización cambia al estado **Ganada**
 
-Este paso:
-- Cambia el estado de la Cotización a "Submitted" (enviada/cerrada)
-- Bloquea la edición de la cotización
-- Habilita el botón **"Crear Proyecto desde Propuesta"** en la barra de botones
+Este paso es necesario para que aparezcan los botones de proyecto y Sales Order.
 
-> El Submit de la Cotización es un prerequisito para poder crear el proyecto desde el módulo.
+### Paso 2 — Crear el proyecto de ejecución
 
-### Paso 2 — Crear Sales Order (opcional)
+Con la Cotización en estado Ganada:
 
-Si el flujo comercial del negocio requiere una Orden de Venta (Sales Order):
-
-1. Desde la Cotización enviada, usar el botón **"Crear → Sales Order"** (nativo ERPNext)
-2. La Sales Order hereda automáticamente el proyecto y el centro de costo de la propuesta
-
-Ver nota sobre la propagación automática en [Proyecto generado](proyecto-generado.md).
-
-La Sales Order es parte del flujo comercial nativo de ERPNext. No es un requisito del módulo para crear el proyecto — el proyecto se puede crear directamente desde la Cotización submitted.
-
-### Paso 3 — Crear el proyecto de ejecución
-
-Con la Cotización en estado Submitted:
-
-1. Buscar el botón **"Crear Proyecto desde Propuesta"** en la barra superior de la Cotización (grupo "Propuesta")
-2. Hacer clic en el botón
+1. Buscar el botón **"Crear Proyecto desde Propuesta"** en la barra superior (grupo "Propuesta")
+2. Confirmar en el diálogo
 3. El sistema crea el Proyecto y las Tareas automáticamente
-4. Al finalizar, el sistema muestra el nombre del proyecto y un enlace para abrirlo directamente
+4. Al finalizar, el sistema muestra el nombre del proyecto con un enlace para abrirlo directamente
+
+Si el botón muestra **"Ver / Actualizar Proyecto"**, significa que ya existe un proyecto vinculado.
+Al presionarlo, el sistema agrega cualquier tarea nueva sin duplicar las existentes.
 
 Ver detalle en [Proyecto generado](proyecto-generado.md).
+
+### Paso 3 — Crear Sales Order (si el flujo comercial lo requiere)
+
+Una vez que existe el proyecto vinculado, aparece el botón **"Crear → Sales Order"** nativo de ERPNext:
+
+1. Usar el botón **Crear → Sales Order** en la Cotización
+2. La Sales Order hereda automáticamente el proyecto y el centro de costo de la propuesta
+
+El proyecto debe existir antes de crear la Sales Order para que la propagación funcione correctamente.
 
 ---
 
@@ -52,37 +52,25 @@ Ver detalle en [Proyecto generado](proyecto-generado.md).
 
 | Paso | Acción | Tipo | Quién |
 |---|---|---|---|
-| 1 | Submit de la Cotización | Manual | Proposals Manager |
-| 2 | Crear Sales Order (si aplica) | Manual | Proposals Manager o Ventas |
-| 3 | Crear Proyecto desde Propuesta | Manual (botón) | Proposals Manager |
-| 4 | Asignar equipo al proyecto | Manual | PMO / Operaciones |
+| 1 | Acción "Marcar como Ganada" en el workflow | Manual | Proposals Manager |
+| 2 | Crear Proyecto desde Propuesta | Manual (botón) | Proposals Manager |
+| 3 | Crear Sales Order (si aplica) | Manual (nativo ERPNext) | Proposals Manager o Ventas |
+| 4 | Asignar equipo y fechas al proyecto | Manual | PMO / Operaciones |
 
 ---
 
 ## Qué NO ocurre automáticamente
 
-- El sistema no cambia ningún estado de propuesta al recibir aceptación del cliente
-- El sistema no genera ninguna notificación cuando el cliente acepta
+- El sistema no cambia el estado de la propuesta al recibir aceptación del cliente — ese paso es siempre manual
+- El sistema no genera notificaciones cuando el cliente acepta
 - No hay integración con correo, portal de cliente ni firma digital
-- La aprobación del cliente no queda registrada en el sistema — solo el estado del workflow interno
+- La aceptación del cliente no queda registrada en el sistema — solo el cambio de estado interno
 
 ---
 
-## Nota sobre el workflow y el Submit
+## Si el cliente rechaza la propuesta
 
-El workflow de aprobación interna (Borrador → En Revisión → Aprobada → Enviada al Cliente) y el Submit de la Cotización son dos mecanismos independientes:
+Usar la acción **"Rechazar por Cliente"** desde estado "Enviada al Cliente".
+La Cotización pasa a estado **Rechazada** y desde ahí se puede crear una nueva versión revisada.
 
-- El **workflow** controla el proceso de revisión interna antes de enviar al cliente
-- El **Submit** de ERPNext marca la cotización como cerrada/ganada
-
-Se pueden hacer en cualquier orden, pero el flujo recomendado es:
-
-```
-Workflow: Aprobada → Enviada al Cliente
-    ↓
-Cliente acepta
-    ↓
-Submit de la Cotización
-    ↓
-Crear Proyecto desde Propuesta
-```
+Ver [Flujo operativo](flujo-operativo.md) para la ruta de versionado.

@@ -17,6 +17,8 @@ nav:
     - Limitaciones del RC: usuario/limitaciones-rc.md
   - Documentación técnica:
     - Índice: tecnico/index.md
+    - Arquitectura: tecnico/arquitectura.md
+    - Entorno de desarrollo: tecnico/setup.md
     - Print Formats: tecnico/print-formats.md
   - Referencia:
     - Índice: referencia/index.md

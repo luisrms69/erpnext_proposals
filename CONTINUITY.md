@@ -2,74 +2,72 @@
 
 **Fecha:** 2026-05-30
 **Rama activa:** `docs/mkdocs-standard-fase1-fase2`
-**Tarea actual:** Fase 1 + Fase 2 de estructura MkDocs estándar — pendiente commit
+**Tarea actual:** Normalización MkDocs completa — pendiente commit y PR
 
 ---
 
 ## Recuperación rápida
 
 Estoy trabajando en:
-Implementación del estándar documental MkDocs del ecosistema en erpnext_proposals.
-Fase 1 (estructura limpia) y Fase 2 (generador de referencia) completadas y listas para commit.
+Rama única `docs/mkdocs-standard-fase1-fase2` con todo el trabajo de normalización MkDocs:
+Fase 1+2 (commit a36ef21) y Fase 4+3+7 listos para segundo commit.
 
 Plan que estoy siguiendo:
 `facturacion_mexico/working_docs/active/PLAN_MKDOCS_SETUP_ECOSISTEMA.md`
 
 Objetivo inmediato:
-Commit de Fase 1 + Fase 2, luego PR a `version-16`.
+Commit Fase 4+3+7, luego PR a `version-16`.
 
 Criterio de avance:
-Commit creado, `mkdocs build --strict` limpio, PR abierto.
+PR abierto, `mkdocs build --strict` limpio, 36 tests pasando.
 
 ---
 
 ## Estado actual
 
 ### Ya cerrado
+- Commit a36ef21: Fase 1+2 — working_docs/, referencia generada, print-formats.md
+- Discrepancias críticas corregidas en docs/usuario/ (estado Ganada, condición botón proyecto)
 - PR #23 — permission guards, role fixture, project idempotency fix
 - PR #22 — project guard, SO button, default project name
-- Diagnóstico completo de erpnext_proposals contra el procedimiento piloto
 
 ### En progreso
-- Rama `docs/mkdocs-standard-fase1-fase2` — listo para commit
+- Rama `docs/mkdocs-standard-fase1-fase2` — pendiente segundo commit
 
 ### Pendiente inmediato
-1. Commit con mensaje ya confirmado
+1. Commit Fase 4+3+7 con mensaje confirmado
 2. Push + PR a `version-16`
-3. Fase 3 + 4 + 7 (segundo PR): escribir `arquitectura.md`, `setup.md`, verificar usuario/
+3. ADRs candidatos identificados — tarea separada (no en este PR)
 
 ### No repetir
 - No usar `cur_frm` en JS — Frappe v16 lo deprecó.
 - Remote es `upstream` (no `origin`).
 - No commitear en `version-16` directamente.
-- CONTINUITY.md se actualiza con `/update-continuity`, nunca manualmente.
 - `docs/referencia/` es generada — no editar manualmente.
+- Tests Frappe requieren `bench run-tests`, no `pytest` directo.
 
 ---
 
 ## Decisiones vigentes
 
-- `visual-regression/` PDFs → `working_docs/archive/visual-regression/` (evidencia histórica)
-- READMEs de visual-regression → consolidados en `docs/tecnico/print-formats.md`
-- `scripts/generate_reference.py` copiado de facturacion_mexico, idempotente
-- Anchor links INFO en referencia/api.md no bloquean el build — deuda del generador, existe en facturacion_mexico también
-- No se usa `_quarantine/` en erpnext_proposals — docs/ estaba limpia
+- Estado "Ganada" es un workflow state real — transición "Marcar como Ganada" desde "Enviada al Cliente"
+- Botón "Crear Proyecto" requiere docstatus=1 Y workflow_state="Ganada"
+- Botón "Sales Order" requiere "Ganada" Y proposal_project set
+- Submit automático ocurre en la transición Borrador → En Revision (doc_status=1 en fixture)
 - `assert_can_manage_proposals()` permite System Manager + Proposals Manager
-- `assert_can_create_project` NO verifica `proposal_project` — idempotencia en `project.py`
+- Idempotencia en project.py — no verifica proposal_project en el guard
+- `docs/referencia/` generada con `python3 scripts/generate_reference.py`
+- Custom fields en Quotation no aparecen en referencia/doctypes.md (están en fixtures/)
 
 ---
 
 ## Archivos relevantes ahora
 
 ### Leer primero
-- `facturacion_mexico/working_docs/active/PLAN_MKDOCS_SETUP_ECOSISTEMA.md` — procedimiento completo
-- `mkdocs.yml` — nav actualizado con referencia/ y print-formats
+- `facturacion_mexico/working_docs/active/PLAN_MKDOCS_SETUP_ECOSISTEMA.md`
 
-### Probablemente editar (Fase 3+4+7)
-- `docs/tecnico/index.md` — reemplazar placeholder por índice real
-- `docs/tecnico/arquitectura.md` — crear desde template
-- `docs/tecnico/setup.md` — crear con entorno real
-- `docs/usuario/*.md` — verificar 8 páginas contra código real
+### Probablemente editar (ADRs — tarea posterior)
+- `docs/adr/` — 3 candidatos: idempotencia proyecto, permission guards, submit automático
 
 ### No tocar
 - `docs/referencia/` — generado, no editar manualmente
@@ -79,8 +77,6 @@ Commit creado, `mkdocs build --strict` limpio, PR abierto.
 
 ## Riesgos / cuidados
 
-- Fase 7 debe verificar `propuesta-ganada.md` y `proyecto-generado.md` contra `project.py`
-  — ese flujo tuvo un bug corregido en PR #22/#23 (idempotencia segundo clic)
-- ADR candidatos de PR #22/#23 identificados pero no convertidos — no en este PR
-- Custom fields en Quotation no aparecen como DocType propio en referencia/doctypes.md
-  — viven en fixtures/custom_field.json
+- ADRs candidatos identificados pero NO incluidos en este PR — pendiente commit posterior
+- Anchor links INFO en referencia/api.md preexistentes — no bloquean build
+- frappe-multisite necesita puerto 8767 para docs de erpnext_proposals — pendiente al finalizar PR
