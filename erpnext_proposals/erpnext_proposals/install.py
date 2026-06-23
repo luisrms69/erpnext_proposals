@@ -32,13 +32,13 @@ def _sync_desktop_icons():
 	for filename in os.listdir(directory_path):
 		import_file_by_path(os.path.join(directory_path, filename), force=True, ignore_version=True)
 
-	frappe.db.commit()
+	frappe.db.commit()  # nosemgrep — install hook: persist desktop icon
 
 
 def _create_base_catalog():
 	_create_sections()
 	_create_templates()
-	frappe.db.commit()
+	frappe.db.commit()  # nosemgrep — install hook: persist base catalog
 
 
 def _create_sections():

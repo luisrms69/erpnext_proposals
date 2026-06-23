@@ -98,6 +98,7 @@ jobs:
         working-directory: /home/runner/frappe-bench
         run: |
           bench get-app --branch version-16 erpnext
+          bench get-app --branch version-16 hrms
           bench get-app erpnext_proposals $GITHUB_WORKSPACE
           bench setup requirements --dev
         env:
@@ -113,6 +114,7 @@ jobs:
             --mariadb-root-password root \
             --admin-password admin
           bench --site test_proposals install-app erpnext
+          bench --site test_proposals install-app hrms
           bench --site test_proposals install-app erpnext_proposals
           bench --site test_proposals set-config allow_tests true
 
