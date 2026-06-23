@@ -19,6 +19,7 @@ nav:
     - Índice: tecnico/index.md
     - Arquitectura: tecnico/arquitectura.md
     - Entorno de desarrollo: tecnico/setup.md
+    - Despliegue a producción: tecnico/despliegue-produccion.md
     - Print Formats: tecnico/print-formats.md
   - Referencia:
     - Índice: referencia/index.md
