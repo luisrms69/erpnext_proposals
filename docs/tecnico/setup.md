@@ -9,7 +9,7 @@
 | Bench | frappe-bench-v16 (`/home/erpnext/frappe-bench-v16`) |
 | Frappe | 16.x |
 | ERPNext | 16.x (requerido) |
-| HRMS | 16.x (opcional — habilita fuente salarial en matriz de costos) |
+| HRMS | 16.x (requerido — fuente salarial de la matriz de costos / Rentabilidad Estimada) |
 | Python | 3.12+ |
 | Node | 24.x |
 

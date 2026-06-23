@@ -1,7 +1,7 @@
 {
  "app": "erpnext_proposals",
  "charts": [],
- "content": "[]",
+ "content": "[{\"id\":\"propHeaderMain\",\"type\":\"header\",\"data\":{\"text\":\"<span class=\\\"h4\\\"><b>Propuestas Comerciales</b></span>\",\"col\":12}},{\"id\":\"propCardOperacion\",\"type\":\"card\",\"data\":{\"card_name\":\"Operacion\",\"col\":4}},{\"id\":\"propCardConfig\",\"type\":\"card\",\"data\":{\"card_name\":\"Configuracion de Propuestas\",\"col\":4}},{\"id\":\"propCardReportes\",\"type\":\"card\",\"data\":{\"card_name\":\"Reportes\",\"col\":4}},{\"id\":\"propCardReferencia\",\"type\":\"card\",\"data\":{\"card_name\":\"Referencia\",\"col\":4}}]",
  "custom_blocks": [],
  "docstatus": 0,
  "doctype": "Workspace",

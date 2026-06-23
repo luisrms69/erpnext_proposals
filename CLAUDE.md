@@ -128,8 +128,8 @@ sin reemplazar Quotation Items ni crear sistemas paralelos de precios.
 | Workflow State | `fixtures/workflow_state.json` | Borrador, En Revision, Aprobada, Rechazada, Enviada al Cliente |
 
 **Workspace, Workspace Sidebar, Desktop Icon:** module folder (no fixtures).
-- Workspace Sidebar sincroniza en `bench migrate`
-- Desktop Icon requiere `bench --site {site} sync-desktop-icons`
+- Workspace Sidebar sincroniza en `bench migrate` — su primer item `Inicio` (link_type `Workspace`) aterriza en el Workspace de tarjetas, no en el primer DocType
+- Desktop Icon se sincroniza automáticamente en `after_install` (ver `_sync_desktop_icons` en `install.py`). En sites ya instalados, aplicar con `bench --site {site} sync-desktop-icons`
 
 **Catálogo inicial (Proposal Sections + Templates):** creado por `after_install`, no por fixtures.
 No se sobreescribe en migrate. Ver `erpnext_proposals/erpnext_proposals/install.py`.
@@ -138,8 +138,8 @@ No se sobreescribe en migrate. Ver `erpnext_proposals/erpnext_proposals/install.
 
 ## Dependencias
 
-**Apps requeridas:** erpnext
-**Apps en frappe-bench-v16:** frappe, erpnext, erpnext_proposals
+**Apps requeridas:** erpnext, hrms (ambas en `required_apps` — hrms es fuente salarial de la matriz de costos / Rentabilidad Estimada)
+**Apps en frappe-bench-v16:** frappe, erpnext, hrms, erpnext_proposals
 **Dependencias externas:** Ninguna
 
 ---

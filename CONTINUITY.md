@@ -1,78 +1,93 @@
 # CONTINUITY.md — erpnext_proposals
 
-**Fecha:** 2026-05-30
-**Rama activa:** `docs/mkdocs-standard-fase1-fase2`
-**Tarea actual:** PR #24 abierto — normalización MkDocs pendiente de merge
+**Fecha:** 2026-06-22
+**Rama activa:** `feature/deploy-produccion`
+**Tarea actual:** Preparar primer despliegue a producción (staging primero) + arreglar el landing del Workspace.
 
 ---
 
 ## Recuperación rápida
 
 Estoy trabajando en:
-PR #24 `docs(proposals): normalize mkdocs structure and documentation` — en revisión.
+Cambios para el primer despliegue de la app a un site nuevo: HRMS como dependencia
+requerida, instalación automática del Desktop Icon, render correcto del Workspace, y la
+guía de despliegue a producción.
 
 Plan que estoy siguiendo:
-`facturacion_mexico/working_docs/active/PLAN_MKDOCS_SETUP_ECOSISTEMA.md`
+Despliegue staging → producción documentado en `docs/tecnico/despliegue-produccion.md`.
 
 Objetivo inmediato:
-Esperar merge del PR #24, luego /sync-check y actualizar tabla de transición en frappe-infrastructure.
+Commit de la rama `feature/deploy-produccion` (en curso). Luego push, PR a `version-16` y
+validar en el site de staging real.
 
 Criterio de avance:
-PR #24 mergeado a `version-16`.
+El icono de la app abre el Workspace de tarjetas (no salta a Quotation); los Print Formats
+aparecen en el selector; el checklist de `despliegue-produccion.md` corre limpio en staging.
 
 ---
 
 ## Estado actual
 
 ### Ya cerrado
-- PR #23 — permission guards, role fixture, project idempotency fix
-- PR #22 — project guard, SO button, default project name
-- Normalización MkDocs (Fases 1–4+7) commiteada en rama
+- `required_apps = ["erpnext", "hrms"]` (hooks.py).
+- Desktop Icon automático en `after_install` (install.py `_sync_desktop_icons`).
+- Workspace `content` poblado con header + 4 cards → render correcto (validado en proposals.dev).
+- Sidebar con item "Inicio" → Workspace.
+- Guía `docs/tecnico/despliegue-produccion.md` + setup.md (HRMS requerido) + nota en guía de usuario + mkdocs nav + CLAUDE.md.
 
 ### En progreso
-- PR #24 — normalización MkDocs — abierto, pendiente review/merge
+- Commit de la rama (este turno).
 
 ### Pendiente inmediato
-1. Merge PR #24
-2. /sync-check post-merge
-3. Actualizar tabla de transición en `frappe-infrastructure/docs/architecture/documentation-standard.md`
-4. ADRs candidatos (idempotencia proyecto, permission guards, submit en En Revision) — tarea separada
+1. Push de la rama (requiere autorización aparte).
+2. PR a `version-16` (requiere autorización; correr `/pr-ready`).
+3. Validar el checklist de despliegue en el site de staging real.
+4. Definir `pdf_generator` de los Print Formats (workstream aparte del usuario).
 
 ### No repetir
+- **NUNCA** `frappe.reload_doc(..., "workspace", ..., force=True)` con `developer_mode=1`:
+  borra el `.json` fuente del Workspace (after_delete→delete_folder→rmtree; el re-export se
+  suprime por `in_import`). Para cambios de workspace: editar el JSON, subir su `modified`,
+  y `bench migrate`. Documentado en skill `frappe-conventions`.
 - No usar `cur_frm` en JS — Frappe v16 lo deprecó.
 - Remote es `upstream` (no `origin`).
 - No commitear en `version-16` directamente.
 - `docs/referencia/` es generada — no editar manualmente.
-- Tests Frappe requieren `bench run-tests`, no `pytest` directo.
+- Tests Frappe con `bench run-tests`, no `pytest` directo.
 
 ---
 
 ## Decisiones vigentes
-
-- Estado "Ganada" es workflow state real — transición "Marcar como Ganada" desde "Enviada al Cliente"
-- Botón "Crear Proyecto" requiere docstatus=1 Y workflow_state="Ganada"
-- Submit automático ocurre en transición Borrador → En Revision (doc_status=1 en fixture)
-- `assert_can_manage_proposals()` permite System Manager + Proposals Manager
-- `docs/referencia/` generada con `python3 scripts/generate_reference.py`
-- `frappe-multisite --docs erpnext_proposals` disponible en puerto 8767
+- HRMS es dependencia **requerida** (no opcional) — fuente salarial de la matriz de costos.
+- El Workspace se gobierna por `content` (cards), no por `links`; `links` es inerte sin un
+  bloque `card` que lo referencie por `card_name`.
+- `pdf_generator` de los Print Formats no está fijado en el JSON — pendiente de definir.
+- Estado "Ganada" es workflow state real; botón "Crear Proyecto" requiere docstatus=1 Y workflow_state="Ganada".
+- `frappe-multisite --docs erpnext_proposals` disponible en puerto 8767.
 
 ---
 
 ## Archivos relevantes ahora
 
 ### Leer primero
-- PR #24: https://github.com/luisrms69/erpnext_proposals/pull/24
+- `docs/tecnico/despliegue-produccion.md` — metodología y checklist de despliegue.
 
-### Probablemente editar post-merge
-- `frappe-infrastructure/docs/architecture/documentation-standard.md` — eliminar fila erpnext_proposals de tabla de transición
+### Probablemente editar
+- `erpnext_proposals/erpnext_proposals/print_format/*/*.json` — fijar `pdf_generator` (pendiente).
 
 ### No tocar
-- `docs/referencia/` — generado, no editar manualmente
-- `version-16` directamente
+- El Workspace JSON vía `reload_doc force` (ver "No repetir").
+- `docs/referencia/` — generado.
+- `version-16` directamente.
 
 ---
 
 ## Riesgos / cuidados
+- En `developer_mode`, recargar workspaces solo con `migrate` (subiendo `modified`), nunca `reload_doc force`.
+- `migrate` escribe en BD — correr siempre con `--site`.
 
-- Anchor links INFO en `referencia/api.md` — no bloquean build, deuda del generador
-- ADRs candidatos NO incluidos en PR #24 — pendiente commit posterior
+---
+
+## Información faltante
+- Nombre/host del site de staging real (no está en este bench; es servidor aparte).
+- Generador de PDF correcto (`wkhtmltopdf` vs `chrome`) para los Print Formats.

@@ -9,6 +9,13 @@ El módulo incluye dos documentos PDF para la Cotización:
 | **Propuesta Comercial** | Propuesta formal para el cliente | Cliente externo |
 | **Rentabilidad Estimada** | Análisis de margen y costos | Uso interno — solo Proposals Manager y administradores |
 
+!!! note "¿No ves los formatos en el selector de impresión?"
+    Los formatos de impresión se **cargan en el site al instalar la app** (durante `bench migrate`).
+    No es algo que el usuario final cargue manualmente. Si al imprimir una Cotización no aparecen
+    **Propuesta Comercial** ni **Rentabilidad Estimada** en el selector de formato, el administrador
+    del site debe cargarlos siguiendo la
+    [guía de despliegue → Cargar los Print Formats](../tecnico/despliegue-produccion.md#5-cargar-los-print-formats).
+
 ---
 
 ## Cómo generar el PDF "Propuesta Comercial"

@@ -3,19 +3,42 @@ after_install hook for erpnext_proposals.
 
 Creates base catalog (Proposal Sections and Templates) only on first install.
 Does NOT run on migrate — never overwrites user customizations.
+Also syncs the app Desktop Icon so it appears without a manual sync-desktop-icons step.
 """
+
+import os
 
 import frappe
 
 
 def after_install():
 	_create_base_catalog()
+	_sync_desktop_icons()
+
+
+def _sync_desktop_icons():
+	"""Import the app's Desktop Icon on install.
+
+	Replicates the core ``sync-desktop-icons`` command for this app only, so a fresh
+	install shows the workspace icon without requiring a separate manual command.
+	"""
+	from frappe.model.sync import import_file_by_path
+	from frappe.modules.utils import get_app_level_directory_path
+
+	directory_path = get_app_level_directory_path("desktop_icon", "erpnext_proposals")
+	if not os.path.exists(directory_path):
+		return
+
+	for filename in os.listdir(directory_path):
+		import_file_by_path(os.path.join(directory_path, filename), force=True, ignore_version=True)
+
+	frappe.db.commit()  # nosemgrep — install hook: persist desktop icon
 
 
 def _create_base_catalog():
 	_create_sections()
 	_create_templates()
-	frappe.db.commit()
+	frappe.db.commit()  # nosemgrep — install hook: persist base catalog
 
 
 def _create_sections():
