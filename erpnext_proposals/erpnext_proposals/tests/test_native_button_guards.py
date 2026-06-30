@@ -9,6 +9,11 @@ import unittest
 
 import frappe
 
+from erpnext_proposals.erpnext_proposals.tests.fiscal_year import (
+	cleanup_fiscal_year,
+	ensure_current_fiscal_year,
+)
+
 
 class TestNativeButtonGuards(unittest.TestCase):
 	@classmethod
@@ -21,6 +26,8 @@ class TestNativeButtonGuards(unittest.TestCase):
 		cg = frappe.db.get_value("Customer Group", {"is_group": 0}, "name")
 		if not cg:
 			raise unittest.SkipTest("No Customer Group found.")
+
+		cls._created_fy = ensure_current_fiscal_year()
 
 		terr = frappe.db.get_value("Territory", {"is_group": 0}, "name")
 
@@ -73,6 +80,7 @@ class TestNativeButtonGuards(unittest.TestCase):
 					frappe.delete_doc("Quotation", name, force=True, ignore_permissions=True)
 				except Exception:
 					pass
+		cleanup_fiscal_year(getattr(cls, "_created_fy", None))
 
 	def _make_submitted_proposal(self):
 		doc = frappe.get_doc(

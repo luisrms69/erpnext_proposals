@@ -1,7 +1,7 @@
 <!--
   ARCHIVO GENERADO AUTOMÁTICAMENTE. NO EDITAR MANUALMENTE.
   Regenerar con: python3 scripts/generate_reference.py
-  Fecha generación: 2026-05-30 16:49
+  Fecha generación: 2026-06-29 22:52
 -->
 
 
@@ -50,6 +50,19 @@ Fuente: `erpnext_proposals/erpnext_proposals/doctype/proposal_cost_matrix_log/pr
 | `changed_on` | Fecha del cambio | Datetime |  |  |
 | `rebuild_run_id` | Rebuild Run ID | Data |  |  |
 | `notes` | Notas | Small Text |  |  |
+
+
+### Proposal Phase
+
+Fuente: `erpnext_proposals/erpnext_proposals/doctype/proposal_phase/proposal_phase.json`
+
+
+| Campo | Label | Tipo | Requerido | Opciones |
+|---|---|---|---|---|
+| `phase_code` | Phase Code | Data | ✅ |  |
+| `phase_name` | Phase Name | Data | ✅ |  |
+| `sequence` | Sequence | Int | ✅ |  |
+| `enabled` | Enabled | Check |  |  |
 
 
 ### Proposal Section

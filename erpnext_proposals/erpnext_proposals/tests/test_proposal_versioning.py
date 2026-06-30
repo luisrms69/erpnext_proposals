@@ -9,6 +9,10 @@ import unittest
 
 import frappe
 
+from erpnext_proposals.erpnext_proposals.tests.fiscal_year import (
+	cleanup_fiscal_year,
+	ensure_current_fiscal_year,
+)
 from erpnext_proposals.erpnext_proposals.utils.proposal_versioning import (
 	assert_single_live_proposal_for_group,
 	create_new_proposal_version,
@@ -21,6 +25,7 @@ class TestProposalVersioning(unittest.TestCase):
 	def setUpClass(cls):
 		super().setUpClass()
 		cls._setup_masters()
+		cls._created_fy = ensure_current_fiscal_year()
 		cls.v1 = cls._make_submitted_rejected_quotation()
 		cls.v1_fresh = cls._make_submitted_rejected_quotation(suffix="_fresh")
 
@@ -49,6 +54,7 @@ class TestProposalVersioning(unittest.TestCase):
 					except Exception:
 						pass
 		# No Proposal Group DocType to clean up — proposal_group is now a Data field
+		cleanup_fiscal_year(getattr(cls, "_created_fy", None))
 		super().tearDownClass()
 
 	@classmethod

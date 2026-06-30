@@ -29,6 +29,11 @@ import unittest
 import frappe
 from frappe.exceptions import UpdateAfterSubmitError
 
+from erpnext_proposals.erpnext_proposals.tests.fiscal_year import (
+	cleanup_fiscal_year,
+	ensure_current_fiscal_year,
+)
+
 ORIGINAL_RATE = 8_000.0
 ORIGINAL_QTY = 3.0
 MODIFIED_RATE = 1.0
@@ -114,6 +119,7 @@ class TestLiveCalculationVariables(unittest.TestCase):
 	def setUpClass(cls):
 		super().setUpClass()
 		cls._setup_masters()
+		cls._created_fy = ensure_current_fiscal_year()
 		cls.quotation = cls._create_and_submit()
 
 	@classmethod
@@ -128,6 +134,7 @@ class TestLiveCalculationVariables(unittest.TestCase):
 				frappe.delete_doc("Quotation", name, force=True, ignore_permissions=True)
 			except Exception:
 				pass
+		cleanup_fiscal_year(getattr(cls, "_created_fy", None))
 		super().tearDownClass()
 
 	@classmethod

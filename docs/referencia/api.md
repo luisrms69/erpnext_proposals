@@ -1,7 +1,7 @@
 <!--
   ARCHIVO GENERADO AUTOMÁTICAMENTE. NO EDITAR MANUALMENTE.
   Regenerar con: python3 scripts/generate_reference.py
-  Fecha generación: 2026-05-30 16:49
+  Fecha generación: 2026-06-29 22:52
 -->
 
 
