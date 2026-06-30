@@ -59,6 +59,23 @@ El sistema crea 10 secciones base: Resumen Ejecutivo, Objetivo del Proyecto, Mod
 
 ---
 
+### Fase de propuesta (Proposal Phase)
+
+**Propósito:** Catálogo único de las fases con las que se agrupan y ordenan las actividades de una propuesta (ej. Análisis, Diseño, Implementación, Pruebas, Cierre). Centraliza los nombres de fase para mantener consistencia.
+
+**Cuándo se usa:**
+- Al configurar las fases válidas del negocio. Lo administra el rol **Proposals Manager**.
+
+**Campos:**
+- **Código de fase (`phase_code`)** — identificador estable; **no se puede cambiar** una vez creada la fase.
+- **Nombre de fase (`phase_name`)** — nombre visible; sí se puede editar. Las propuestas históricas conservan su propia copia de la fase.
+- **Secuencia** — orden de la fase.
+- **Habilitado** — permite retirar una fase del uso sin borrarla.
+
+**Estado actual:** El catálogo ya existe y se puede administrar, pero **todavía no está conectado** a la tabla de alcance — hoy la fase del alcance sigue siendo texto libre. Es la base para dar consistencia a las fases en una etapa posterior.
+
+---
+
 ## Documentos operativos
 
 Estos documentos se generan o editan en el trabajo diario de cada propuesta.

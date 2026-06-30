@@ -107,6 +107,7 @@ sin reemplazar Quotation Items ni crear sistemas paralelos de precios.
 | `Proposal Template Section` | Child | Fila de sección en un template (con override opcional de título y contenido) |
 | `Scope Item` | Maestro | Catálogo de actividades/alcances — sin precio, sin costo |
 | `Quotation Scope Item` | Child | Copia congelada del catálogo dentro de una Quotation específica |
+| `Proposal Phase` | Maestro | Catálogo único de fases (`phase_code` estable e inmutable + `phase_name`/`sequence`/`enabled` editables). Aún NO conectado al alcance |
 
 **Custom Fields en Quotation (pestaña "Propuesta"):**
 `proposal_template`, `proposal_title`, `quotation_scope_items`, `proposal_cost_center`, `proposal_project`
