@@ -39,12 +39,11 @@ inmutable; sin conexión todavía al flujo.
 - Docs: `docs/usuario/doctypes.md`, referencia regenerada, `CLAUDE.md`.
 
 ### En progreso
-- Commit de la rama (este turno).
+- **PR #26 abierto** (https://github.com/luisrms69/erpnext_proposals/pull/26) hacia `version-16` — esperando checks/review/merge.
 
 ### Pendiente inmediato
-1. Push de la rama (autorización aparte).
-2. PR a `version-16` (autorización aparte).
-3. Siguiente etapa de diseño (NO implementada): `Proposal Scope Template` + Item→Template +
+1. Merge del PR #26 (tras checks de CI). Antes de "Squash and Merge": re-`/update-continuity` final.
+2. Siguiente etapa de diseño (NO implementada): `Proposal Scope Template` + Item→Template +
    copia congelada de fase (Link de referencia + snapshot `phase`/`phase_sequence`) + Tasks
    padre por fase. Presentar diseño completo de inmutabilidad antes de implementar.
 
