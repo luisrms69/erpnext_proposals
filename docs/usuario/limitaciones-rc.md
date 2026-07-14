@@ -38,9 +38,10 @@ No hay acceso del cliente al sistema para revisar o aprobar propuestas en línea
 
 ### 7. El alcance no se re-sincroniza al editar el catálogo (Issue #27)
 
-La tabla de alcance de una Cotización es una **copia congelada** del catálogo `Scope Item` al
-momento de generarse. Editar un Scope Item del catálogo (horas, título, fase, perfil) **no
-actualiza** las cotizaciones que ya lo copiaron — ni siquiera si siguen en **Borrador**.
+La tabla de alcance de una Cotización se genera como una **copia independiente del catálogo
+`Scope Item`**. Mientras la Cotización está en **Borrador**, las filas pueden editarse o
+eliminarse manualmente, pero **no se actualizan automáticamente** cuando cambia el catálogo.
+El alcance queda congelado al pasar a *En Revisión*.
 
 El botón **"Regenerar alcance"** **solo agrega** combinaciones nuevas; **no actualiza** filas
 existentes ni **elimina** las de un Scope Item deshabilitado o borrado. Su nombre no refleja

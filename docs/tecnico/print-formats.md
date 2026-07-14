@@ -81,11 +81,11 @@ al alcance y la inversión:
 
 Es una convención definida en el Jinja de `propuesta_comercial.json` (buckets
 `body_sections` / `late_sections`). Hoy los 3 templates instalados usan sequences 10–100,
-por lo que **todas** sus secciones caen antes del alcance; nada queda después salvo Inversión
-y Aceptación.
+por lo que **todas** sus secciones caen antes del alcance. Actualmente no existen secciones
+narrativas posteriores a la Inversión.
 
-**Para colocar una sección después del alcance** (ej. términos legales, garantías,
-condiciones comerciales), asignarle `sequence >= 500` en el `Proposal Template Section`.
+**Para colocar una sección después de la Inversión** —por ejemplo términos legales, garantías
+o condiciones comerciales— asignarle `sequence >= 500` en el `Proposal Template Section`.
 
 > El umbral 500 vive únicamente en el Jinja del Print Format. Al editar templates, respetar
 > esta convención — de lo contrario una sección "legal" aparecerá en medio del cuerpo.
