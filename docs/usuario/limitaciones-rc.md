@@ -36,6 +36,23 @@ El reporte de rentabilidad calcula el margen **estimado** al momento de cotizar.
 
 No hay acceso del cliente al sistema para revisar o aprobar propuestas en línea.
 
+### 7. El alcance no se re-sincroniza al editar el catálogo (Issue #27)
+
+La tabla de alcance de una Cotización es una **copia congelada** del catálogo `Scope Item` al
+momento de generarse. Editar un Scope Item del catálogo (horas, título, fase, perfil) **no
+actualiza** las cotizaciones que ya lo copiaron — ni siquiera si siguen en **Borrador**.
+
+El botón **"Regenerar alcance"** **solo agrega** combinaciones nuevas; **no actualiza** filas
+existentes ni **elimina** las de un Scope Item deshabilitado o borrado. Su nombre no refleja
+este comportamiento.
+
+**Cómo refrescar el alcance con los valores actuales del catálogo (en Borrador):**
+borrar todas las filas de la tabla de alcance y **Guardar** — al guardar se regeneran desde
+cero con los datos vigentes del catálogo.
+
+> El congelamiento definitivo ocurre al pasar a *En Revisión*; a partir de ahí el alcance es
+> inmutable por diseño. Mejorar el comportamiento en Borrador está registrado en el Issue #27.
+
 ---
 
 ## Pasos manuales
@@ -45,7 +62,7 @@ Acciones que el sistema no automatiza y que el usuario debe hacer manualmente en
 | Paso | Motivo |
 |---|---|
 | Completar la pestaña Propuesta (template, título, centro de costo) | El usuario define estos datos por propuesta |
-| Revisar y ajustar la tabla de alcance después del guardado | La generación automática puede no cubrir todos los alcances necesarios |
+| Revisar y ajustar la tabla de alcance después del guardado | La generación automática puede no cubrir todos los alcances; para refrescar tras editar el catálogo, borrar filas + Guardar (ver Limitación 7) |
 | Avanzar cada estado del workflow | El workflow requiere decisión humana en cada paso |
 | Descargar y enviar el PDF al cliente por correo | No hay integración de envío automático |
 | Submit de la Cotización cuando el cliente acepta | Acción nativa de ERPNext que requiere decisión del usuario |

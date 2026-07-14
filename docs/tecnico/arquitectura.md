@@ -35,7 +35,7 @@ y de gestión.
 
 | Flujo | Entrada | Proceso | Salida | Docs relacionados |
 |---|---|---|---|---|
-| Creación de propuesta | Nueva Quotation con `proposal_group` | `before_insert` valida grupo único; `validate` genera scope items desde catálogo | Quotation en Borrador con scope | `utils/quotation.py` |
+| Creación de propuesta | Nueva Quotation con `proposal_group` | `before_insert` valida grupo único; `validate` genera scope items desde catálogo (**append-only**: solo agrega combinaciones `(item, scope_item)` faltantes; no actualiza ni elimina filas existentes — ver Issue #27) | Quotation en Borrador con scope | `utils/quotation.py` |
 | Avance a En Revision | Workflow action "Enviar a Revision" | `validate_workflow`: valida campos, congela snapshot de secciones y costos, genera y adjunta PDFs | Quotation submitted (docstatus=1), snapshot congelado, PDFs adjuntos | `utils/workflow_validations.py` |
 | Aprobación / Rechazo | Workflow action "Aprobar" o "Rechazar" | Registra `reviewed_by`, `reviewed_on`; si aprobada: registra `approved_by`, `approved_on` | Quotation en Aprobada o Rechazada con trazabilidad | `utils/workflow_validations.py` |
 | Versionado | Quotation Rechazada + acción "Crear nueva versión" | Copia campos a nueva Quotation; marca original como `superseded_by_proposal`; bloquea si hay proyecto activo en la versión anterior | Nueva Quotation en Borrador vinculada | `utils/proposal_versioning.py` |
