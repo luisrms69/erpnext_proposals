@@ -58,7 +58,7 @@ frappe.ui.form.on("Quotation", {
 			});
 		}
 
-		// Regenerar alcance: only in Borrador (docstatus=0) — document is editable
+		// Sincronizar alcance desde catálogo: solo en Borrador (docstatus=0) — documento editable
 		if (
 			!frm.is_new() &&
 			frm.doc.proposal_template &&
@@ -66,14 +66,39 @@ frappe.ui.form.on("Quotation", {
 			frm.doc.workflow_state === "Borrador"
 		) {
 			frm.add_custom_button(
-				__("Regenerar alcance"),
+				__("Sincronizar alcance desde catálogo"),
 				() => {
 					frappe.confirm(
 						__(
-							"¿Regenerar alcance desde Items? Solo se agregarán combinaciones nuevas. No se borrarán filas existentes."
+							"¿Sincronizar el alcance con el catálogo? Las filas generadas desde catálogo se actualizarán a sus valores vigentes (horas, título, fase, perfil), se eliminarán las de alcances deshabilitados o de ítems ya no cotizados, y se agregarán las nuevas. Las filas agregadas manualmente no se modifican — para personalizaciones permanentes, usa filas manuales."
 						),
 						() => {
-							frm.save().then(() => frm.reload_doc());
+							const _resync = () =>
+								frappe.call({
+									method: "erpnext_proposals.erpnext_proposals.utils.quotation.resync_scope_from_catalog",
+									args: { quotation_name: frm.doc.name },
+									freeze: true,
+									freeze_message: __("Sincronizando alcance…"),
+									callback(r) {
+										if (r.message) {
+											const { updated, added, removed } = r.message;
+											frappe.show_alert({
+												message: __(
+													"Alcance sincronizado — {0} actualizadas, {1} agregadas, {2} eliminadas",
+													[updated, added, removed]
+												),
+												indicator: "green",
+											});
+											frm.reload_doc();
+										}
+									},
+								});
+							// Guardar primero si hay cambios pendientes, para sincronizar sobre los Items ya guardados
+							if (frm.is_dirty()) {
+								frm.save().then(_resync);
+							} else {
+								_resync();
+							}
 						}
 					);
 				},

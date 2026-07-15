@@ -1,7 +1,7 @@
 <!--
   ARCHIVO GENERADO AUTOMÁTICAMENTE. NO EDITAR MANUALMENTE.
   Regenerar con: python3 scripts/generate_reference.py
-  Fecha generación: 2026-06-29 22:52
+  Fecha generación: 2026-07-14 16:59
 -->
 
 
@@ -19,6 +19,8 @@ Accesibles desde el cliente JS con `frappe.call({method: '...'})` o desde Python
   - [`create_project_from_quotation`](#create-project-from-quotation)
 - **erpnext_proposals/erpnext_proposals/utils/proposal_versioning.py**
   - [`create_new_proposal_version`](#create-new-proposal-version)
+- **erpnext_proposals/erpnext_proposals/utils/quotation.py**
+  - [`resync_scope_from_catalog`](#resync-scope-from-catalog)
 
 
 ---
@@ -50,3 +52,13 @@ Rebuilds Proposal Cost Matrix from employee cost data.
 **Módulo:** `erpnext_proposals.erpnext_proposals.utils.proposal_versioning`
 
 Create a new proposal version from a Rejected submitted Quotation.
+
+
+## `erpnext_proposals/erpnext_proposals/utils/quotation.py`
+
+
+### `resync_scope_from_catalog(quotation_name)`
+
+**Módulo:** `erpnext_proposals.erpnext_proposals.utils.quotation`
+
+Sincroniza explícitamente la tabla de alcance con el catálogo Scope Item.

@@ -1,93 +1,90 @@
 # CONTINUITY.md — erpnext_proposals
 
-**Fecha:** 2026-06-29
-**Rama activa:** `feature/proposal-phase-catalog`
-**Tarea actual:** Catálogo `Proposal Phase` (base de fases) + endurecer pruebas de inmutabilidad y su aislamiento.
+**Fecha:** 2026-07-14
+**Rama activa:** `feat/scope-catalog-resync`
+**Tarea actual:** Issue #27 — sincronización explícita del alcance con el catálogo en Borrador (`resync_scope_from_catalog`). Implementado; pendiente commit/PR.
 
 ---
 
 ## Recuperación rápida
 
 Estoy trabajando en:
-La primera pieza del rediseño de fases: un catálogo `Proposal Phase` (DocType maestro),
-con cobertura de pruebas de inmutabilidad de la propuesta y aislamiento del entorno de
-pruebas. La fase aún NO se conectó al alcance.
+Issue #27: botón **"Sincronizar alcance desde catálogo"** que hace update + remove + add sobre
+las filas `auto_generated=1` de una propuesta en Borrador, preservando filas manuales e
+`include_in_proposal`. Diseño cerrado en el comentario del Issue #27.
 
 Plan que estoy siguiendo:
-Diseño acordado con el usuario (en la conversación): Proposal Phase → (futuro) Proposal
-Scope Template → Item → copia congelada en Quotation → Tasks padre por fase. Por ahora
-SOLO el catálogo.
+Diseño acordado en Issue #27 (fuente de verdad). Sin cambio de esquema. No incluye `phase → Link`
+ni `manual_override`.
 
 Objetivo inmediato:
-Commit de `feature/proposal-phase-catalog`, luego push y PR a `version-16`.
+Commit + push + PR de `feat/scope-catalog-resync` a `version-16`.
 
 Criterio de avance:
-Suite completa verde y aislada (122 OK, 3 skips, 0 fail, 0 err); catálogo migrado e
-inmutable; sin conexión todavía al flujo.
+Suite verde (128 OK), linters + mkdocs strict OK, docs actualizadas, PR abierto.
 
 ---
 
 ## Estado actual
 
 ### Ya cerrado
-- DocType `Proposal Phase`: `phase_code` (estable, inmutable: autoname + `set_only_once` +
-  guard en `validate` + `before_rename`), `phase_name` (title_field), `sequence`, `enabled`.
-  Permisos espejo de Scope Item.
-- Pruebas de inmutabilidad del catálogo (13) y de la propuesta completa (16).
-- Helper común `tests/fiscal_year.py`; los módulos que crean Quotations aseguran/limpian su
-  propio Fiscal Year (aislamiento). Sin `before_tests`.
-- Docs: `docs/usuario/doctypes.md`, referencia regenerada, `CLAUDE.md`.
+- PR #26: catálogo `Proposal Phase` + pruebas de inmutabilidad.
+- PR #28: documentación — anatomía del PDF + umbral `sequence >= 500`; Limitación 7.
+- **Issue #27 (esta rama):** método whitelisted `resync_scope_from_catalog` + botón renombrado +
+  flujo confirmar→guardar→sincronizar→recargar + 6 tests + docs. `validate` sigue append-only.
+- `proposals-acti.dev`: clon saneado de ActiGlobal con demo funcional (`SAL-QTN-2026-00001`).
 
 ### En progreso
-- **PR #26 abierto** (https://github.com/luisrms69/erpnext_proposals/pull/26) hacia `version-16` — esperando checks/review/merge.
+- Commit/PR de `feat/scope-catalog-resync`.
 
 ### Pendiente inmediato
-1. Merge del PR #26 (tras checks de CI). Antes de "Squash and Merge": re-`/update-continuity` final.
-2. Siguiente etapa de diseño (NO implementada): `Proposal Scope Template` + Item→Template +
-   copia congelada de fase (Link de referencia + snapshot `phase`/`phase_sequence`) + Tasks
-   padre por fase. Presentar diseño completo de inmutabilidad antes de implementar.
+1. Commit + push + PR de esta rama.
+2. `phase` como Link a Proposal Phase (+ snapshot). Ver [[design_phase_link_pendiente]]. **Tema separado, no en esta rama.**
+3. Diseño de `Proposal Scope Template` (herencia Item → alcance).
 
 ### No repetir
-- **NUNCA** conectar `Proposal Phase` al alcance sin diseñar antes la copia congelada
-  (snapshot inmutable), no un Link vivo: un rename del catálogo alteraría propuestas históricas.
-- `set_only_once` por sí solo NO basta para inmutabilidad cuando el campo es el autoname →
-  usar guard explícito en `validate`.
-- Una prueba no debe crear datos persistentes que otras necesiten (FY): usar el helper
-  `tests/fiscal_year.py` (crea solo si falta, elimina solo si lo creó).
-- **NUNCA** `reload_doc(..., 'workspace', ..., force=True)` con `developer_mode` (borra el archivo).
-- Remote es `upstream` (no `origin`). No commitear en `version-16`. `docs/referencia/` es generada.
+- **NUNCA** mezclar `phase → Link` con esta rama (#27 es solo el resync).
+- El re-sync **solo** en Borrador; se congela en *En Revisión* (no tocar ese comportamiento).
+- `docs/referencia/` es **autogenerada** (`scripts/generate_reference.py`) — regenerar, no editar a mano.
+- Remoto es `upstream` (no `origin`). No commitear en `version-16`.
 
 ---
 
-## Decisiones vigentes
-- La fase es propiedad del USO (Quotation Scope Item / Scope Template), no del maestro Scope Item.
-- En la propuesta la fase debe ser **Link de referencia + snapshot congelado** (`phase`, `phase_sequence`); el consumo (PDF/reporte/proyecto) usa el snapshot, no el catálogo vivo.
-- La propuesta es inmutable tras submit (`docstatus=1` + `allow_on_submit=0` + `freeze_proposal`); cambios → nueva versión.
-- `Proposal Phase` autoname `field:phase_code` para que el name sea estable.
+## Decisiones vigentes (Issue #27)
+- `auto_generated=1` = propiedad del catálogo (se actualiza/elimina en resync); `auto_generated=0` = propiedad de la propuesta (nunca se toca).
+- Autosave = append-only; botón = resync completo con confirmación.
+- El resync **sobrescribe** ediciones manuales sobre filas auto (MVP, sin `manual_override`); preserva `include_in_proposal`.
+- Campos controlados por catálogo: `sequence, code, title, description, deliverable, phase, activity_type, designation, estimated_hours`.
+
+## Otras decisiones vigentes
+- `phase` en la propuesta debe ser Link + snapshot congelado (pendiente, [[design_phase_link_pendiente]]).
+- La propuesta es inmutable tras *En Revisión*; cambios → nueva versión.
+- `designation` se muestra al cliente en el PDF — decidir si ocultarla (costos/margen NO se filtran).
 
 ---
 
 ## Archivos relevantes ahora
 
 ### Leer primero
-- `doctype/proposal_phase/` — el catálogo.
-- `tests/test_proposal_immutability.py` — qué inmutabilidad está garantizada.
-- `tests/fiscal_year.py` — helper de aislamiento.
+- `utils/quotation.py` — `resync_scope_from_catalog`, `_catalog_rows_for_items`, `_CATALOG_CONTROLLED_FIELDS`; `_generate_scope_items` (append-only, sin cambios).
+- `public/js/quotation.js` — botón "Sincronizar alcance desde catálogo".
+- `tests/test_scope_catalog_resync.py` — 6 casos.
 
-### Probablemente editar (etapa futura, no ahora)
-- `utils/quotation.py` (auto-copy), `doctype/quotation_scope_item/` (snapshot de fase), un nuevo `Proposal Scope Template`.
+### Probablemente editar (etapa siguiente, no ahora)
+- `scope_item.json` / `quotation_scope_item.json` (phase → Link + snapshot), nuevo `Proposal Scope Template`.
 
 ### No tocar
-- No conectar `Proposal Phase` al flujo todavía.
+- `docs/referencia/` (generada). Congelamiento en *En Revisión*.
 
 ---
 
 ## Riesgos / cuidados
-- `migrate` escribe en BD — siempre con `--site`.
-- En CI, los tests que crean Quotations hacen SkipTest si no hay Company; localmente requieren Fiscal Year (resuelto por el helper).
+- `bench run-tests` solo en `test-erpnext_proposals.localhost`.
+- CI corre semgrep (frappe rules): sin `frappe.db.commit()`, `throw` con `_()`, type hints en whitelisted — verificado.
+- `proposals-acti.dev` es clon de producción: escritura una acción a la vez, con autorización.
 
 ---
 
 ## Información faltante
-- Diseño final del `Proposal Scope Template` y de la herencia Item→alcance.
-- Generador de PDF (`pdf_generator`) de los Print Formats — pendiente de etapas previas.
+- Diseño final de `Proposal Scope Template` y herencia Item → alcance.
+- Decisión: ¿ocultar `designation` del PDF cliente?
