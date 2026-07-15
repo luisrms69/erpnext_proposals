@@ -1,7 +1,7 @@
 <!--
   ARCHIVO GENERADO AUTOMÁTICAMENTE. NO EDITAR MANUALMENTE.
   Regenerar con: python3 scripts/generate_reference.py
-  Fecha generación: 2026-06-29 22:52
+  Fecha generación: 2026-07-14 16:59
 -->
 
 
@@ -18,6 +18,6 @@ Documentación técnica de referencia generada automáticamente desde el código
 
 ---
 
-_Generado: 2026-06-29 22:52_
+_Generado: 2026-07-14 16:59_
 
 _Para regenerar: `python3 scripts/generate_reference.py` desde la raíz del app._

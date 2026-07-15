@@ -149,6 +149,135 @@ def _generate_scope_items(doc):
 			existing.add((item.item_code, si.name))
 
 
+# Campos del Quotation Scope Item controlados por el catálogo Scope Item.
+# Solo estos se refrescan en resync_scope_from_catalog; el resto (include_in_proposal,
+# auto_generated, costing_rate, rate_locked, etc.) se preservan.
+_CATALOG_CONTROLLED_FIELDS = (
+	"sequence",
+	"code",
+	"title",
+	"description",
+	"deliverable",
+	"phase",
+	"activity_type",
+	"designation",
+	"estimated_hours",
+)
+
+
+def _catalog_rows_for_items(item_codes: list) -> dict:
+	"""Devuelve los Scope Item de catálogo habilitados para los item_codes dados,
+	mapeados a los campos del child, con clave (item_code, scope_item_name)."""
+	result: dict = {}
+	codes = list({c for c in (item_codes or []) if c})
+	if not codes:
+		return result
+	rows = frappe.get_all(
+		"Scope Item",
+		filters={"erpnext_item": ["in", codes], "enabled": 1},
+		fields=[
+			"name",
+			"erpnext_item",
+			"sequence",
+			"code",
+			"title",
+			"description",
+			"deliverable",
+			"phase",
+			"default_activity_type",
+			"default_designation",
+			"estimated_hours",
+		],
+		order_by="phase asc, sequence asc",
+	)
+	for si in rows:
+		result[(si.erpnext_item, si.name)] = {
+			"sequence": si.sequence,
+			"code": si.code,
+			"title": si.title,
+			"description": si.description,
+			"deliverable": si.deliverable,
+			"phase": si.phase,
+			"activity_type": si.default_activity_type,
+			"designation": si.default_designation,
+			"estimated_hours": si.estimated_hours,
+		}
+	return result
+
+
+@frappe.whitelist()
+def resync_scope_from_catalog(quotation_name: str) -> dict:
+	"""Sincroniza explícitamente la tabla de alcance con el catálogo Scope Item.
+
+	Solo disponible en Borrador. Sobre filas ``auto_generated=1``: actualiza los campos
+	controlados por catálogo, elimina las que ya no tienen respaldo (Scope Item
+	deshabilitado/borrado o Item quitado de la cotización) y agrega combinaciones nuevas.
+	Las filas ``auto_generated=0`` (personalizaciones de la propuesta) nunca se tocan.
+	"""
+	doc = frappe.get_doc("Quotation", quotation_name)
+	doc.check_permission("write")
+
+	if doc.docstatus != 0 or doc.get("workflow_state") != "Borrador" or not doc.get("proposal_template"):
+		frappe.throw(
+			_(
+				"La sincronización de alcance solo está disponible en una propuesta en "
+				"Borrador con un template asignado."
+			)
+		)
+
+	item_codes = [it.item_code for it in (doc.items or []) if it.item_code]
+	catalog = _catalog_rows_for_items(item_codes)
+
+	updated = 0
+	removed = 0
+	kept = []
+	for row in list(doc.quotation_scope_items or []):
+		if not row.auto_generated:
+			# Fila propiedad de la propuesta — nunca se toca ni elimina.
+			kept.append(row)
+			continue
+		fields = catalog.get((row.item_code, row.scope_item))
+		if fields is None:
+			# Sin respaldo en catálogo (deshabilitado/borrado o Item quitado) → eliminar.
+			removed += 1
+			continue
+		row_changed = False
+		for field in _CATALOG_CONTROLLED_FIELDS:
+			if row.get(field) != fields[field]:
+				row.set(field, fields[field])
+				row_changed = True
+		if row_changed:
+			updated += 1
+		kept.append(row)
+
+	doc.set("quotation_scope_items", kept)
+
+	existing = {(r.item_code, r.scope_item) for r in doc.quotation_scope_items}
+	added = 0
+	for (item_code, scope_name), fields in catalog.items():
+		if (item_code, scope_name) in existing:
+			continue
+		doc.append(
+			"quotation_scope_items",
+			{
+				"scope_item": scope_name,
+				"item_code": item_code,
+				"include_in_proposal": 1,
+				"auto_generated": 1,
+				**fields,
+			},
+		)
+		added += 1
+
+	doc.save()
+	return {
+		"updated": updated,
+		"removed": removed,
+		"added": added,
+		"total": len(doc.quotation_scope_items),
+	}
+
+
 def freeze_proposal(doc) -> None:
 	"""Freeze narrative sections and costing rates at the formal review point.
 
