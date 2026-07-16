@@ -2,6 +2,11 @@ import unittest
 
 import frappe
 
+from erpnext_proposals.erpnext_proposals.tests.phases import (
+	cleanup_test_phases,
+	ensure_test_phases,
+)
+
 
 class TestScopeItem(unittest.TestCase):
 	def test_create(self):
@@ -82,13 +87,14 @@ class TestScopeItem(unittest.TestCase):
 				}
 			).insert(ignore_permissions=True)
 
+		created_phases = ensure_test_phases()
 		doc = frappe.get_doc(
 			{
 				"doctype": "Scope Item",
 				"code": "_TEST-SC-WITHITEM",
 				"title": "_Test With ERPNext Item",
 				"erpnext_item": item_code,
-				"phase": "Fase 1",
+				"phase": "DISC",
 				"description": "<p>Descripción de prueba</p>",
 				"deliverable": "<p>Entregable de prueba</p>",
 				"estimated_hours": 8.0,
@@ -97,11 +103,12 @@ class TestScopeItem(unittest.TestCase):
 		doc.insert(ignore_permissions=True)
 
 		self.assertEqual(doc.erpnext_item, item_code)
-		self.assertEqual(doc.phase, "Fase 1")
+		self.assertEqual(doc.phase, "DISC")
 		self.assertEqual(doc.description, "<p>Descripción de prueba</p>")
 		self.assertEqual(doc.deliverable, "<p>Entregable de prueba</p>")
 		self.assertEqual(doc.estimated_hours, 8.0)
 		doc.delete()
+		cleanup_test_phases(created_phases)
 
 	def test_no_price_fields(self):
 		meta = frappe.get_meta("Scope Item")

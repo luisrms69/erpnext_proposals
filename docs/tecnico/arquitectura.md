@@ -54,8 +54,9 @@ y de gestión.
 | `Proposal Section` | Bloque de texto narrativo reutilizable | Referenciado por `Proposal Template Section` | Tiene flag `is_executive_summary` para resaltar en portada |
 | `Proposal Template` | Agrupa secciones en orden para un tipo de proyecto | Tiene child table `Proposal Template Section` | 3 templates instalados por `install.py` |
 | `Proposal Template Section` | Fila de sección en un template | Link a `Proposal Section`; soporte para `custom_title` y `custom_content` | Child table de `Proposal Template` |
-| `Scope Item` | Actividad del catálogo maestro | Link a `Item` de ERPNext (`erpnext_item`) | Sin precio; describe trabajo, perfil y horas estimadas |
-| `Quotation Scope Item` | Copia congelada de un Scope Item dentro de una Quotation | Parent: `Quotation`; link a `Scope Item` y `Task` | Child table; `rate_locked` se fija en transición a En Revision |
+| `Scope Item` | Actividad del catálogo maestro | Link a `Item` de ERPNext (`erpnext_item`); `phase` **Link a `Proposal Phase`** | Sin precio; describe trabajo, perfil y horas estimadas |
+| `Quotation Scope Item` | Copia congelada de un Scope Item dentro de una Quotation | Parent: `Quotation`; link a `Scope Item`, `Task` y `phase`→`Proposal Phase` | Child table; `rate_locked` se fija en transición a En Revision |
+| `Proposal Phase` | Catálogo de fases (`phase_code`, `phase_name`, `sequence`) | Referenciado por `phase` en Scope Item / Quotation Scope Item | El orden en propuesta/reportes/Tasks usa `sequence`; el display usa `phase_name`. Helpers en `utils/phase.py` (`phase_label`, `order_phases`, jinja methods) |
 | `Proposal Cost Matrix` | Costos por (Designation, Activity Type) | Alimenta freeze de costos en scope items | Rebuildeado diariamente; `is_general_rate=1` para filas de promedio por designación |
 | `Proposal Cost Matrix Log` | Historial de cambios de tasa | Parent: ninguno | Append-only; creado por `cost_matrix.py` en cada cambio de tasa |
 | `Quotation` (extendido) | Documento central; extendido con ~25 custom fields | Tiene child `Quotation Scope Item`; link a `Project` | Custom fields en fixture; extended class via `QuotationProposalMixin` |

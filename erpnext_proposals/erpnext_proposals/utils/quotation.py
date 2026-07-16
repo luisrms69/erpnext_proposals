@@ -122,7 +122,7 @@ def _generate_scope_items(doc):
 				"default_designation",
 				"estimated_hours",
 			],
-			order_by="phase asc, sequence asc",
+			order_by="sequence asc",
 		)
 
 		for si in scope_items:
@@ -188,7 +188,7 @@ def _catalog_rows_for_items(item_codes: list) -> dict:
 			"default_designation",
 			"estimated_hours",
 		],
-		order_by="phase asc, sequence asc",
+		order_by="sequence asc",
 	)
 	for si in rows:
 		result[(si.erpnext_item, si.name)] = {

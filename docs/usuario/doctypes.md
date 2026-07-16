@@ -72,7 +72,7 @@ El sistema crea 10 secciones base: Resumen Ejecutivo, Objetivo del Proyecto, Mod
 - **Secuencia** — orden de la fase.
 - **Habilitado** — permite retirar una fase del uso sin borrarla.
 
-**Estado actual:** El catálogo ya existe y se puede administrar, pero **todavía no está conectado** a la tabla de alcance — hoy la fase del alcance sigue siendo texto libre. Es la base para dar consistencia a las fases en una etapa posterior.
+**Conexión con el alcance:** El campo **Fase** de los Scope Items (catálogo y tabla de la propuesta) es un **Link a Proposal Phase** — ya no es texto libre. El orden de las fases en la propuesta, la Rentabilidad Estimada y las Tasks del proyecto usa la **Secuencia** de Proposal Phase (no el orden alfabético del código), y se muestra el **Nombre de fase** legible. Cada sitio debe tener su catálogo `Proposal Phase` configurado antes de capturar Scope Items y propuestas.
 
 ---
 

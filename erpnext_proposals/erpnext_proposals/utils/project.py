@@ -2,6 +2,7 @@ import frappe
 from frappe import _
 
 from erpnext_proposals.erpnext_proposals.utils.permissions import assert_can_manage_proposals
+from erpnext_proposals.erpnext_proposals.utils.phase import phase_label, phase_sequence
 
 
 @frappe.whitelist()
@@ -56,14 +57,14 @@ def create_project_from_quotation(quotation_name: str):
 	tasks_created = 0
 	tasks_skipped = 0
 
-	sorted_rows = sorted(scope_rows, key=lambda r: (r.phase or "", r.sequence or 0, r.idx))
+	sorted_rows = sorted(scope_rows, key=lambda r: (phase_sequence(r.phase), r.sequence or 0, r.idx))
 
 	for row in sorted_rows:
 		if row.project_task and frappe.db.exists("Task", row.project_task):
 			tasks_skipped += 1
 			continue
 
-		subject = f"{row.phase} — {row.title}" if row.phase else (row.title or row.code)
+		subject = f"{phase_label(row.phase)} — {row.title}" if row.phase else (row.title or row.code)
 
 		desc_parts = []
 		if row.description:

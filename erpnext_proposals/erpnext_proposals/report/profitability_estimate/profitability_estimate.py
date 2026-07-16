@@ -7,6 +7,7 @@ from erpnext_proposals.erpnext_proposals.utils.cost_matrix import (
 	get_matrix_last_updated,
 	is_matrix_populated,
 )
+from erpnext_proposals.erpnext_proposals.utils.phase import phase_label, phase_sequence
 
 TOLERANCE = 0.01  # tolerance for Q/C numeric checks
 
@@ -46,7 +47,7 @@ def get_profitability_data(quotation_name: str) -> dict:
 	# ── Labor cost ───────────────────────────────────────────────────────
 	scope_rows_raw = sorted(
 		[r for r in quotation.quotation_scope_items if r.include_in_proposal],
-		key=lambda r: (r.phase or "", r.sequence or 0, r.idx),
+		key=lambda r: (phase_sequence(r.phase), r.sequence or 0, r.idx),
 	)
 
 	labor_rows = []
@@ -346,7 +347,7 @@ def _build_report_rows(d: dict) -> list:
 		if row["phase"] != current_phase:
 			current_phase = row["phase"]
 			if current_phase:
-				data.append(_phase_header(current_phase))
+				data.append(_phase_header(phase_label(current_phase)))
 		notes_map = {
 			"sin_activity_type": _("sin activity_type"),
 			"sin_costing_rate": _("sin costing_rate"),

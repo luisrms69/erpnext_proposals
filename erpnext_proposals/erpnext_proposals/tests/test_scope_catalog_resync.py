@@ -21,6 +21,10 @@ from erpnext_proposals.erpnext_proposals.tests.fiscal_year import (
 	cleanup_fiscal_year,
 	ensure_current_fiscal_year,
 )
+from erpnext_proposals.erpnext_proposals.tests.phases import (
+	cleanup_test_phases,
+	ensure_test_phases,
+)
 from erpnext_proposals.erpnext_proposals.utils.quotation import resync_scope_from_catalog
 
 TEMPLATE = "_Test Resync Template"
@@ -51,6 +55,7 @@ class TestScopeCatalogResync(unittest.TestCase):
 		super().setUpClass()
 		cls._quotations = []
 		cls._setup_master_data()
+		cls._created_phases = ensure_test_phases()
 		cls._setup_catalog()
 		cls._created_fy = ensure_current_fiscal_year()
 
@@ -73,6 +78,7 @@ class TestScopeCatalogResync(unittest.TestCase):
 			frappe.delete_doc("Proposal Template", TEMPLATE, force=True, ignore_permissions=True)
 		if frappe.db.exists("User", NOPERM_USER):
 			frappe.delete_doc("User", NOPERM_USER, force=True, ignore_permissions=True)
+		cleanup_test_phases(getattr(cls, "_created_phases", None))
 		cleanup_fiscal_year(getattr(cls, "_created_fy", None))
 		super().tearDownClass()
 
@@ -273,7 +279,7 @@ class TestScopeCatalogResync(unittest.TestCase):
 		si.title = "A1 nuevo"
 		si.description = "desc nueva"
 		si.deliverable = "entregable nuevo"
-		si.phase = "FASE-X"
+		si.phase = "GOLIVE"
 		si.estimated_hours = 77
 		si.default_designation = DESIG
 		si.default_activity_type = ACT
@@ -286,7 +292,7 @@ class TestScopeCatalogResync(unittest.TestCase):
 				"title": "A1 nuevo",
 				"description": "desc nueva",
 				"deliverable": "entregable nuevo",
-				"phase": "FASE-X",
+				"phase": "GOLIVE",
 				"estimated_hours": 77,
 				"sequence": 42,
 				"designation": DESIG,  # mapeo default_designation → designation
