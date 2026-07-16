@@ -1,7 +1,7 @@
 <!--
   ARCHIVO GENERADO AUTOMÁTICAMENTE. NO EDITAR MANUALMENTE.
   Regenerar con: python3 scripts/generate_reference.py
-  Fecha generación: 2026-07-14 16:59
+  Fecha generación: 2026-07-15 15:38
 -->
 
 
@@ -122,7 +122,7 @@ Fuente: `erpnext_proposals/erpnext_proposals/doctype/quotation_scope_item/quotat
 | `include_in_proposal` | Include in Proposal | Check |  |  |
 | `description` | Description | Text Editor |  |  |
 | `deliverable` | Deliverable | Text Editor |  |  |
-| `phase` | Phase | Data |  |  |
+| `phase` | Phase | Link |  | Proposal Phase |
 | `erpnext_item` | ERPNext Item (deprecated) | Link |  | Item |
 | `estimated_hours` | Estimated Hours | Float |  |  |
 | `activity_type` | Activity Type | Link |  | Activity Type |
@@ -148,7 +148,7 @@ Fuente: `erpnext_proposals/erpnext_proposals/doctype/scope_item/scope_item.json`
 | `visible_in_proposal` | Visible in Proposal | Check |  |  |
 | `description` | Description | Text Editor |  |  |
 | `deliverable` | Deliverable | Text Editor |  |  |
-| `phase` | Phase | Data |  |  |
+| `phase` | Phase | Link |  | Proposal Phase |
 | `erpnext_item` | ERPNext Item | Link |  | Item |
 | `estimated_hours` | Estimated Hours | Float |  |  |
 | `default_activity_type` | Default Activity Type | Link |  | Activity Type |

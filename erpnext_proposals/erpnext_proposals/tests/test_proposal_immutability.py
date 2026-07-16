@@ -36,6 +36,10 @@ from erpnext_proposals.erpnext_proposals.tests.fiscal_year import (
 	cleanup_fiscal_year,
 	ensure_current_fiscal_year,
 )
+from erpnext_proposals.erpnext_proposals.tests.phases import (
+	cleanup_test_phases,
+	ensure_test_phases,
+)
 
 _IMMUTABLE_EXCEPTIONS = (UpdateAfterSubmitError, frappe.exceptions.ValidationError)
 
@@ -63,6 +67,9 @@ class TestProposalImmutability(unittest.TestCase):
 					frappe.delete_doc("Quotation", name, force=True, ignore_permissions=True)
 				except Exception:
 					pass
+		if frappe.db.exists("Scope Item", "_TEST_IMM_SCOPE"):
+			frappe.delete_doc("Scope Item", "_TEST_IMM_SCOPE", force=True, ignore_permissions=True)
+		cleanup_test_phases(getattr(cls, "_created_phases", None))
 		cleanup_fiscal_year(getattr(cls, "_created_fy", None))
 		super().tearDownClass()
 
@@ -74,6 +81,8 @@ class TestProposalImmutability(unittest.TestCase):
 
 		# Fiscal Year — requerido para someter una Quotation (helper común de pruebas)
 		cls._created_fy = ensure_current_fiscal_year()
+		# Proposal Phase — phase es Link; los tests usan registros reales del catálogo
+		cls._created_phases = ensure_test_phases()
 
 		cg = frappe.db.get_value("Customer Group", {"is_group": 0}, "name")
 		if not cg:
@@ -150,7 +159,7 @@ class TestProposalImmutability(unittest.TestCase):
 					"code": "_TEST_IMM_SCOPE",
 					"title": "Actividad de prueba",
 					"sequence": 10,
-					"phase": "Análisis",
+					"phase": "DISC",
 					"description": "Descripción original de la actividad.",
 					"deliverable": "Entregable original.",
 					"estimated_hours": 8,
@@ -225,7 +234,7 @@ class TestProposalImmutability(unittest.TestCase):
 		# El alcance debe traer datos reales (no filas vacías) — si no, las pruebas de
 		# campo congelado serían vacuas.
 		self.assertEqual(rows[0].title, "Actividad de prueba")
-		self.assertEqual(rows[0].phase, "Análisis")
+		self.assertEqual(rows[0].phase, "DISC")
 		# La narrativa debe haberse congelado: si el snapshot está vacío, la prueba de
 		# narrativa no probaría nada → lo exigimos explícitamente.
 		self.assertTrue(
@@ -262,7 +271,9 @@ class TestProposalImmutability(unittest.TestCase):
 		self._assert_scope_field_frozen("title", "Título cambiado")
 
 	def test_scope_phase_frozen(self):
-		self._assert_scope_field_frozen("phase", "Fase cambiada")
+		# Valor de fase válido (Link) distinto del original: así lo único que bloquea el
+		# cambio es la inmutabilidad, no la validación del Link.
+		self._assert_scope_field_frozen("phase", "GOLIVE")
 
 	def test_scope_sequence_frozen(self):
 		self._assert_scope_field_frozen("sequence", 999)

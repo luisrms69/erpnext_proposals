@@ -1,90 +1,82 @@
 # CONTINUITY.md — erpnext_proposals
 
-**Fecha:** 2026-07-14
-**Rama activa:** `feat/scope-catalog-resync`
-**Tarea actual:** Issue #27 — sincronización explícita del alcance con el catálogo en Borrador (`resync_scope_from_catalog`). Implementado; pendiente commit/PR.
+**Fecha:** 2026-07-15
+**Rama activa:** `feat/proposal-phase-link`
+**Tarea actual:** Convertir `phase` de texto libre a `Link(Proposal Phase)` en Scope Item y Quotation Scope Item. Implementado y validado; pendiente commit/PR.
 
 ---
 
 ## Recuperación rápida
 
 Estoy trabajando en:
-Issue #27: botón **"Sincronizar alcance desde catálogo"** que hace update + remove + add sobre
-las filas `auto_generated=1` de una propuesta en Borrador, preservando filas manuales e
-`include_in_proposal`. Diseño cerrado en el comentario del Issue #27.
+`phase` → Link a Proposal Phase. Orden por `Proposal Phase.sequence` (no alfabético) y display
+`phase_name`, resuelto desde el catálogo sin campo duplicado. Corte limpio (sin patch/backfill).
 
 Plan que estoy siguiendo:
-Diseño acordado en Issue #27 (fuente de verdad). Sin cambio de esquema. No incluye `phase → Link`
-ni `manual_override`.
+Decisiones cerradas por el usuario (13 puntos) + ADR-0004. Fuera de alcance: manual_override,
+backfill, orden de "Sin fase".
 
 Objetivo inmediato:
-Commit + push + PR de `feat/scope-catalog-resync` a `version-16`.
+`/ship commit` → `/ship push` → PR a `version-16` (autorizados).
 
 Criterio de avance:
-Suite verde (128 OK), linters + mkdocs strict OK, docs actualizadas, PR abierto.
+Suite 143 OK; validación funcional GUI en proposals-acti.dev (8 casos PASS); ADR + docs; PR verde.
 
 ---
 
 ## Estado actual
 
 ### Ya cerrado
-- PR #26: catálogo `Proposal Phase` + pruebas de inmutabilidad.
-- PR #28: documentación — anatomía del PDF + umbral `sequence >= 500`; Limitación 7.
-- **Issue #27 (esta rama):** método whitelisted `resync_scope_from_catalog` + botón renombrado +
-  flujo confirmar→guardar→sincronizar→recargar + 6 tests + docs. `validate` sigue append-only.
-- `proposals-acti.dev`: clon saneado de ActiGlobal con demo funcional (`SAL-QTN-2026-00001`).
+- PR #26 (catálogo Proposal Phase), PR #28 (docs), PR #29 (resync #27, mergeado a version-16).
+- **Esta rama:** `phase` Data→Link en 2 DocTypes; `utils/phase.py` (`phase_label`/`phase_sequence`/
+  `order_phases`, jinja methods); consumidores actualizados (quotation, profitability, project,
+  ambos Print Formats); tests (nuevo `test_phase_link.py` + helper `tests/phases.py` + actualizados
+  immutability/resync/scope_item). ADR-0004. Docs + referencia regeneradas.
+- Validación funcional server-side en proposals-acti.dev: 8 casos PASS (fase GUI, Link, generación,
+  resync, orden por sequence, PDFs con phase_name, Project/Task). Docs de prueba `_GUITEST_*` limpiados.
 
 ### En progreso
-- Commit/PR de `feat/scope-catalog-resync`.
+- `/ship commit` → push → PR.
 
 ### Pendiente inmediato
 1. Commit + push + PR de esta rama.
-2. `phase` como Link a Proposal Phase (+ snapshot). Ver [[design_phase_link_pendiente]]. **Tema separado, no en esta rama.**
-3. Diseño de `Proposal Scope Template` (herencia Item → alcance).
+2. (Futuro, fuera de alcance) decidir si "Sin fase" debe ordenar al final; `manual_override`.
 
 ### No repetir
-- **NUNCA** mezclar `phase → Link` con esta rama (#27 es solo el resync).
-- El re-sync **solo** en Borrador; se congela en *En Revisión* (no tocar ese comportamiento).
-- `docs/referencia/` es **autogenerada** (`scripts/generate_reference.py`) — regenerar, no editar a mano.
+- **NUNCA** backfill/patch de datos históricos de fase (corte limpio; sitios nuevos configuran su catálogo).
+- `bench migrate` **no recarga Print Formats** → tras migrar hay que `reload_doc(... force=True)`.
+- El orden de fases usa `Proposal Phase.sequence`, no alfabético; "Sin fase" (sequence 0) va primero (heredado).
+- `docs/referencia/` es autogenerada (`scripts/generate_reference.py`).
 - Remoto es `upstream` (no `origin`). No commitear en `version-16`.
 
 ---
 
-## Decisiones vigentes (Issue #27)
-- `auto_generated=1` = propiedad del catálogo (se actualiza/elimina en resync); `auto_generated=0` = propiedad de la propuesta (nunca se toca).
-- Autosave = append-only; botón = resync completo con confirmación.
-- El resync **sobrescribe** ediciones manuales sobre filas auto (MVP, sin `manual_override`); preserva `include_in_proposal`.
-- Campos controlados por catálogo: `sequence, code, title, description, deliverable, phase, activity_type, designation, estimated_hours`.
-
-## Otras decisiones vigentes
-- `phase` en la propuesta debe ser Link + snapshot congelado (pendiente, [[design_phase_link_pendiente]]).
-- La propuesta es inmutable tras *En Revisión*; cambios → nueva versión.
-- `designation` se muestra al cliente en el PDF — decidir si ocultarla (costos/margen NO se filtran).
+## Decisiones vigentes
+- `phase` = Link; almacena `name`(=`phase_code`); display `phase_name`; orden por `sequence` (ADR-0004).
+- Sin `phase_sequence` almacenado: se resuelve desde el catálogo en lectura.
+- Despliegue: `bench migrate` + recargar Print Formats. Datos históricos con fase libre quedan como Links inválidos hasta ajuste manual.
 
 ---
 
 ## Archivos relevantes ahora
 
 ### Leer primero
-- `utils/quotation.py` — `resync_scope_from_catalog`, `_catalog_rows_for_items`, `_CATALOG_CONTROLLED_FIELDS`; `_generate_scope_items` (append-only, sin cambios).
-- `public/js/quotation.js` — botón "Sincronizar alcance desde catálogo".
-- `tests/test_scope_catalog_resync.py` — 6 casos.
-
-### Probablemente editar (etapa siguiente, no ahora)
-- `scope_item.json` / `quotation_scope_item.json` (phase → Link + snapshot), nuevo `Proposal Scope Template`.
+- `utils/phase.py` — helpers de fase.
+- `utils/quotation.py` (order_by), `report/profitability_estimate`, `utils/project.py` — consumidores.
+- `print_format/*/*.json` — `phase_label`/`order_phases` en Jinja.
+- `tests/test_phase_link.py`, `tests/phases.py`.
 
 ### No tocar
-- `docs/referencia/` (generada). Congelamiento en *En Revisión*.
+- `docs/referencia/` (generada). Orden de "Sin fase" (fuera de alcance).
 
 ---
 
 ## Riesgos / cuidados
+- Cambio de esquema (fieldtype) — aplica con `bench migrate`; sin patch por decisión.
 - `bench run-tests` solo en `test-erpnext_proposals.localhost`.
-- CI corre semgrep (frappe rules): sin `frappe.db.commit()`, `throw` con `_()`, type hints en whitelisted — verificado.
-- `proposals-acti.dev` es clon de producción: escritura una acción a la vez, con autorización.
+- proposals-acti.dev ya migrado a Link (sitio de pruebas).
 
 ---
 
 ## Información faltante
-- Diseño final de `Proposal Scope Template` y herencia Item → alcance.
-- Decisión: ¿ocultar `designation` del PDF cliente?
+- Decisión UX: ¿"Sin fase" al final del orden? (fuera de alcance de este PR).

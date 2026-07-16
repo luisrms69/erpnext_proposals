@@ -81,10 +81,10 @@
   },
   {
    "fieldname": "phase",
-   "fieldtype": "Data",
+   "fieldtype": "Link",
+   "options": "Proposal Phase",
    "label": "Phase",
-   "placeholder": "Ej: Fase 1 — Análisis, Fase 2 — Desarrollo",
-   "description": "Etiqueta libre para agrupar alcances en el PDF. Ejemplos: 'Fase 1', 'Diseño', 'Implementación'. Scope Items con el mismo valor se agrupan juntos en la propuesta. Dejar vacío si no aplica."
+   "description": "Fase del catálogo Proposal Phase para agrupar alcances. El orden en la propuesta y reportes usa Proposal Phase.sequence. Dejar vacío si no aplica."
   },
   {
    "fieldname": "erpnext_item",
