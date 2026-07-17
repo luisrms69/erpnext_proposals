@@ -54,3 +54,9 @@ jspm_packages/
 # Aider AI Chat
 .aider*
 site/
+
+# Catálogos reales de cliente — dato privado, se carga por ruta externa, nunca se versiona.
+erpnext_proposals/erpnext_proposals/catalog_data/*_catalog.json
+!erpnext_proposals/erpnext_proposals/catalog_data/sample_catalog.json
+# Blocklist local de nombres de cliente para el gate de /ship (no versionar).
+.client-blocklist

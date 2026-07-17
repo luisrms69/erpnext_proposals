@@ -11,6 +11,7 @@
   "code",
   "title",
   "include_in_proposal",
+  "is_internal_cost_task",
   "auto_generated",
   "section_narrative",
   "description",
@@ -79,6 +80,13 @@
    "fieldtype": "Check",
    "in_list_view": 1,
    "label": "Include in Proposal"
+  },
+  {
+   "fieldname": "is_internal_cost_task",
+   "default": "0",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "label": "Tarea interna de costo"
   },
   {
    "fieldname": "section_narrative",

@@ -31,11 +31,14 @@ fixtures = [
 	{
 		"doctype": "Custom Field",
 		"filters": [
-			["dt", "=", "Quotation"],
+			["dt", "in", ["Quotation", "Task"]],
 			[
 				"fieldname",
 				"in",
 				[
+					"proposal_phase",
+					"source_quotation",
+					"source_quotation_scope_item",
 					"proposal_details_section",
 					"proposal_template",
 					"proposal_title",

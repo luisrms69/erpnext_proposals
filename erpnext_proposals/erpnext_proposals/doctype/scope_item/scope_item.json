@@ -11,6 +11,7 @@
   "title",
   "enabled",
   "visible_in_proposal",
+  "is_internal_cost_task",
   "section_narrative",
   "description",
   "deliverable",
@@ -58,6 +59,13 @@
    "fieldtype": "Check",
    "in_list_view": 1,
    "label": "Visible in Proposal"
+  },
+  {
+   "fieldname": "is_internal_cost_task",
+   "default": "0",
+   "fieldtype": "Check",
+   "label": "Tarea interna de costo",
+   "description": "Trabajo necesario para ejecutar/costear el proyecto que NO se muestra al cliente pero SÍ se costea y genera Task. No combinar con 'Visible in Proposal'."
   },
   {
    "fieldname": "section_narrative",

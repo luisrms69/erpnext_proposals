@@ -112,7 +112,10 @@ class TestScopeItem(unittest.TestCase):
 
 	def test_no_price_fields(self):
 		meta = frappe.get_meta("Scope Item")
-		field_names = [f.fieldname for f in meta.fields]
+		# Banderas booleanas de control que contienen una palabra prohibida pero NO son campos
+		# comerciales (no representan precio/costo).
+		allowed = {"is_internal_cost_task"}
+		field_names = [f.fieldname for f in meta.fields if f.fieldname not in allowed]
 		forbidden = {"rate", "price", "cost", "amount", "margin"}
 		for fname in field_names:
 			parts = set(fname.split("_"))

@@ -1,7 +1,7 @@
 # Arquitectura técnica — ERPNext Proposals
 
 > Estado actual implementado. No incluye historia ni planes futuros.
-> Última actualización: 2026-05-30
+> Última actualización: 2026-07-17
 
 ---
 
@@ -24,7 +24,9 @@ y de gestión.
 | Creación de proyecto | Crear Proyecto + Tasks desde Quotation Ganada | `utils/project.py` | Activo |
 | Matriz de costos | Rebuild periódico de costos por Designation + Activity Type | `utils/cost_matrix.py` | Activo |
 | Permisos | Guard de roles para endpoints críticos | `utils/permissions.py` | Activo |
-| Print Formats | PDF Propuesta Comercial (público) y Rentabilidad Estimada (privado) | `print_format/`, `utils/printing.py` | Activo |
+| Print Formats | PDF comercial (default genérico) y Rentabilidad Estimada (privado); helpers Jinja | `print_format/`, `utils/printing.py` | Activo |
+| Resolución de Print Format | Cadena override→template→default y congelamiento del efectivo (ADR-0005) | `utils/print_format.py` | Activo |
+| Loader de catálogos | Carga genérica e idempotente de catálogos por ruta externa (ADR-0006) | `catalog_data/catalog_loader.py` | Activo |
 | Reporte de rentabilidad | Fuente de datos compartida entre UI y Print Format | `report/profitability_estimate/` | Activo |
 | Override de Quotation | Bloquea `declare_enquiry_lost` en propuestas con workflow | `overrides/quotation_override.py` | Activo |
 | Sales Order hooks | Propaga proyecto y cost center de Quotation a SO | `utils/sales_order.py` | Activo |
@@ -55,7 +57,7 @@ y de gestión.
 | `Proposal Template` | Agrupa secciones en orden para un tipo de proyecto | Tiene child table `Proposal Template Section` | 3 templates instalados por `install.py` |
 | `Proposal Template Section` | Fila de sección en un template | Link a `Proposal Section`; soporte para `custom_title` y `custom_content` | Child table de `Proposal Template` |
 | `Scope Item` | Actividad del catálogo maestro | Link a `Item` de ERPNext (`erpnext_item`); `phase` **Link a `Proposal Phase`** | Sin precio; describe trabajo, perfil y horas estimadas |
-| `Quotation Scope Item` | Copia congelada de un Scope Item dentro de una Quotation | Parent: `Quotation`; link a `Scope Item`, `Task` y `phase`→`Proposal Phase` | Child table; `rate_locked` se fija en transición a En Revision |
+| `Quotation Scope Item` | Copia congelada de un Scope Item dentro de una Quotation | Parent: `Quotation`; link a `Scope Item`, `Task` y `phase`→`Proposal Phase` | Child table; `rate_locked` se fija en transición a En Revision. Flags: `include_in_proposal` (visible en PDF) y `is_internal_cost_task` (tarea interna: entra en costo/rentabilidad, se excluye del PDF comercial) |
 | `Proposal Phase` | Catálogo de fases (`phase_code`, `phase_name`, `sequence`) | Referenciado por `phase` en Scope Item / Quotation Scope Item | El orden en propuesta/reportes/Tasks usa `sequence`; el display usa `phase_name`. Helpers en `utils/phase.py` (`phase_label`, `order_phases`, jinja methods) |
 | `Proposal Cost Matrix` | Costos por (Designation, Activity Type) | Alimenta freeze de costos en scope items | Rebuildeado diariamente; `is_general_rate=1` para filas de promedio por designación |
 | `Proposal Cost Matrix Log` | Historial de cambios de tasa | Parent: ninguno | Append-only; creado por `cost_matrix.py` en cada cambio de tasa |
@@ -120,3 +122,7 @@ El submit automático ocurre en la transición Borrador → En Revision porque e
 | [ADR-0000](../adr/0000-estado-inicial-app.md) | Estado inicial y arquitectura base del app |
 | [ADR-0001](../adr/0001-mvp-etapa-1-implementacion.md) | Implementación MVP y scope del RC 1.0 |
 | [ADR-0002](../adr/0002-rentabilidad-estimada-propuesta.md) | Diseño del reporte de rentabilidad estimada |
+| [ADR-0003](../adr/0003-sincronizacion-alcance-catalogo.md) | Sincronización controlada del alcance con el catálogo |
+| [ADR-0004](../adr/0004-phase-link-proposal-phase.md) | `phase` como Link a Proposal Phase |
+| [ADR-0005](../adr/0005-resolucion-congelamiento-print-format.md) | Resolución y congelamiento del Print Format comercial |
+| [ADR-0006](../adr/0006-separacion-app-generica-personalizacion-privada.md) | Separación app genérica vs personalización privada por cliente |

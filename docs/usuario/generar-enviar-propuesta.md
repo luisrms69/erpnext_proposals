@@ -28,6 +28,24 @@ El módulo incluye dos documentos PDF para la Cotización:
 4. El sistema genera la vista previa del PDF en pantalla
 5. Para guardar como archivo: usar el botón de descarga en la vista previa (ícono de descarga o PDF)
 
+### Qué formato de propuesta se usa
+
+El módulo agrega el botón **Propuesta → Imprimir Propuesta Comercial**, que elige **automáticamente**
+el formato que corresponde a la propuesta, según esta precedencia:
+
+1. **Override de la propuesta** — campo **Proposal Print Format** (pestaña Propuesta), editable en
+   Borrador. Si tiene valor, ese formato manda.
+2. **Formato del Proposal Template** — si el template asignado define un formato, se usa ese.
+3. **Default del sistema** — `Propuesta Comercial` (genérico).
+
+El campo Proposal Print Format muestra abajo *"Formato efectivo actual: …"* para que sepas cuál se
+usará. Al pasar la propuesta a **En Revisión**, el formato efectivo **se congela**: una propuesta ya
+emitida no cambia de formato aunque después cambien los defaults. Una **nueva versión** hereda ese
+formato como override editable.
+
+> El botón **Imprimir** genérico de la barra superior te deja elegir cualquier formato manualmente;
+> el botón **Imprimir Propuesta Comercial** aplica la resolución automática descrita arriba.
+
 ### Qué contiene el PDF
 
 El PDF "Propuesta Comercial" incluye:

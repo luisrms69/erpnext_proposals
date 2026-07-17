@@ -56,6 +56,12 @@ def on_quotation_validate(doc, method=None):
 	# Uses validate (not before_insert) because validate is confirmed to run in web context.
 	if not doc.get("proposal_version") and not doc.get("previous_proposal"):
 		doc.proposal_version = 1
+	# Banderas de alcance: una fila no puede ser vendible E interna a la vez.
+	_validate_internal_cost_flags(doc)
+	# Print Format comercial (override): debe existir, ser de Quotation y no estar deshabilitado (Caso F).
+	from erpnext_proposals.erpnext_proposals.utils.print_format import validate_print_format
+
+	validate_print_format(doc.get("proposal_print_format"))
 	# Skip scope generation when creating a new version (scope already copied)
 	if doc.flags.get("skip_scope_generation"):
 		return
@@ -71,6 +77,21 @@ def on_quotation_validate(doc, method=None):
 	if not doc.proposal_template:
 		return
 	_generate_scope_items(doc)
+
+
+def _validate_internal_cost_flags(doc) -> None:
+	"""Combinación inválida: include_in_proposal=1 e is_internal_cost_task=1.
+
+	Una fila del alcance es vendible (visible al cliente) O trabajo interno de costo, nunca ambas.
+	"""
+	for row in doc.quotation_scope_items or []:
+		if row.get("include_in_proposal") and row.get("is_internal_cost_task"):
+			frappe.throw(
+				_(
+					"Fila de alcance '{0}': no puede estar marcada como 'Include in Proposal' y "
+					"'Tarea interna de costo' a la vez. Una actividad es vendible o interna, no ambas."
+				).format(row.title or row.code or row.scope_item)
+			)
 
 
 def on_quotation_before_update_after_submit(doc, method=None):
@@ -121,6 +142,8 @@ def _generate_scope_items(doc):
 				"default_activity_type",
 				"default_designation",
 				"estimated_hours",
+				"visible_in_proposal",
+				"is_internal_cost_task",
 			],
 			order_by="sequence asc",
 		)
@@ -142,7 +165,10 @@ def _generate_scope_items(doc):
 					"activity_type": si.default_activity_type,
 					"designation": si.default_designation,
 					"estimated_hours": si.estimated_hours,
-					"include_in_proposal": 1,
+					# Valor inicial de include_in_proposal desde el catálogo (visible_in_proposal).
+					# Después es propiedad de la propuesta; el resync NO lo sobrescribe.
+					"include_in_proposal": 1 if si.visible_in_proposal else 0,
+					"is_internal_cost_task": si.is_internal_cost_task or 0,
 					"auto_generated": 1,
 				},
 			)
@@ -152,6 +178,8 @@ def _generate_scope_items(doc):
 # Campos del Quotation Scope Item controlados por el catálogo Scope Item.
 # Solo estos se refrescan en resync_scope_from_catalog; el resto (include_in_proposal,
 # auto_generated, costing_rate, rate_locked, etc.) se preservan.
+# include_in_proposal NO está aquí: es propiedad de la propuesta (valor inicial desde
+# visible_in_proposal, luego el usuario lo ajusta y el resync lo preserva).
 _CATALOG_CONTROLLED_FIELDS = (
 	"sequence",
 	"code",
@@ -162,6 +190,7 @@ _CATALOG_CONTROLLED_FIELDS = (
 	"activity_type",
 	"designation",
 	"estimated_hours",
+	"is_internal_cost_task",
 )
 
 
@@ -187,6 +216,8 @@ def _catalog_rows_for_items(item_codes: list) -> dict:
 			"default_activity_type",
 			"default_designation",
 			"estimated_hours",
+			"is_internal_cost_task",
+			"visible_in_proposal",
 		],
 		order_by="sequence asc",
 	)
@@ -201,6 +232,10 @@ def _catalog_rows_for_items(item_codes: list) -> dict:
 			"activity_type": si.default_activity_type,
 			"designation": si.default_designation,
 			"estimated_hours": si.estimated_hours,
+			"is_internal_cost_task": si.is_internal_cost_task or 0,
+			# Solo para el ADD de resync (valor inicial). NO está en _CATALOG_CONTROLLED_FIELDS,
+			# por lo que el UPDATE nunca sobrescribe include_in_proposal en filas existentes.
+			"include_in_proposal": 1 if si.visible_in_proposal else 0,
 		}
 	return result
 
@@ -262,8 +297,8 @@ def resync_scope_from_catalog(quotation_name: str) -> dict:
 			{
 				"scope_item": scope_name,
 				"item_code": item_code,
-				"include_in_proposal": 1,
 				"auto_generated": 1,
+				# include_in_proposal e is_internal_cost_task vienen de `fields` (catálogo).
 				**fields,
 			},
 		)
@@ -287,6 +322,11 @@ def freeze_proposal(doc) -> None:
 	"""
 	if not getattr(doc, "proposal_template", None):
 		return  # no template — nothing to freeze
+
+	# Congelar el Print Format comercial efectivo (idempotente) — sobrevive incluso si el snapshot ya existe.
+	from erpnext_proposals.erpnext_proposals.utils.print_format import freeze_effective_print_format
+
+	freeze_effective_print_format(doc)
 
 	if getattr(doc, "proposal_sections_snapshot", None):
 		return  # already frozen — never overwrite
@@ -353,7 +393,8 @@ def _freeze_costing_rates(doc) -> None:
 
 	now = now_datetime()
 	for row in doc.quotation_scope_items or []:
-		if not row.include_in_proposal:
+		# Costeo/congelamiento: filas vendibles O internas de costo.
+		if not (row.include_in_proposal or row.is_internal_cost_task):
 			continue
 		if row.rate_locked:
 			continue  # already locked — never overwrite
@@ -371,10 +412,13 @@ def attach_proposal_pdfs(doc) -> None:
 	PDF generation failure is non-blocking but logged with a visible warning.
 	The snapshot JSON is the hard protection; the PDF is the evidence artifact.
 	"""
+	from erpnext_proposals.erpnext_proposals.utils.print_format import resolve_commercial_print_format
+
+	commercial_pf = resolve_commercial_print_format(doc)
 	_attach_pdf(
 		doc,
-		print_format="Propuesta Comercial",
-		filename=f"Propuesta Comercial - {doc.name}",
+		print_format=commercial_pf,
+		filename=f"{commercial_pf} - {doc.name}",
 		is_private=0,
 	)
 	_attach_pdf(

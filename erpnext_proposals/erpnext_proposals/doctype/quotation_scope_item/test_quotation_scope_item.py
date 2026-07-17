@@ -14,11 +14,15 @@ class TestQuotationScopeItem(unittest.TestCase):
 		"""
 		meta = frappe.get_meta("Quotation Scope Item")
 		internal_snapshot_fields = {"costing_rate", "rate_source", "rate_locked", "rate_locked_on"}
+		# Bandera booleana de control (no es campo comercial).
+		control_flags = {"is_internal_cost_task"}
 		layout_types = {"Section Break", "Column Break", "Tab Break"}
 		field_names = [
 			f.fieldname
 			for f in meta.fields
-			if f.fieldname not in internal_snapshot_fields and f.fieldtype not in layout_types
+			if f.fieldname not in internal_snapshot_fields
+			and f.fieldname not in control_flags
+			and f.fieldtype not in layout_types
 		]
 		forbidden = {"rate", "price", "cost", "amount", "margin"}
 		for fname in field_names:

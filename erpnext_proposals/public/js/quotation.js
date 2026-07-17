@@ -111,10 +111,18 @@ frappe.ui.form.on("Quotation", {
 			frm.add_custom_button(
 				__("Imprimir Propuesta Comercial"),
 				() => {
-					const url = `/printview?doctype=Quotation&name=${encodeURIComponent(
-						frm.doc.name
-					)}&format=Propuesta%20Comercial&no_letterhead=0`;
-					window.open(url, "_blank");
+					frappe
+						.call({
+							method: "erpnext_proposals.erpnext_proposals.utils.print_format.get_effective_commercial_print_format",
+							args: { quotation: frm.doc.name },
+						})
+						.then((r) => {
+							const fmt = r.message || "Propuesta Comercial";
+							const url = `/printview?doctype=Quotation&name=${encodeURIComponent(
+								frm.doc.name
+							)}&format=${encodeURIComponent(fmt)}&no_letterhead=0`;
+							window.open(url, "_blank");
+						});
 				},
 				__("Propuesta")
 			);
@@ -129,6 +137,22 @@ frappe.ui.form.on("Quotation", {
 				},
 				__("Propuesta")
 			);
+
+			// Mostrar el Print Format comercial efectivo que se usará.
+			frappe
+				.call({
+					method: "erpnext_proposals.erpnext_proposals.utils.print_format.get_effective_commercial_print_format",
+					args: { quotation: frm.doc.name },
+				})
+				.then((r) => {
+					if (r.message && frm.get_field("proposal_print_format")) {
+						frm.set_df_property(
+							"proposal_print_format",
+							"description",
+							__("Formato efectivo actual: {0}", [r.message])
+						);
+					}
+				});
 
 			// Show attached PDFs if they exist
 			frappe.call({

@@ -1,0 +1,28 @@
+{
+  "catalog": "ejemplo",
+  "version": "1.0.0",
+  "notes": "Catálogo de EJEMPLO con datos ficticios. Sirve de demo y para tests del loader. El catálogo real de cada implementación se pasa por ruta (catalog_path) y NO se versiona en la app.",
+  "versioned": [],
+  "phases": [
+    {"phase_code": "INICIO_DEMO", "phase_name": "Inicio (demo)", "sequence": 10},
+    {"phase_code": "CIERRE_DEMO", "phase_name": "Cierre (demo)", "sequence": 20}
+  ],
+  "sections": [
+    {"section_name": "Presentación Demo", "title": "Presentación Demo", "is_executive_summary": 0, "content": "<p>Sección de ejemplo para {{ doc.customer_name }}.</p>"},
+    {"section_name": "Alcance Demo", "title": "Alcance Demo", "is_executive_summary": 0, "content": "<p>Alcance de ejemplo (contenido base).</p>"}
+  ],
+  "templates": [
+    {
+      "template_name": "Plantilla Demo",
+      "description": "Plantilla de ejemplo con datos ficticios.",
+      "sections": [
+        {"proposal_section": "Presentación Demo", "sequence": 10, "include_by_default": 1},
+        {"proposal_section": "Alcance Demo", "sequence": 20, "include_by_default": 0, "use_custom_content": 1, "custom_content": "<p>Override de ejemplo para la plantilla demo.</p>"}
+      ]
+    }
+  ],
+  "scope_items": [
+    {"code": "DEMO-ACT-1", "title": "Actividad Demo 1", "sequence": 10, "phase": "INICIO_DEMO", "visible_in_proposal": 1, "is_internal_cost_task": 0, "description": "<p>Actividad de ejemplo visible.</p>", "deliverable": "<p>Entregable de ejemplo.</p>"},
+    {"code": "DEMO-PMO", "title": "PMO Demo", "sequence": 20, "phase": "CIERRE_DEMO", "visible_in_proposal": 0, "is_internal_cost_task": 1, "description": "<p>Tarea interna de costo (ejemplo).</p>", "deliverable": ""}
+  ]
+}

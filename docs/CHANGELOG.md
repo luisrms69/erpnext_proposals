@@ -1,5 +1,18 @@
 # Changelog — erpnext_proposals
 
+## [No liberado]
+
+### Added
+- Resolución del Print Format comercial (override → Proposal Template → default) con congelamiento
+  del formato efectivo — ver ADR-0005.
+- Loader genérico de catálogos por ruta externa y separación app-genérica vs personalización privada
+  por cliente — ver ADR-0006.
+
+### Docs
+- `tecnico/print-formats.md`: sección de resolución y congelamiento del formato comercial.
+- `tecnico/arquitectura.md`: loader de catálogos, resolución de Print Format, flag `is_internal_cost_task`.
+- ADR-0005 y ADR-0006.
+
 ## [0.0.1] — 2026-05-18
 
 ### Added

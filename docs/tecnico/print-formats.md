@@ -1,8 +1,44 @@
 # Print Formats — Desarrollo y mantenimiento
 
-Guía técnica para modificar los dos Print Formats del app:
-- **Propuesta Comercial** — PDF de propuesta para el cliente
-- **Rentabilidad Estimada** — PDF interno de análisis de costos
+Guía técnica de los Print Formats del app:
+
+- **Propuesta Comercial** — PDF comercial **genérico** que ships el app (sin branding; el logo
+  se hereda de `Company.company_logo`). Es el *default* del sistema.
+- **Rentabilidad Estimada** — PDF interno de análisis de costos.
+
+> **Formatos específicos de cliente (branded) son datos privados y viven fuera del repo.**
+> El app solo versiona el formato genérico. Ver [ADR-0006](../adr/0006-separacion-app-generica-personalizacion-privada.md).
+
+---
+
+## Resolución del Print Format comercial
+
+Qué formato se usa al imprimir la propuesta comercial se resuelve por una **cadena de precedencia**
+(módulo `utils/print_format.py`). Ver [ADR-0005](../adr/0005-resolucion-congelamiento-print-format.md).
+
+**En Borrador (resolución dinámica)** — `dynamic_commercial_print_format(doc)`:
+
+1. **Override por Quotation** — campo `proposal_print_format` (Link a Print Format, editable en Borrador).
+2. **Default por Proposal Template** — campo `Proposal Template.print_format`.
+3. **Default del app** — `DEFAULT_COMMERCIAL_PRINT_FORMAT = "Propuesta Comercial"`.
+
+El primero que exista, gana. Vacío → baja al siguiente nivel.
+
+**Congelamiento** — al pasar de Borrador a *En Revisión* (freeze), `freeze_effective_print_format(doc)`
+persiste el formato resuelto en `proposal_effective_print_format` (read-only, `no_copy`, **inmutable**).
+Desde ese momento `resolve_commercial_print_format(doc)` devuelve **siempre** el formato congelado,
+sin volver a resolver. Una **nueva versión** hereda ese formato como override editable.
+
+| Función (`utils/print_format.py`) | Rol |
+|---|---|
+| `resolve_commercial_print_format(doc)` | congelada → el congelado; Borrador → resolución dinámica |
+| `dynamic_commercial_print_format(doc)` | cadena override → template → default |
+| `freeze_effective_print_format(doc)` | persiste el efectivo al congelar (idempotente) |
+| `validate_print_format(name)` | valida que el formato sea usable para Quotation (existe, doc_type, no disabled) |
+| `get_effective_commercial_print_format(quotation)` | whitelisted; lo usa el botón *Imprimir Propuesta Comercial* (JS) |
+
+El mismo resolver se usa en el snapshot de impresión y al adjuntar el PDF comercial, de modo que
+todos los caminos de impresión coinciden en el formato efectivo.
 
 ---
 
@@ -117,8 +153,9 @@ rentabilidad-estimada-baseline-2026-05-21.pdf  ← baseline con tabla Alcance Co
 
 | Archivo | Propósito |
 |---|---|
-| `propuesta_comercial.json` | Fuente de verdad del Print Format de propuesta |
+| `propuesta_comercial.json` | Fuente de verdad del Print Format comercial genérico (default) |
 | `rentabilidad_estimada.json` | Fuente de verdad del Print Format de rentabilidad |
+| `utils/print_format.py` | Resolución y congelamiento del formato comercial efectivo |
 | `utils/printing.py` | Helpers Jinja: `render_section_content`, `parse_json`, `get_logo_url` |
 | `report/profitability_estimate/` | Fuente de datos para Rentabilidad Estimada |
 | `working_docs/archive/visual-regression/` | PDFs de evidencia histórica por formato |

@@ -33,6 +33,8 @@ nav:
     - ADR-0002 Rentabilidad estimada: adr/0002-rentabilidad-estimada-propuesta.md
     - ADR-0003 Sincronización de alcance: adr/0003-sincronizacion-alcance-catalogo.md
     - ADR-0004 Fase como Link: adr/0004-phase-link-proposal-phase.md
+    - ADR-0005 Resolución y congelamiento de Print Format: adr/0005-resolucion-congelamiento-print-format.md
+    - ADR-0006 App genérica vs personalización privada: adr/0006-separacion-app-generica-personalizacion-privada.md
 
 theme:
   name: material
