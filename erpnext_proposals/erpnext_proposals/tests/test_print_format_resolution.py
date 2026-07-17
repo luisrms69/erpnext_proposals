@@ -113,7 +113,7 @@ class TestPrintFormatResolution(unittest.TestCase):
 				"visible_in_proposal": 1,
 			},
 		)
-		frappe.db.commit()
+		frappe.db.commit()  # nosemgrep — test isolation requires explicit commit
 
 	@classmethod
 	def tearDownClass(cls):

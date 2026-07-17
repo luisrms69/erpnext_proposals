@@ -1,8 +1,8 @@
 # CONTINUITY.md — erpnext_proposals
 
 **Fecha:** 2026-07-17
-**Rama activa:** `feat/proposal-project-task-integration` (solo local — **NO pusheada**)
-**Tarea actual:** Documentación (TASK 8) commiteada. Siguiente: `/ship push` y luego PR a `version-16`.
+**Rama activa:** `feat/proposal-project-task-integration` (pusheada a `upstream`, historia saneada)
+**Tarea actual:** Historia saneada + push hecho (`5be8ad5`). Fix `# nosemgrep` en test → commit. Siguiente: `/ship push` del fix, luego `/ship pr` a `version-16`.
 
 ---
 
@@ -38,8 +38,9 @@ Ningún objeto publicado debe contener datos de cliente.
   `mkdocs build --strict` limpio. Suite automática 167 OK.
 
 ### Pendiente inmediato
-1. `/ship push` (requiere autorización).
-2. PR a `version-16` (requiere autorización).
+1. `/ship push` del fix `# nosemgrep` (requiere autorización).
+2. `/ship pr` a `version-16` sin repetir toda la batería (pr-ready ya corrido: ruff/tests/mkdocs verdes).
+3. Esperar CI → merge (lo hace el usuario) → `/sync-check`.
 
 ### No repetir
 - No versionar contenido de cliente (branding, catálogos reales, assets, one_offs, PDFs).
