@@ -2,7 +2,7 @@
 
 **Fecha:** 2026-07-17
 **Rama activa:** `feat/proposal-project-task-integration` (pusheada a `upstream`, historia saneada)
-**Tarea actual:** Historia saneada + push hecho (`5be8ad5`). Fix `# nosemgrep` en test → commit. Siguiente: `/ship push` del fix, luego `/ship pr` a `version-16`.
+**Tarea actual:** PR #31 abierto a `version-16`. CI marcó `frappe-security-file-traversal` en el loader → fix `# nosemgrep` (comment-only). Siguiente: `/ship push` del fix; el CI del PR re-corre.
 
 ---
 

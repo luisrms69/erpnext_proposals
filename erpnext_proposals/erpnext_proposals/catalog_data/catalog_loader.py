@@ -376,7 +376,9 @@ def _load_catalog(catalog_path: str | None = None) -> dict:
 	path = catalog_path or SAMPLE_CATALOG
 	if not os.path.exists(path):
 		frappe.throw(_("No se encontró el archivo de catálogo: {0}").format(path))
-	with open(path, encoding="utf-8") as fh:
+	# catalog_path lo provee el operador vía `bench execute` (no es entrada de usuario final);
+	# el loader no está whitelisted. Lectura local de solo lectura del JSON de catálogo.
+	with open(path, encoding="utf-8") as fh:  # nosemgrep
 		return json.load(fh)
 
 
