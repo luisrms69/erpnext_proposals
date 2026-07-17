@@ -13,19 +13,27 @@ Estas reglas anulan cualquier otra instrucción. No hay excepción ni autorizaci
 
 2. **NUNCA crear patches** — ni proponer, ni generar, ni sugerir patches como solución. Los patches son responsabilidad exclusiva del desarrollador.
 
-3. **Flujo obligatorio para Custom Fields:**
+3. **Flujo para Custom Fields — según cómo se definen:**
+
+   **A. Definidos manualmente en el fixture JSON (nuestro flujo normal):**
    - Editar el fixture JSON (`fixtures/custom_field.json`) directamente con los valores correctos
-   - Correr `bench --site proposals.dev migrate` — Frappe aplica el fixture a la BD vía su propia API
-   - Correr `bench --site proposals.dev export-fixtures --app erpnext_proposals` — verifica round-trip
-   - Commit
+   - Correr `bench --site proposals.dev migrate` — Frappe crea/aplica los campos desde el JSON
+   - Verificar (metadata / DB) y Commit
+   - **NO se ejecuta `export-fixtures`.** El JSON ya es la fuente de verdad y `migrate` lo aplica. Un
+     `export-fixtures` posterior no crea ni valida nada necesario: solo re-exporta desde la BD y puede
+     meter ruido o estado no deseado.
+
+   **B. Creados/modificados desde la UI o la BD (excepción):**
+   - Crear/modificar en la UI → `bench --site proposals.dev export-fixtures --app erpnext_proposals`
+   - Revisar el diff del JSON → Commit
 
 4. **Checkpoint obligatorio después de cada bloque funcional** antes de continuar al siguiente:
    ```bash
    bench --site proposals.dev migrate
-   bench --site proposals.dev export-fixtures --app erpnext_proposals
    git add -A
    git commit -m "checkpoint: <descripción>"
    ```
+   (`export-fixtures` solo aplica al caso B del punto 3 — campos creados desde UI/BD.)
 
 ---
 

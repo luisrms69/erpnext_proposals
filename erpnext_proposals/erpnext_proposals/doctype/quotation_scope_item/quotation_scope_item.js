@@ -18,6 +18,9 @@ frappe.ui.form.on("Quotation Scope Item", {
 				activity_type: doc.default_activity_type,
 				designation: doc.default_designation,
 				estimated_hours: doc.estimated_hours,
+				is_internal_cost_task: doc.is_internal_cost_task,
+				// Valor inicial de include_in_proposal desde el catálogo (visible_in_proposal).
+				include_in_proposal: doc.visible_in_proposal ? 1 : 0,
 			});
 		});
 	},

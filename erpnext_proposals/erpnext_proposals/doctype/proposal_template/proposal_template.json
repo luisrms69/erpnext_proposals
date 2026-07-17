@@ -8,6 +8,7 @@
  "field_order": [
   "template_name",
   "description",
+  "print_format",
   "sections"
  ],
  "fields": [
@@ -23,6 +24,13 @@
    "fieldname": "description",
    "fieldtype": "Small Text",
    "label": "Description"
+  },
+  {
+   "description": "Print Format comercial usado por defecto por esta familia de propuesta. Opcional. Vacío = usa el default de la app.",
+   "fieldname": "print_format",
+   "fieldtype": "Link",
+   "label": "Print Format",
+   "options": "Print Format"
   },
   {
    "fieldname": "sections",

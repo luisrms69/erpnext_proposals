@@ -39,14 +39,19 @@ def get_profitability_data(quotation_name: str) -> dict:
 
 	elaborated_by_name = frappe.db.get_value("User", quotation.owner, "full_name") if quotation.owner else ""
 
+	# Costeo: filas vendibles O internas de costo (include_in_proposal OR is_internal_cost_task).
+	# La visibilidad al cliente (PDF) sigue dependiendo solo de include_in_proposal.
+	def _is_costable(row):
+		return row.include_in_proposal or row.is_internal_cost_task
+
 	# Items that have Scope Items → costed by labor, not by purchase price
 	items_with_scope = {
-		row.item_code for row in quotation.quotation_scope_items if row.include_in_proposal and row.item_code
+		row.item_code for row in quotation.quotation_scope_items if _is_costable(row) and row.item_code
 	}
 
 	# ── Labor cost ───────────────────────────────────────────────────────
 	scope_rows_raw = sorted(
-		[r for r in quotation.quotation_scope_items if r.include_in_proposal],
+		[r for r in quotation.quotation_scope_items if _is_costable(r)],
 		key=lambda r: (phase_sequence(r.phase), r.sequence or 0, r.idx),
 	)
 

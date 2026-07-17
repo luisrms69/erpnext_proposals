@@ -1,82 +1,76 @@
 # CONTINUITY.md — erpnext_proposals
 
-**Fecha:** 2026-07-15
-**Rama activa:** `feat/proposal-phase-link`
-**Tarea actual:** Convertir `phase` de texto libre a `Link(Proposal Phase)` en Scope Item y Quotation Scope Item. Implementado y validado; pendiente commit/PR.
+**Fecha:** 2026-07-17
+**Rama activa:** `feat/proposal-project-task-integration` (pusheada a `upstream`, historia saneada)
+**Tarea actual:** PR #31 abierto a `version-16`. CI marcó `frappe-security-file-traversal` en el loader → fix `# nosemgrep` (comment-only). Siguiente: `/ship push` del fix; el CI del PR re-corre.
 
 ---
 
 ## Recuperación rápida
 
 Estoy trabajando en:
-`phase` → Link a Proposal Phase. Orden por `Proposal Phase.sequence` (no alfabético) y display
-`phase_name`, resuelto desde el catálogo sin campo duplicado. Corte limpio (sin patch/backfill).
+Cierre de `erpnext_proposals`. El app genérico queda documentado (resolución/congelamiento de Print
+Format y separación entre app genérica y personalización privada por cliente). Los Print Formats
+branded, catálogos reales y assets del cliente son **datos privados que viven fuera del repo** y se
+aplican por site.
 
 Plan que estoy siguiendo:
-Decisiones cerradas por el usuario (13 puntos) + ADR-0004. Fuera de alcance: manual_override,
-backfill, orden de "Sin fase".
+Ciclo de cierre: documentación → `/ship commit` (hecho) → `/ship push` → PR a `version-16`
+(cada paso con autorización explícita por separado).
 
 Objetivo inmediato:
-`/ship commit` → `/ship push` → PR a `version-16` (autorizados).
+`/ship push` de la rama, ya con la historia saneada de contenido específico de cliente.
 
 Criterio de avance:
-Suite 143 OK; validación funcional GUI en proposals-acti.dev (8 casos PASS); ADR + docs; PR verde.
+Ningún objeto publicado debe contener datos de cliente.
 
 ---
 
 ## Estado actual
 
 ### Ya cerrado
-- PR #26 (catálogo Proposal Phase), PR #28 (docs), PR #29 (resync #27, mergeado a version-16).
-- **Esta rama:** `phase` Data→Link en 2 DocTypes; `utils/phase.py` (`phase_label`/`phase_sequence`/
-  `order_phases`, jinja methods); consumidores actualizados (quotation, profitability, project,
-  ambos Print Formats); tests (nuevo `test_phase_link.py` + helper `tests/phases.py` + actualizados
-  immutability/resync/scope_item). ADR-0004. Docs + referencia regeneradas.
-- Validación funcional server-side en proposals-acti.dev: 8 casos PASS (fase GUI, Link, generación,
-  resync, orden por sequence, PDFs con phase_name, Project/Task). Docs de prueba `_GUITEST_*` limpiados.
-
-### En progreso
-- `/ship commit` → push → PR.
+- Resolución + congelamiento del Print Format comercial (override → Proposal Template → default;
+  efectivo congelado al pasar a En Revisión) — ADR-0005.
+- Loader genérico de catálogos por ruta externa y separación app-genérica vs personalización privada
+  por cliente — ADR-0006.
+- Documentación actualizada (`tecnico/print-formats.md`, `tecnico/arquitectura.md`,
+  `usuario/generar-enviar-propuesta.md`, ADR-0005, ADR-0006, CHANGELOG, mkdocs nav).
+  `mkdocs build --strict` limpio. Suite automática 167 OK.
 
 ### Pendiente inmediato
-1. Commit + push + PR de esta rama.
-2. (Futuro, fuera de alcance) decidir si "Sin fase" debe ordenar al final; `manual_override`.
+1. `/ship push` del fix `# nosemgrep` (requiere autorización).
+2. `/ship pr` a `version-16` sin repetir toda la batería (pr-ready ya corrido: ruff/tests/mkdocs verdes).
+3. Esperar CI → merge (lo hace el usuario) → `/sync-check`.
 
 ### No repetir
-- **NUNCA** backfill/patch de datos históricos de fase (corte limpio; sitios nuevos configuran su catálogo).
-- `bench migrate` **no recarga Print Formats** → tras migrar hay que `reload_doc(... force=True)`.
-- El orden de fases usa `Proposal Phase.sequence`, no alfabético; "Sin fase" (sequence 0) va primero (heredado).
-- `docs/referencia/` es autogenerada (`scripts/generate_reference.py`).
-- Remoto es `upstream` (no `origin`). No commitear en `version-16`.
+- No versionar contenido de cliente (branding, catálogos reales, assets, one_offs, PDFs).
+  [[feedback_no_crear_transaccionales_de_prueba]]
+- No `git` manual — solo vía `/ship`. [[feedback_git_solo_via_ship]]
+- **NUNCA** merge — lo hace el usuario. [[feedback_nunca_merge]]
 
 ---
 
 ## Decisiones vigentes
-- `phase` = Link; almacena `name`(=`phase_code`); display `phase_name`; orden por `sequence` (ADR-0004).
-- Sin `phase_sequence` almacenado: se resuelve desde el catálogo en lectura.
-- Despliegue: `bench migrate` + recargar Print Formats. Datos históricos con fase libre quedan como Links inválidos hasta ajuste manual.
+- Print Format comercial: cadena override → Proposal Template → default; congelamiento del efectivo
+  al pasar a En Revisión (ADR-0005).
+- App genérica en el repo; catálogos/branding/assets reales fuera del repo, aplicados por site (ADR-0006).
 
 ---
 
 ## Archivos relevantes ahora
 
 ### Leer primero
-- `utils/phase.py` — helpers de fase.
-- `utils/quotation.py` (order_by), `report/profitability_estimate`, `utils/project.py` — consumidores.
-- `print_format/*/*.json` — `phase_label`/`order_phases` en Jinja.
-- `tests/test_phase_link.py`, `tests/phases.py`.
+- `docs/tecnico/print-formats.md`, `docs/adr/0005-*.md`, `docs/adr/0006-*.md`
 
 ### No tocar
-- `docs/referencia/` (generada). Orden de "Sin fase" (fuera de alcance).
+- Datos de los sites de prueba (no borrar/limpiar). Propuestas congeladas.
 
 ---
 
 ## Riesgos / cuidados
-- Cambio de esquema (fieldtype) — aplica con `bench migrate`; sin patch por decisión.
-- `bench run-tests` solo en `test-erpnext_proposals.localhost`.
-- proposals-acti.dev ya migrado a Link (sitio de pruebas).
+- `one_offs/` no está en `.gitignore`; el flujo `/ship` los excluye, pero nunca usar `git add -A`.
 
 ---
 
 ## Información faltante
-- Decisión UX: ¿"Sin fase" al final del orden? (fuera de alcance de este PR).
+- Definición del usuario sobre pasos posteriores del cierre.

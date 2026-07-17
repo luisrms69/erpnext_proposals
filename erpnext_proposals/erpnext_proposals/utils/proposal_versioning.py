@@ -245,6 +245,12 @@ def create_new_proposal_version(quotation_name: str, reason: str, summary: str =
 
 	new_version_number = _next_version(old.proposal_group)
 
+	# La nueva versión HEREDA el formato efectivo anterior como override editable (proposal_print_format).
+	# El formato congelado (proposal_effective_print_format) NO se copia (no_copy=1): se recongela en Borrador.
+	from erpnext_proposals.erpnext_proposals.utils.print_format import resolve_commercial_print_format
+
+	inherited_print_format = resolve_commercial_print_format(old)
+
 	new_doc = frappe.get_doc(
 		{
 			"doctype": "Quotation",
@@ -261,6 +267,7 @@ def create_new_proposal_version(quotation_name: str, reason: str, summary: str =
 			"proposal_template": old.proposal_template,
 			"proposal_title": old.proposal_title,
 			"proposal_cost_center": old.proposal_cost_center,
+			"proposal_print_format": inherited_print_format,
 			"proposal_revision_reason": reason,
 			"proposal_revision_summary": summary,
 			"items": [_copy_item(i) for i in old.items],
