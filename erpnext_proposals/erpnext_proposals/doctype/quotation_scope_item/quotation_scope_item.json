@@ -16,6 +16,12 @@
   "section_narrative",
   "description",
   "deliverable",
+  "service_objective",
+  "methodology",
+  "expected_result",
+  "scope_limit",
+  "exclusions",
+  "acceptance_criteria",
   "section_classification",
   "phase",
   "erpnext_item",
@@ -102,6 +108,49 @@
    "fieldname": "deliverable",
    "fieldtype": "Text Editor",
    "label": "Deliverable"
+  },
+  {
+   "fieldname": "service_objective",
+   "fieldtype": "Text Editor",
+   "label": "Objetivo del servicio",
+   "read_only": 1,
+   "hidden": 1,
+   "description": "Copia técnica congelada del Scope Item. Se llena automáticamente; no editar aquí."
+  },
+  {
+   "fieldname": "methodology",
+   "fieldtype": "Text Editor",
+   "label": "Metodología",
+   "read_only": 1,
+   "hidden": 1
+  },
+  {
+   "fieldname": "expected_result",
+   "fieldtype": "Text Editor",
+   "label": "Resultado esperado",
+   "read_only": 1,
+   "hidden": 1
+  },
+  {
+   "fieldname": "scope_limit",
+   "fieldtype": "Text Editor",
+   "label": "Límite del alcance",
+   "read_only": 1,
+   "hidden": 1
+  },
+  {
+   "fieldname": "exclusions",
+   "fieldtype": "Text Editor",
+   "label": "Exclusiones",
+   "read_only": 1,
+   "hidden": 1
+  },
+  {
+   "fieldname": "acceptance_criteria",
+   "fieldtype": "Text Editor",
+   "label": "Criterios de aceptación",
+   "read_only": 1,
+   "hidden": 1
   },
   {
    "fieldname": "section_classification",

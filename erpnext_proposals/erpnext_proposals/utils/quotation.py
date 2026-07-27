@@ -149,6 +149,7 @@ def _generate_scope_items(doc):
 				"estimated_hours",
 				"visible_in_proposal",
 				"is_internal_cost_task",
+				*_EDITORIAL_FIELDS,
 			],
 			order_by="sequence asc",
 		)
@@ -175,9 +176,24 @@ def _generate_scope_items(doc):
 					"include_in_proposal": 1 if si.visible_in_proposal else 0,
 					"is_internal_cost_task": si.is_internal_cost_task or 0,
 					"auto_generated": 1,
+					# Campos editoriales opcionales (contenido de propuesta; no afectan Task/costo).
+					**{f: si.get(f) for f in _EDITORIAL_FIELDS},
 				},
 			)
 			existing.add((item.item_code, si.name))
+
+
+# Campos editoriales opcionales del alcance (Text Editor). Se copian del catálogo Scope Item a la
+# copia congelada del Quotation Scope Item como contenido de propuesta. NO afectan Tasks, horas ni
+# costos. Se administran por catálogo igual que description/deliverable (incluye limpieza con null).
+_EDITORIAL_FIELDS = (
+	"service_objective",
+	"methodology",
+	"expected_result",
+	"scope_limit",
+	"exclusions",
+	"acceptance_criteria",
+)
 
 
 # Campos del Quotation Scope Item controlados por el catálogo Scope Item.
@@ -196,6 +212,7 @@ _CATALOG_CONTROLLED_FIELDS = (
 	"designation",
 	"estimated_hours",
 	"is_internal_cost_task",
+	*_EDITORIAL_FIELDS,
 )
 
 
@@ -223,6 +240,7 @@ def _catalog_rows_for_items(item_codes: list) -> dict:
 			"estimated_hours",
 			"is_internal_cost_task",
 			"visible_in_proposal",
+			*_EDITORIAL_FIELDS,
 		],
 		order_by="sequence asc",
 	)
@@ -241,6 +259,8 @@ def _catalog_rows_for_items(item_codes: list) -> dict:
 			# Solo para el ADD de resync (valor inicial). NO está en _CATALOG_CONTROLLED_FIELDS,
 			# por lo que el UPDATE nunca sobrescribe include_in_proposal en filas existentes.
 			"include_in_proposal": 1 if si.visible_in_proposal else 0,
+			# Campos editoriales opcionales (controlados por catálogo vía _CATALOG_CONTROLLED_FIELDS).
+			**{f: si.get(f) for f in _EDITORIAL_FIELDS},
 		}
 	return result
 

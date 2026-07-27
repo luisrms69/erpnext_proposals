@@ -15,6 +15,13 @@
   "section_narrative",
   "description",
   "deliverable",
+  "section_editorial",
+  "service_objective",
+  "methodology",
+  "expected_result",
+  "scope_limit",
+  "exclusions",
+  "acceptance_criteria",
   "section_classification",
   "phase",
   "erpnext_item",
@@ -81,6 +88,43 @@
    "fieldname": "deliverable",
    "fieldtype": "Text Editor",
    "label": "Deliverable"
+  },
+  {
+   "fieldname": "section_editorial",
+   "fieldtype": "Section Break",
+   "label": "Contenido editorial",
+   "collapsible": 1,
+   "description": "Bloques editoriales opcionales para la propuesta. No afectan Tasks, horas ni costos."
+  },
+  {
+   "fieldname": "service_objective",
+   "fieldtype": "Text Editor",
+   "label": "Objetivo del servicio"
+  },
+  {
+   "fieldname": "methodology",
+   "fieldtype": "Text Editor",
+   "label": "Metodología"
+  },
+  {
+   "fieldname": "expected_result",
+   "fieldtype": "Text Editor",
+   "label": "Resultado esperado"
+  },
+  {
+   "fieldname": "scope_limit",
+   "fieldtype": "Text Editor",
+   "label": "Límite del alcance"
+  },
+  {
+   "fieldname": "exclusions",
+   "fieldtype": "Text Editor",
+   "label": "Exclusiones"
+  },
+  {
+   "fieldname": "acceptance_criteria",
+   "fieldtype": "Text Editor",
+   "label": "Criterios de aceptación"
   },
   {
    "fieldname": "section_classification",

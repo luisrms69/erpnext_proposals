@@ -339,6 +339,50 @@ class TestScopeCatalogResync(unittest.TestCase):
 			si.title = orig_title
 			si.save(ignore_permissions=True)
 
+	# ── D2. Campos editoriales opcionales ───────────────────────────────────────
+
+	def test_editorial_copy_resync_and_null(self):
+		"""Los 6 campos editoriales se copian al generar, el resync los actualiza y un valor vacío
+		en el maestro los limpia — sin afectar estimated_hours (no impactan Tasks/costos)."""
+		from erpnext_proposals.erpnext_proposals.utils.quotation import _EDITORIAL_FIELDS
+
+		si = frappe.get_doc("Scope Item", "_RESYNC_A1")
+		orig = {f: si.get(f) for f in _EDITORIAL_FIELDS}
+		orig_hours = si.estimated_hours
+		for f in _EDITORIAL_FIELDS:
+			si.set(f, f"<p>{f} v1</p>")
+		si.save(ignore_permissions=True)
+		try:
+			# 1) copia al generar
+			q = self._make_quotation([ITEM_A])
+			row = self._row_by_scope(q.name, "_RESYNC_A1")
+			for f in _EDITORIAL_FIELDS:
+				self.assertEqual(row.get(f), f"<p>{f} v1</p>", f"{f} debe copiarse al generar")
+			self.assertEqual(row.estimated_hours, orig_hours, "editorial no cambia horas")
+
+			# 2) resync actualiza
+			for f in _EDITORIAL_FIELDS:
+				si.set(f, f"<p>{f} v2</p>")
+			si.save(ignore_permissions=True)
+			resync_scope_from_catalog(q.name)
+			row = self._row_by_scope(q.name, "_RESYNC_A1")
+			for f in _EDITORIAL_FIELDS:
+				self.assertEqual(row.get(f), f"<p>{f} v2</p>", f"{f} debe actualizarse en resync")
+
+			# 3) vaciar el maestro → resync limpia la copia
+			for f in _EDITORIAL_FIELDS:
+				si.set(f, None)
+			si.save(ignore_permissions=True)
+			resync_scope_from_catalog(q.name)
+			row = self._row_by_scope(q.name, "_RESYNC_A1")
+			for f in _EDITORIAL_FIELDS:
+				self.assertFalse(row.get(f), f"{f} debe quedar vacío tras vaciar el maestro")
+			self.assertEqual(row.estimated_hours, orig_hours, "editorial no cambia horas")
+		finally:
+			for f, v in orig.items():
+				si.set(f, v)
+			si.save(ignore_permissions=True)
+
 	# ── E. Fila manual bajo condición destructiva ───────────────────────────────
 
 	def test_04_manual_row_survives_destructive_resync(self):
