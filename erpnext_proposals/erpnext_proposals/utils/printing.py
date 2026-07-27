@@ -1,3 +1,7 @@
+import base64
+import mimetypes
+import os
+
 import frappe
 
 _HTML_MARKERS = (
@@ -68,3 +72,40 @@ def get_logo_url(logo_path: str) -> str:
 	from urllib.parse import quote
 
 	return frappe.utils.get_url(quote(logo_path, safe="/"))
+
+
+def get_logo_data_uri(logo_path: str) -> str:
+	"""
+	Return a base64 ``data:`` URI for a logo/image stored in the site's files,
+	suitable for embedding directly into a Print Format.
+
+	Reads the file from disk (site public/private files) and inlines it, so the
+	image renders identically in the browser preview and in the wkhtmltopdf PDF
+	WITHOUT an HTTP round-trip. This avoids the common failure where wkhtmltopdf
+	cannot reach the app URL (wrong port / host / server down) and the logo shows
+	as a broken-image placeholder.
+
+	Accepts a Company logo path such as ``/files/logo.png`` or
+	``/private/files/logo.png``. Returns ``""`` when the path is empty or the file
+	cannot be resolved on disk (caller should guard the ``<img>`` accordingly).
+	"""
+	if not logo_path:
+		return ""
+
+	rel = logo_path.split("?", 1)[0]
+	if rel.startswith("/private/files/"):
+		fpath = frappe.get_site_path("private", "files", rel[len("/private/files/") :])
+	elif rel.startswith("/files/"):
+		fpath = frappe.get_site_path("public", "files", rel[len("/files/") :])
+	elif rel.startswith("/public/files/"):
+		fpath = frappe.get_site_path("public", "files", rel[len("/public/files/") :])
+	else:
+		return ""
+
+	if not os.path.exists(fpath):
+		return ""
+
+	mime = mimetypes.guess_type(fpath)[0] or "image/png"
+	with open(fpath, "rb") as fh:  # nosemgrep — lectura local de un asset del propio site
+		encoded = base64.b64encode(fh.read()).decode("ascii")
+	return f"data:{mime};base64,{encoded}"

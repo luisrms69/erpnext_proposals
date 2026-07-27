@@ -21,6 +21,7 @@ jinja = {
 		"erpnext_proposals.erpnext_proposals.utils.printing.render_section_content",
 		"erpnext_proposals.erpnext_proposals.utils.printing.parse_json",
 		"erpnext_proposals.erpnext_proposals.utils.printing.get_logo_url",
+		"erpnext_proposals.erpnext_proposals.utils.printing.get_logo_data_uri",
 		"erpnext_proposals.erpnext_proposals.utils.phase.phase_label",
 		"erpnext_proposals.erpnext_proposals.utils.phase.order_phases",
 	]
