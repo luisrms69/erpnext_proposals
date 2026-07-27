@@ -35,7 +35,9 @@ class TestProjectTaskIntegration(unittest.TestCase):
 		super().setUpClass()
 		cls._quotations = []
 		cls._projects = []
-		cls.company = frappe.db.get_value("Company", {}, "name")
+		from erpnext_proposals.erpnext_proposals.tests.company import get_test_company
+
+		cls.company = get_test_company()
 		if not cls.company:
 			raise unittest.SkipTest("No Company found on test site.")
 		cls._created_phases = ensure_test_phases()  # DISC(10), IMPL(20), GOLIVE(30)

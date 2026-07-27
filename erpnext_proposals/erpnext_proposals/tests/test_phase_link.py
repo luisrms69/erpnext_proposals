@@ -31,7 +31,9 @@ class TestPhaseLink(unittest.TestCase):
 	def setUpClass(cls):
 		super().setUpClass()
 		cls._quotations = []
-		cls.company = frappe.db.get_value("Company", {}, "name")
+		from erpnext_proposals.erpnext_proposals.tests.company import get_test_company
+
+		cls.company = get_test_company()
 		if not cls.company:
 			raise unittest.SkipTest("No Company found on test site.")
 		cls._created_phases = ensure_test_phases()
