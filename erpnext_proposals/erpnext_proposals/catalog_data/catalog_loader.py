@@ -38,6 +38,16 @@ from frappe import _
 SAMPLE_CATALOG = os.path.join(os.path.dirname(__file__), "sample_catalog.json")
 
 
+# Print Formats que el loader NUNCA debe crear, modificar ni tocar. Assets del repo público
+# (file-based / standard) cuya fuente de verdad es Git, no un catálogo externo.
+PROTECTED_PRINT_FORMATS = frozenset(
+	{
+		"Propuesta Comercial",
+		"Rentabilidad Estimada",
+	}
+)
+
+
 # Las 10 Sections base (after_install) NUNCA se crean ni modifican por el seeder.
 BASE_SECTIONS = frozenset(
 	{
@@ -55,6 +65,39 @@ BASE_SECTIONS = frozenset(
 )
 
 
+# Versión de capacidades del loader. Se incrementa cuando cambian las capacidades que un catálogo
+# externo puede requerir. El instalador de producción la usa para rechazar un app desactualizado.
+# v3: el loader NO crea/actualiza UOM ni Item Groups (masters fiscales) — solo los referencia.
+# v4: soporte de Payment Terms / Payment Terms Templates (condiciones de pago corporativas).
+LOADER_CAPS_VERSION = 4
+
+
+def capabilities() -> dict:
+	"""Reporta (y devuelve) las capacidades del loader / pipeline de impresión. La usa el instalador
+	de producción para DETECTAR Y RECHAZAR una versión del app sin las capacidades requeridas.
+
+	    bench --site <site> execute erpnext_proposals.erpnext_proposals.catalog_data.catalog_loader.capabilities
+	"""
+	from erpnext_proposals.erpnext_proposals.utils import printing
+
+	caps = {
+		"caps_version": LOADER_CAPS_VERSION,
+		"items": callable(globals().get("_seed_items")),
+		"scope_explicit_null": callable(globals().get("_managed_fields")),
+		"print_formats": callable(globals().get("_seed_print_formats")),
+		"protected_print_formats": bool(PROTECTED_PRINT_FORMATS),
+		"get_logo_data_uri": callable(getattr(printing, "get_logo_data_uri", None)),
+		"payment_terms": callable(globals().get("_seed_payment_terms"))
+		and callable(globals().get("_seed_payment_terms_templates")),
+		# El loader NO tiene capacidad de sembrar masters fiscales (UOM / Item Groups).
+		"no_fiscal_master_writes": not callable(globals().get("_seed_item_groups"))
+		and not callable(globals().get("_seed_uoms")),
+	}
+	caps["all_present"] = all(v for k, v in caps.items() if k != "caps_version")
+	print("CAPABILITIES:" + json.dumps(caps, ensure_ascii=False))
+	return caps
+
+
 def run(catalog_path: str | None = None, dry_run: bool = True, update_content: bool = False) -> dict:
 	"""Punto de entrada. dry_run=True por defecto: no escribe, solo reporta el plan.
 
@@ -65,6 +108,9 @@ def run(catalog_path: str | None = None, dry_run: bool = True, update_content: b
 	dry_run = _as_bool(dry_run)
 	update_content = _as_bool(update_content) if update_content is not False else False
 	data = _load_catalog(catalog_path)
+	# Directorio del catálogo: base para resolver assets referenciados por ruta relativa
+	# (p. ej. html_file/css_file de un Print Format), que viven junto al JSON del catálogo.
+	catalog_dir = os.path.dirname(os.path.abspath(catalog_path or SAMPLE_CATALOG))
 	report: dict = {
 		"created": [],
 		"reused": [],
@@ -78,7 +124,20 @@ def run(catalog_path: str | None = None, dry_run: bool = True, update_content: b
 		section_remap = _seed_sections(
 			data["sections"], report, dry_run, update_content, set(data.get("versioned", []))
 		)
-		_seed_scope_items(data["scope_items"], report, dry_run)
+		# erpnext_proposals NO crea/actualiza UOM ni Item Groups (masters fiscales de
+		# facturacion_mexico): el loader simplemente no tiene esa capacidad. Los Items referencian
+		# UOM/Item Groups existentes; su validez la garantizan los campos Link nativos de Frappe.
+		_seed_items(data.get("items", []), report, dry_run, update_content)
+		_seed_scope_items(data["scope_items"], report, dry_run, update_content)
+		# Condiciones de pago corporativas (NO fiscales): Payment Terms y su Template. Los Payment
+		# Terms deben existir antes de referenciarse en el Template.
+		_seed_payment_terms(data.get("payment_terms", []), report, dry_run, update_content)
+		_seed_payment_terms_templates(
+			data.get("payment_terms_templates", []), report, dry_run, update_content
+		)
+		# Print Formats antes que Templates: Proposal Template.print_format es un Link que
+		# requiere que el Print Format exista al guardar el template.
+		_seed_print_formats(data.get("print_formats", []), catalog_dir, report, dry_run, update_content)
 		_seed_templates(data["templates"], section_remap, report, dry_run, update_content)
 	except Exception:
 		frappe.db.rollback()
@@ -203,11 +262,252 @@ def _section_matches(name: str, expected: dict) -> bool:
 	return not _diff(expected, current)
 
 
-def _seed_scope_items(items: list, report: dict, dry_run: bool) -> None:
+def _seed_items(items: list, report: dict, dry_run: bool, update_content: bool = False) -> None:
+	"""Crea/actualiza idempotentemente ERPNext Items (capacidad genérica). Identidad: item_code.
+	Los datos concretos (nombres, grupos, descripciones) viven en el catálogo externo, no en el app.
+	Solo se comparan/actualizan los campos que el catálogo provee (no se fuerzan vacíos)."""
+	fields = ["item_name", "item_group", "stock_uom", "is_stock_item", "is_sales_item", "description"]
+	for it in items:
+		code = it["item_code"]
+		label = f"Item '{code}'"
+		provided = {f: it.get(f) for f in fields if it.get(f) is not None}
+		if not frappe.db.exists("Item", code):
+			if not dry_run:
+				doc = {"doctype": "Item", "item_code": code}
+				doc.update(provided)
+				frappe.get_doc(doc).insert(ignore_permissions=True)
+			report["created"].append(label)
+			continue
+
+		current = frappe.db.get_value("Item", code, list(provided.keys()), as_dict=True) if provided else {}
+		diffs = _diff(provided, current)
+		if not diffs:
+			report["unchanged"].append(label)
+		elif update_content:
+			if not dry_run:
+				doc = frappe.get_doc("Item", code)
+				for f, v in provided.items():
+					doc.set(f, v)
+				doc.save(ignore_permissions=True)
+			report["updated"].append(f"{label}: {diffs}")
+		else:
+			report["conflicts"].append(f"{label}: {diffs}")
+
+
+def _seed_payment_terms(terms: list, report: dict, dry_run: bool, update_content: bool = False) -> None:
+	"""Crea/actualiza idempotentemente Payment Terms (condiciones de pago corporativas, NO fiscales).
+	Identidad: payment_term_name. Solo administra los campos provistos por el catálogo."""
+	fields = ["invoice_portion", "description", "due_date_based_on", "credit_days", "credit_months"]
+	for t in terms:
+		name = t["payment_term_name"]
+		label = f"Payment Term '{name}'"
+		provided = {f: t[f] for f in fields if f in t and t[f] is not None}
+		if not frappe.db.exists("Payment Term", name):
+			if not dry_run:
+				doc = {"doctype": "Payment Term", "payment_term_name": name}
+				doc.update(provided)
+				frappe.get_doc(doc).insert(ignore_permissions=True)
+			report["created"].append(label)
+			continue
+		current = (
+			frappe.db.get_value("Payment Term", name, list(provided.keys()), as_dict=True) if provided else {}
+		)
+		diffs = _diff(provided, current)
+		if not diffs:
+			report["unchanged"].append(label)
+		elif update_content:
+			if not dry_run:
+				doc = frappe.get_doc("Payment Term", name)
+				for f, v in provided.items():
+					doc.set(f, v)
+				doc.save(ignore_permissions=True)
+			report["updated"].append(f"{label}: {diffs}")
+		else:
+			report["conflicts"].append(f"{label}: {diffs}")
+
+
+def _pt_template_row(r: dict) -> dict:
+	return {
+		"payment_term": r.get("payment_term"),
+		"invoice_portion": r.get("invoice_portion"),
+		"description": r.get("description", ""),
+		"due_date_based_on": r.get("due_date_based_on", "Day(s) after invoice date"),
+		"credit_days": r.get("credit_days", 0),
+	}
+
+
+def _pt_template_diff(name: str, rows: list) -> str:
+	"""Compara las filas actuales del Payment Terms Template contra el catálogo (payment_term +
+	invoice_portion). Devuelve '' si son iguales."""
+	doc = frappe.get_doc("Payment Terms Template", name)
+	current = sorted(
+		(
+			row.payment_term,
+			float(row.invoice_portion or 0),
+			int(row.credit_days or 0),
+			row.due_date_based_on or "",
+		)
+		for row in doc.terms
+	)
+	expected = sorted(
+		(
+			r.get("payment_term"),
+			float(r.get("invoice_portion") or 0),
+			int(r.get("credit_days") or 0),
+			r.get("due_date_based_on") or "Day(s) after invoice date",
+		)
+		for r in rows
+	)
+	return (
+		""
+		if current == expected
+		else f"{len(current)} términos actuales vs {len(expected)} del catálogo (o difieren)"
+	)
+
+
+def _seed_payment_terms_templates(
+	templates: list, report: dict, dry_run: bool, update_content: bool = False
+) -> None:
+	"""Crea/actualiza idempotentemente Payment Terms Templates. Identidad: template_name.
+	El calendario real de cada Quotation lo genera ERPNext a partir de esta plantilla."""
+	for t in templates:
+		name = t["template_name"]
+		label = f"Payment Terms Template '{name}'"
+		rows = t.get("terms", [])
+		if not frappe.db.exists("Payment Terms Template", name):
+			if not dry_run:
+				doc = frappe.get_doc(
+					{
+						"doctype": "Payment Terms Template",
+						"template_name": name,
+						"allocate_payment_based_on_payment_terms": t.get(
+							"allocate_payment_based_on_payment_terms", 1
+						),
+					}
+				)
+				for r in rows:
+					doc.append("terms", _pt_template_row(r))
+				doc.insert(ignore_permissions=True)
+			report["created"].append(f"{label} ({len(rows)} términos)")
+			continue
+		diffs = _pt_template_diff(name, rows)
+		if not diffs:
+			report["unchanged"].append(label)
+		elif update_content:
+			if not dry_run:
+				doc = frappe.get_doc("Payment Terms Template", name)
+				doc.set("terms", [])
+				for r in rows:
+					doc.append("terms", _pt_template_row(r))
+				doc.save(ignore_permissions=True)
+			report["updated"].append(f"{label}: {diffs}")
+		else:
+			report["conflicts"].append(f"{label}: {diffs}")
+
+
+def _seed_print_formats(
+	pfs: list, catalog_dir: str, report: dict, dry_run: bool, update_content: bool = False
+) -> None:
+	"""Crea/actualiza idempotentemente Print Formats como assets administrados por el catálogo
+	(capacidad genérica). Identidad: name.
+
+	- El HTML (Jinja) y el CSS viven en archivos externos referenciados por `html_file`/`css_file`
+	  (rutas relativas al JSON del catálogo); se leen y componen aquí. El `html` final autocontiene
+	  el `<style>` (robusto en wkhtmltopdf) y el `css` field se conserva por compatibilidad.
+	- Nunca toca los Print Formats PROTEGIDOS (assets del repo público); si el catálogo intenta
+	  administrar uno, se reporta como conflicto y se omite.
+	- Solo administra los campos provistos por el spec; el resto usa el default del DocType.
+	"""
+	fields = [
+		"doc_type",
+		"print_format_type",
+		"standard",
+		"custom_format",
+		"disabled",
+		"module",
+		"page_number",
+		"font_size",
+		"margin_top",
+		"margin_bottom",
+		"margin_left",
+		"margin_right",
+		"html",
+		"css",
+	]
+	for pf in pfs:
+		name = pf["name"]
+		label = f"Print Format '{name}'"
+		if name in PROTECTED_PRINT_FORMATS:
+			report["conflicts"].append(f"{label}: PROTEGIDO — el loader nunca lo crea ni modifica")
+			continue
+
+		spec = _resolve_print_format_spec(pf, catalog_dir)
+		provided = {f: spec.get(f) for f in fields if spec.get(f) is not None}
+		if not frappe.db.exists("Print Format", name):
+			if not dry_run:
+				doc = {"doctype": "Print Format", "name": name}
+				doc.update(provided)
+				frappe.get_doc(doc).insert(ignore_permissions=True)
+			report["created"].append(label)
+			continue
+
+		current = (
+			frappe.db.get_value("Print Format", name, list(provided.keys()), as_dict=True) if provided else {}
+		)
+		diffs = _diff(provided, current)
+		if not diffs:
+			report["unchanged"].append(label)
+		elif update_content:
+			if not dry_run:
+				doc = frappe.get_doc("Print Format", name)
+				for f, v in provided.items():
+					doc.set(f, v)
+				doc.save(ignore_permissions=True)
+			report["updated"].append(f"{label}: {diffs}")
+		else:
+			report["conflicts"].append(f"{label}: {diffs} (usar update_content)")
+
+
+def _resolve_print_format_spec(pf: dict, catalog_dir: str) -> dict:
+	"""Normaliza un spec de Print Format del catálogo: lee html_file/css_file (relativos al
+	catálogo), compone el html autocontenido con `<style>` y aplica defaults sensatos para un
+	formato administrado por BD (standard='No', custom_format=1, page_number='Hide')."""
+	spec = dict(pf)
+	html_body = (
+		_read_asset(os.path.join(catalog_dir, pf["html_file"])) if pf.get("html_file") else pf.get("html", "")
+	)
+	css = _read_asset(os.path.join(catalog_dir, pf["css_file"])) if pf.get("css_file") else pf.get("css", "")
+
+	spec["html"] = f"<style>\n{css}\n</style>\n{html_body}" if css else html_body
+	spec["css"] = css
+	spec.setdefault("doc_type", "Quotation")
+	spec.setdefault("print_format_type", "Jinja")
+	spec.setdefault("standard", "No")
+	spec.setdefault("custom_format", 1)
+	spec.setdefault("page_number", "Hide")
+	for k in ("html_file", "css_file", "name"):
+		spec.pop(k, None)
+	return spec
+
+
+def _read_asset(path: str) -> str:
+	"""Lee un asset de texto (HTML/CSS) referenciado por el catálogo. Ruta provista por el operador
+	vía el JSON del catálogo (no es entrada de usuario final)."""
+	if not os.path.exists(path):
+		frappe.throw(_("No se encontró el asset referenciado por el catálogo: {0}").format(path))
+	with open(path, encoding="utf-8") as fh:  # nosemgrep — lectura local del asset del catálogo
+		return fh.read()
+
+
+def _seed_scope_items(items: list, report: dict, dry_run: bool, update_content: bool = False) -> None:
 	fields = [
 		"title",
 		"sequence",
 		"phase",
+		"erpnext_item",
+		"estimated_hours",
+		"default_activity_type",
+		"default_designation",
 		"visible_in_proposal",
 		"is_internal_cost_task",
 		"description",
@@ -216,22 +516,39 @@ def _seed_scope_items(items: list, report: dict, dry_run: bool) -> None:
 	for it in items:
 		code = it["code"]
 		label = f"Scope Item '{code}'"
+		# Campos administrados = los que el catálogo trae como clave presente. Se distingue:
+		#   - provided: clave presente con valor no-None  → se fija ese valor;
+		#   - cleared:  clave presente con valor null      → se LIMPIA (p.ej. erpnext_item=null
+		#                                                     para que NO autogenere con el Item).
+		# Un campo OMITIDO (clave ausente) no se administra: conserva su valor / default del modelo
+		# (así estimated_hours omitido no marca falso conflicto contra el 0.0 del modelo).
+		provided, cleared = _managed_fields(it, fields)
+		keys = list(provided.keys()) + list(cleared)
 		if not frappe.db.exists("Scope Item", code):
 			if not dry_run:
 				doc = {"doctype": "Scope Item", "code": code, "enabled": 1}
-				for f in fields:
-					doc[f] = it.get(f)
+				doc.update(provided)
+				for f in cleared:
+					doc[f] = None
 				frappe.get_doc(doc).insert(ignore_permissions=True)
 			report["created"].append(label)
 			continue
 
-		current = frappe.db.get_value("Scope Item", code, fields, as_dict=True)
-		expected = {f: it.get(f) for f in fields}
-		diffs = _diff(expected, current)
-		if diffs:
-			report["conflicts"].append(f"{label}: {diffs}")
-		else:
+		current = frappe.db.get_value("Scope Item", code, keys, as_dict=True) if keys else {}
+		diffs = _diff_managed(provided, cleared, current)
+		if not diffs:
 			report["unchanged"].append(label)
+		elif update_content:
+			if not dry_run:
+				doc = frappe.get_doc("Scope Item", code)
+				for f, v in provided.items():
+					doc.set(f, v)
+				for f in cleared:
+					doc.set(f, None)
+				doc.save(ignore_permissions=True)
+			report["updated"].append(f"{label}: {diffs}")
+		else:
+			report["conflicts"].append(f"{label}: {diffs}")
 
 
 def _seed_templates(
@@ -271,14 +588,22 @@ def _seed_templates(
 						"description": t.get("description", ""),
 					}
 				)
+				if t.get("print_format"):
+					doc.print_format = t["print_format"]
 				for r in rows:
 					doc.append("sections", _template_section_row(r))
 				doc.insert(ignore_permissions=True)
 			report["created"].append(f"{label} ({len(rows)} secciones)")
 			continue
 
-		# Existe: comparar filas. Si difiere y update_content → reconstruir las filas del template.
+		# Existe: comparar filas + print_format. Si difiere y update_content → reconstruir.
 		diffs = _template_rows_diff(name, rows)
+		if t.get("print_format"):
+			pf_current = frappe.db.get_value("Proposal Template", name, "print_format") or ""
+			if (t["print_format"] or "") != pf_current:
+				diffs = (
+					diffs + "; " if diffs else ""
+				) + f"print_format: {pf_current!r} -> {t['print_format']!r}"
 		if not diffs:
 			report["unchanged"].append(label)
 		elif update_content:
@@ -286,6 +611,8 @@ def _seed_templates(
 				doc = frappe.get_doc("Proposal Template", name)
 				if t.get("description"):
 					doc.description = t["description"]
+				if t.get("print_format"):
+					doc.print_format = t["print_format"]
 				doc.set("sections", [])
 				for r in rows:
 					doc.append("sections", _template_section_row(r))
@@ -348,6 +675,34 @@ def _template_rows_diff(template_name: str, expected_rows: list) -> str:
 	if current == expected:
 		return ""
 	return f"{len(current)} filas actuales vs {len(expected)} del catálogo"
+
+
+def _managed_fields(record: dict, fields: list) -> tuple[dict, set]:
+	"""Separa los campos administrados que el catálogo trae como CLAVE PRESENTE:
+
+	- provided: clave presente con valor no-None (se fija ese valor);
+	- cleared:  clave presente con valor null   (se limpia explícitamente).
+
+	Una clave AUSENTE no se administra (conserva valor/default). Esto permite al catálogo
+	distinguir 'no tocar este campo' (omitir) de 'ponerlo en null' (p.ej. erpnext_item=null)."""
+	managed = [f for f in fields if f in record]
+	provided = {f: record[f] for f in managed if record[f] is not None}
+	cleared = {f for f in managed if record[f] is None}
+	return provided, cleared
+
+
+def _diff_managed(provided: dict, cleared: set, current: dict) -> str:
+	"""Diff que contempla limpiezas explícitas: un campo en 'cleared' difiere si su valor actual
+	no está vacío. Devuelve '' si no hay diferencias."""
+	parts = []
+	cur = current or {}
+	for k, v in provided.items():
+		if _norm(v) != _norm(cur.get(k)):
+			parts.append(k)
+	for k in sorted(cleared):
+		if _norm(cur.get(k)) != "":
+			parts.append(f"{k}→null")
+	return ", ".join(parts)
 
 
 def _diff(expected: dict, current: dict) -> str:
