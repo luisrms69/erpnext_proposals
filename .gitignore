@@ -60,3 +60,13 @@ erpnext_proposals/erpnext_proposals/catalog_data/*_catalog.json
 !erpnext_proposals/erpnext_proposals/catalog_data/sample_catalog.json
 # Blocklist local de nombres de cliente para el gate de /ship (no versionar).
 .client-blocklist
+
+# Scripts temporales / one-offs privados (diagnóstico, migraciones puntuales, generación de PDFs) —
+# contienen datos de cliente/prueba y NUNCA se versionan.
+one_offs/
+
+# Configuración local de Claude Code — no versionar.
+.claude/
+
+# Respaldos locales de Print Format (copias .backup-*.json) — no versionar.
+*.backup-*.json
