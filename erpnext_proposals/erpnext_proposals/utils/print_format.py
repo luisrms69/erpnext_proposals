@@ -31,6 +31,24 @@ def dynamic_commercial_print_format(doc) -> str:
 	return pf or DEFAULT_COMMERCIAL_PRINT_FORMAT
 
 
+def sync_proposal_print_format_from_template(doc) -> None:
+	"""Puebla el override editable `proposal_print_format` con el Print Format configurado en la
+	Proposal Template, de forma GENÉRICA (sin nombres hardcodeados):
+
+	- Solo aplica a Quotations con `proposal_template` (las que no usan plantilla no se tocan).
+	- Se puebla cuando se APLICA/CAMBIA la plantilla (`has_value_changed`) o cuando el override está
+	  vacío. Así el campo deja de verse vacío y refleja el formato de la plantilla.
+	- NO sobrescribe una selección MANUAL del usuario mientras la plantilla no cambie.
+	"""
+	if not doc.get("proposal_template"):
+		return
+	template_pf = frappe.db.get_value("Proposal Template", doc.proposal_template, "print_format")
+	if not template_pf:
+		return
+	if doc.has_value_changed("proposal_template") or not doc.get("proposal_print_format"):
+		doc.proposal_print_format = template_pf
+
+
 def validate_print_format(pf_name: str | None) -> None:
 	"""Valida que un Print Format sea usable para Quotation. Error claro si no (Caso F)."""
 	if not pf_name:

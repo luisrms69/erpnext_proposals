@@ -58,9 +58,14 @@ def on_quotation_validate(doc, method=None):
 		doc.proposal_version = 1
 	# Banderas de alcance: una fila no puede ser vendible E interna a la vez.
 	_validate_internal_cost_flags(doc)
-	# Print Format comercial (override): debe existir, ser de Quotation y no estar deshabilitado (Caso F).
-	from erpnext_proposals.erpnext_proposals.utils.print_format import validate_print_format
+	# Print Format comercial: al aplicar/cambiar la plantilla (o si el override está vacío), poblar
+	# `proposal_print_format` con el formato de la Proposal Template. Luego validar (Caso F).
+	from erpnext_proposals.erpnext_proposals.utils.print_format import (
+		sync_proposal_print_format_from_template,
+		validate_print_format,
+	)
 
+	sync_proposal_print_format_from_template(doc)
 	validate_print_format(doc.get("proposal_print_format"))
 	# Skip scope generation when creating a new version (scope already copied)
 	if doc.flags.get("skip_scope_generation"):
