@@ -8,7 +8,9 @@ app_license = "mit"
 # Apps
 # ------------------
 
-required_apps = ["erpnext", "hrms"]
+# facturacion_mexico es requerida: aporta los maestros fiscales (UOM SAT, Item Groups) que los
+# Items de propuestas referencian. Frappe impide instalar erpnext_proposals si no está presente.
+required_apps = ["erpnext", "hrms", "facturacion_mexico"]
 
 # Jinja
 # ------------------
