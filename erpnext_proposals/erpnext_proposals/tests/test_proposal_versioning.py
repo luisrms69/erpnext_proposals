@@ -383,3 +383,173 @@ class TestProposalVersioning(unittest.TestCase):
 		with patch("frappe.db.exists", return_value=True):
 			with self.assertRaises(frappe.exceptions.ValidationError):
 				assert_can_create_new_version(mock_doc)
+
+	# ── Regresión: la revisión NO debe copiar due_dates inválidos del documento anterior ──
+
+	def _rejected_old(self, suffix, days_old=10, payment_terms_template=None, manual_schedule=None):
+		"""Quotation submitted+Rechazada con transaction_date ANTIGUA (reproduce el escenario donde el
+		due_date copiado sería anterior al posting date de la nueva revisión)."""
+		old_date = frappe.utils.add_days(frappe.utils.today(), -days_old)
+		doc = frappe.get_doc(
+			{
+				"doctype": "Quotation",
+				"quotation_to": "Customer",
+				"party_name": self.customer,
+				"company": self.company,
+				"currency": "MXN",
+				"transaction_date": old_date,
+				"proposal_group": f"TEST-REV-{frappe.generate_hash(length=6)}{suffix}",
+				"proposal_template": self.proposal_template,
+				"proposal_title": f"Test Rev{suffix}",
+				"items": [
+					{
+						"item_code": self.item,
+						"item_name": "_Test Rev Item",
+						"qty": 1,
+						"rate": 10000,
+						"uom": "Nos",
+					}
+				],
+			}
+		)
+		if payment_terms_template:
+			doc.payment_terms_template = payment_terms_template
+		for r in manual_schedule or []:
+			doc.append("payment_schedule", r)
+		doc.insert(ignore_permissions=True, ignore_mandatory=True)
+		if self.cost_center:
+			frappe.db.set_value(
+				"Quotation", doc.name, "proposal_cost_center", self.cost_center, update_modified=False
+			)
+		doc.reload()
+		doc.flags.ignore_mandatory = True
+		doc.flags.ignore_links = True
+		doc.submit()
+		frappe.db.set_value("Quotation", doc.name, "workflow_state", "Rechazada", update_modified=False)
+		doc.reload()
+		return doc
+
+	def _cleanup_q(self, *names):
+		for n in names:
+			if n and frappe.db.exists("Quotation", n):
+				try:
+					d = frappe.get_doc("Quotation", n)
+					if d.docstatus == 1:
+						d.flags.ignore_linked_doctypes = True
+						d.cancel()
+					frappe.delete_doc("Quotation", n, force=True, ignore_permissions=True)
+				except Exception:
+					pass
+
+	def test_17_revision_automatic_row_regenerates_valid_due_date(self):
+		"""Fila automática 100% + fecha antigua: la revisión regenera con fecha válida (due_date no
+		anterior a la fecha de la revisión), no conserva la due_date vieja y guarda sin error."""
+		old = self._rejected_old("_auto")
+		old_due = old.payment_schedule[0].due_date if old.payment_schedule else None
+		v2_name = None
+		try:
+			v2_name = create_new_proposal_version(old.name, reason="Regresión fila automática")
+			v2 = frappe.get_doc("Quotation", v2_name)
+			self.assertEqual(v2.docstatus, 0)
+			for p in v2.payment_schedule:
+				self.assertGreaterEqual(str(p.due_date), str(v2.transaction_date))
+				if old_due:
+					self.assertNotEqual(str(p.due_date), str(old_due))
+			if v2.payment_schedule:
+				self.assertAlmostEqual(
+					sum(p.payment_amount or 0 for p in v2.payment_schedule), v2.grand_total, places=2
+				)
+		finally:
+			self._cleanup_q(v2_name, old.name)
+
+	def test_18_revision_with_template_recalcs_schedule(self):
+		"""Con Payment Terms Template + fecha antigua: la revisión regenera el calendario desde la
+		nueva fecha, conserva porcentajes/términos y no conserva fechas antiguas."""
+		for t, portion, cd in (("_Test Rev PT A", 40, 0), ("_Test Rev PT B", 60, 15)):
+			if not frappe.db.exists("Payment Term", t):
+				frappe.get_doc(
+					{
+						"doctype": "Payment Term",
+						"payment_term_name": t,
+						"invoice_portion": portion,
+						"credit_days": cd,
+						"due_date_based_on": "Day(s) after invoice date",
+					}
+				).insert(ignore_permissions=True)
+		ptt = "_Test Rev PTT"
+		if not frappe.db.exists("Payment Terms Template", ptt):
+			d = frappe.get_doc(
+				{
+					"doctype": "Payment Terms Template",
+					"template_name": ptt,
+					"allocate_payment_based_on_payment_terms": 1,
+				}
+			)
+			d.append(
+				"terms",
+				{
+					"payment_term": "_Test Rev PT A",
+					"invoice_portion": 40,
+					"credit_days": 0,
+					"due_date_based_on": "Day(s) after invoice date",
+				},
+			)
+			d.append(
+				"terms",
+				{
+					"payment_term": "_Test Rev PT B",
+					"invoice_portion": 60,
+					"credit_days": 15,
+					"due_date_based_on": "Day(s) after invoice date",
+				},
+			)
+			d.insert(ignore_permissions=True)
+		old = self._rejected_old("_tmpl", payment_terms_template=ptt)
+		old_dues = {str(p.due_date) for p in old.payment_schedule}
+		v2_name = None
+		try:
+			v2_name = create_new_proposal_version(old.name, reason="Regresión template")
+			v2 = frappe.get_doc("Quotation", v2_name)
+			self.assertEqual(v2.payment_terms_template, ptt)
+			self.assertEqual(sorted(int(p.invoice_portion) for p in v2.payment_schedule), [40, 60])
+			for p in v2.payment_schedule:
+				self.assertGreaterEqual(str(p.due_date), str(v2.transaction_date))
+				self.assertNotIn(str(p.due_date), old_dues)
+			self.assertAlmostEqual(
+				sum(p.payment_amount or 0 for p in v2.payment_schedule), v2.grand_total, places=2
+			)
+		finally:
+			self._cleanup_q(v2_name, old.name)
+			if frappe.db.exists("Payment Terms Template", ptt):
+				frappe.delete_doc("Payment Terms Template", ptt, force=True, ignore_permissions=True)
+			for t in ("_Test Rev PT A", "_Test Rev PT B"):
+				if frappe.db.exists("Payment Term", t):
+					frappe.delete_doc("Payment Term", t, force=True, ignore_permissions=True)
+
+	def test_19_revision_manual_schedule_is_blocked(self):
+		"""Calendario MANUAL significativo (sin template): la revisión no falsea condiciones — se
+		detiene con error controlado en lugar de copiar fechas inválidas."""
+		old_date = frappe.utils.add_days(frappe.utils.today(), -10)
+		manual = [
+			{
+				"description": "Anticipo manual",
+				"invoice_portion": 50,
+				"payment_amount": 5000,
+				"due_date": old_date,
+			},
+			{
+				"description": "Saldo manual",
+				"invoice_portion": 50,
+				"payment_amount": 5000,
+				"due_date": frappe.utils.add_days(old_date, 5),
+			},
+		]
+		old = self._rejected_old("_manual", manual_schedule=manual)
+		try:
+			if len(old.payment_schedule) > 1:
+				with self.assertRaises(frappe.exceptions.ValidationError):
+					create_new_proposal_version(old.name, reason="Regresión manual")
+			else:
+				self.skipTest("ERPNext no conservó el calendario manual de 2 filas en este entorno")
+		finally:
+			self._cleanup_q(old.name)

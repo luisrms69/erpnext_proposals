@@ -180,13 +180,41 @@ def _copy_tax(tax) -> dict:
 	}
 
 
-def _copy_payment_schedule(ps) -> dict:
-	return {
-		"payment_term": ps.payment_term,
-		"invoice_portion": ps.invoice_portion,
-		"due_date": ps.due_date,  # copied as starting point; user updates on new version
-		# payment_amount is not copied — recalculated from new total
-	}
+def _is_automatic_single_row(sched) -> bool:
+	"""True si el Payment Schedule es (a lo sumo) la fila automática estándar del 100% sin
+	payment_term ni descripción (la que ERPNext genera por defecto sin Payment Terms Template)."""
+	if not sched:
+		return True
+	if len(sched) > 1:
+		return False
+	row = sched[0]
+	return not row.get("payment_term") and not (row.get("description") or "").strip()
+
+
+def _resolve_new_version_payment(old):
+	"""Determina (payment_terms_template, payment_schedule) para la nueva revisión SIN copiar
+	due_dates inválidos del documento anterior. Comportamiento nativo de ERPNext:
+
+	- Con Payment Terms Template → se conserva el template y el schedule se deja vacío para que
+	  ERPNext lo regenere desde la nueva transaction_date (importes desde el nuevo total).
+	- Solo con la fila automática estándar del 100% (sin término ni descripción) → schedule vacío
+	  (ERPNext regenera la fila con la fecha válida de la revisión).
+	- Con un calendario MANUAL significativo → NO se falsean condiciones: se detiene con un mensaje
+	  claro para que el usuario decida (Payment Terms Template o ajuste manual con fechas válidas).
+	"""
+	sched = old.payment_schedule or []
+	if old.get("payment_terms_template"):
+		return old.payment_terms_template, []
+	if _is_automatic_single_row(sched):
+		return None, []
+	frappe.throw(
+		_(
+			"La propuesta {0} tiene un calendario de pagos capturado manualmente ({1} fila(s)). "
+			"Para no falsear sus condiciones comerciales, la revisión no se crea automáticamente. "
+			"Define un Payment Terms Template o ajusta el calendario con fechas válidas para la nueva "
+			"revisión y vuelve a intentar."
+		).format(old.name, len(sched))
+	)
 
 
 def _copy_scope_item(scope) -> dict:
@@ -251,6 +279,10 @@ def create_new_proposal_version(quotation_name: str, reason: str, summary: str =
 
 	inherited_print_format = resolve_commercial_print_format(old)
 
+	# Calendario de pagos: NUNCA copiar due_dates del documento anterior (serían inválidos contra la
+	# nueva fecha). Se regenera con el comportamiento nativo de ERPNext desde la nueva transaction_date.
+	pt_template, pay_schedule = _resolve_new_version_payment(old)
+
 	new_doc = frappe.get_doc(
 		{
 			"doctype": "Quotation",
@@ -272,7 +304,8 @@ def create_new_proposal_version(quotation_name: str, reason: str, summary: str =
 			"proposal_revision_summary": summary,
 			"items": [_copy_item(i) for i in old.items],
 			"taxes": [_copy_tax(t) for t in old.taxes],
-			"payment_schedule": [_copy_payment_schedule(p) for p in old.payment_schedule],
+			"payment_terms_template": pt_template,
+			"payment_schedule": pay_schedule,
 			"quotation_scope_items": [_copy_scope_item(s) for s in old.quotation_scope_items],
 		}
 	)
