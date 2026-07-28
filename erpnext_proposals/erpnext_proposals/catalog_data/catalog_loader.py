@@ -512,14 +512,6 @@ def _seed_scope_items(items: list, report: dict, dry_run: bool, update_content: 
 		"is_internal_cost_task",
 		"description",
 		"deliverable",
-		# Campos editoriales opcionales del alcance (Text Editor). Administrados igual que
-		# description/deliverable: clave presente fija el valor, null explícito lo limpia, ausente no toca.
-		"service_objective",
-		"methodology",
-		"expected_result",
-		"scope_limit",
-		"exclusions",
-		"acceptance_criteria",
 	]
 	for it in items:
 		code = it["code"]

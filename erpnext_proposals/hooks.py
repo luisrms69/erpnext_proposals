@@ -34,7 +34,7 @@ fixtures = [
 	{
 		"doctype": "Custom Field",
 		"filters": [
-			["dt", "in", ["Quotation", "Task"]],
+			["dt", "in", ["Quotation", "Task", "Item"]],
 			[
 				"fieldname",
 				"in",
@@ -70,6 +70,12 @@ fixtures = [
 					"proposal_versioning_row2",
 					"proposal_versioning_col2",
 					"proposal_revision_section",
+					"proposal_print_format",
+					"proposal_effective_print_format",
+					"proposal_content_section",
+					"proposal_methodology",
+					"proposal_expected_result",
+					"proposal_scope_limit",
 				],
 			],
 		],

@@ -232,13 +232,6 @@ def _copy_scope_item(scope) -> dict:
 		"designation": scope.designation,
 		"estimated_hours": scope.estimated_hours,
 		"include_in_proposal": scope.include_in_proposal,
-		# Campos editoriales opcionales — se conservan en la nueva versión (contenido de propuesta).
-		"service_objective": scope.service_objective,
-		"methodology": scope.methodology,
-		"expected_result": scope.expected_result,
-		"scope_limit": scope.scope_limit,
-		"exclusions": scope.exclusions,
-		"acceptance_criteria": scope.acceptance_criteria,
 		# cost_per_hour, total_cost, project_task NOT copied — recalculated on review
 	}
 
