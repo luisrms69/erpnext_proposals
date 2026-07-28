@@ -126,6 +126,26 @@ o condiciones comerciales— asignarle `sequence >= 500` en el `Proposal Templat
 > El umbral 500 vive únicamente en el Jinja del Print Format. Al editar templates, respetar
 > esta convención — de lo contrario una sección "legal" aparecerá en medio del cuerpo.
 
+### Estructura de la entrada del snapshot y `hide_title`
+
+Cada entrada congelada en `proposal_sections_snapshot` (ver `_build_sections_snapshot`) tiene:
+`sequence`, `title`, `content` (Jinja crudo), `source_section`, `is_executive_summary`,
+**`hide_title`** y `captured_on`.
+
+`hide_title` es una **propiedad opcional de presentación por Template** que vive en
+`Proposal Template Section` (Check, default `0`), no en `Proposal Section` — la misma Section
+canónica puede mostrar su heading en un Template y ocultarlo en otro sin duplicarse. Se **congela**
+en el snapshot al capturar, de modo que cambios posteriores del Template no alteran PDFs históricos;
+el versionamiento la copia literalmente y el resync en Borrador la actualiza desde el Template.
+
+Semántica en el Print Format (`render_section`): `hide_title = 1` → **no** se renderiza el
+`block-title` (el `block-body` sí); `0` o **ausente** → se muestra el heading (comportamiento
+histórico). Es una decisión genérica basada exclusivamente en `hide_title`, sin depender de
+`source_section`, título, nombre, `sequence`, posición ni `is_executive_summary`.
+
+Compatibilidad: `hide_title` **no** es campo requerido en `get_sections_snapshot`; los snapshots
+históricos sin la propiedad siguen siendo `valid=True` y muestran su heading como hasta ahora.
+
 ---
 
 ## Convención de nombres para evidencia visual

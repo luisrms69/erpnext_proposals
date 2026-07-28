@@ -655,6 +655,7 @@ def _template_section_row(r: dict) -> dict:
 		"use_custom_content": r.get("use_custom_content", 0),
 		"custom_content": r.get("custom_content", ""),
 		"custom_title": r.get("custom_title", ""),
+		"hide_title": r.get("hide_title", 0),
 	}
 
 
@@ -670,6 +671,7 @@ def _template_rows_diff(template_name: str, expected_rows: list) -> str:
 				int(row.use_custom_content or 0),
 				(row.custom_title or ""),
 				(row.custom_content or ""),
+				int(row.hide_title or 0),
 			)
 			for row in doc.sections
 		),
@@ -684,6 +686,7 @@ def _template_rows_diff(template_name: str, expected_rows: list) -> str:
 				int(r.get("use_custom_content", 0)),
 				(r.get("custom_title") or ""),
 				(r.get("custom_content") or ""),
+				int(r.get("hide_title", 0)),
 			)
 			for r in expected_rows
 		),

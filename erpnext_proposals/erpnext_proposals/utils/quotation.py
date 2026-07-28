@@ -398,8 +398,8 @@ def _build_sections_snapshot(doc) -> list:
 	"""Serializa las Sections del Template al snapshot (Jinja crudo, no HTML renderizado).
 
 	Ordena por ``sequence``, excluye Sections deshabilitadas y contenido vacío. Estructura por entrada:
-	sequence, title, content, source_section, is_executive_summary, captured_on. Hard-fails si no puede
-	leer una Section — sin fallback silencioso a maestros vivos en estados formales.
+	sequence, title, content, source_section, is_executive_summary, hide_title, captured_on. Hard-fails
+	si no puede leer una Section — sin fallback silencioso a maestros vivos en estados formales.
 	"""
 	try:
 		tmpl = frappe.get_doc("Proposal Template", doc.proposal_template)
@@ -429,6 +429,8 @@ def _build_sections_snapshot(doc) -> list:
 					"content": content,
 					"source_section": ps.section_name,
 					"is_executive_summary": ps.is_executive_summary or 0,
+					# Presentación por Template (Proposal Template Section): congela si el heading se oculta.
+					"hide_title": int(row.hide_title or 0),
 					"captured_on": now,
 				}
 			)

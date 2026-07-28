@@ -198,6 +198,36 @@ class TestGetSectionsSnapshot(unittest.TestCase):
 
 	# ── disponible en Jinja vía hooks ───────────────────────────────────────
 
+	# ── hide_title: propiedad opcional de presentación (backward-compat) ────────
+
+	def test_14_legacy_entry_without_hide_title_still_valid(self):
+		# _entry() produce solo los 6 campos requeridos (sin hide_title) → snapshot legacy
+		e = _entry()
+		self.assertNotIn("hide_title", e)
+		res = get_sections_snapshot(_doc(json.dumps([e])))
+		self.assertTrue(res["valid"], "Un snapshot histórico sin hide_title sigue siendo válido")
+		self.assertEqual(res["reason"], "ok")
+		# el PF interpreta la ausencia como 'mostrar heading' (no lo fuerza el helper)
+		self.assertNotIn("hide_title", res["sections"][0])
+
+	def test_15_hide_title_preserved_when_present(self):
+		for val in (0, 1):
+			res = get_sections_snapshot(_doc(json.dumps([_entry(hide_title=val)])))
+			self.assertTrue(res["valid"])
+			self.assertEqual(res["sections"][0]["hide_title"], val, "hide_title se conserva tal cual")
+
+	def test_16_hide_title_not_required_and_independent_of_exec_summary(self):
+		# hide_title NO es campo requerido
+		from erpnext_proposals.erpnext_proposals.utils.printing import _SNAPSHOT_REQUIRED_FIELDS
+
+		self.assertNotIn("hide_title", _SNAPSHOT_REQUIRED_FIELDS)
+		self.assertIn("is_executive_summary", _SNAPSHOT_REQUIRED_FIELDS)
+		# is_executive_summary y hide_title son independientes
+		res = get_sections_snapshot(_doc(json.dumps([_entry(is_executive_summary=1, hide_title=0)])))
+		self.assertTrue(res["valid"])
+		self.assertEqual(res["sections"][0]["is_executive_summary"], 1)
+		self.assertEqual(res["sections"][0]["hide_title"], 0)
+
 	def test_13_registered_in_jinja_env(self):
 		methods = frappe.get_hooks("jinja").get("methods", [])
 		self.assertIn(

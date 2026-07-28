@@ -149,6 +149,65 @@ class TestCatalogLoader(unittest.TestCase):
 				frappe.delete_doc("Proposal Phase", phase, force=True, ignore_permissions=True)
 			frappe.db.commit()  # nosemgrep — limpieza de fixtures de test
 
+	def test_template_section_hide_title(self):
+		"""El loader genérico siembra y diffea hide_title en Proposal Template Section."""
+		import os
+		import tempfile
+
+		sec, tmpl = "_DEMO-SEC-HIDE", "_DEMO-TMPL-HIDE"
+
+		def _catalog(hide):
+			row = {"proposal_section": sec, "sequence": 10, "include_by_default": 1}
+			if hide is not None:
+				row["hide_title"] = hide
+			return {
+				"version": "t",
+				"catalog": "demo_hide",
+				"phases": [],
+				"versioned": [],
+				"sections": [{"section_name": sec, "title": "Demo Sec", "content": "<p>c</p>", "enabled": 1}],
+				"items": [],
+				"scope_items": [],
+				"templates": [{"template_name": tmpl, "sections": [row]}],
+			}
+
+		def _run(cat, **kw):
+			fd, path = tempfile.mkstemp(suffix=".json")
+			try:
+				with os.fdopen(fd, "w", encoding="utf-8") as fh:
+					json.dump(cat, fh)
+				return catalog_loader.run(catalog_path=path, dry_run=False, **kw)
+			finally:
+				os.remove(path)
+
+		def _hide():
+			return int(frappe.get_doc("Proposal Template", tmpl).sections[0].hide_title or 0)
+
+		try:
+			# hide_title=1 se siembra
+			_run(_catalog(1))
+			self.assertEqual(_hide(), 1, "El loader siembra hide_title=1")
+			# segundo dry-run/carga idempotente
+			rep2 = _run(_catalog(1))
+			self.assertEqual(len(rep2["updated"]), 0)
+			self.assertEqual(len(rep2["conflicts"]), 0)
+			# cambio a 0 con update_content se detecta y aplica
+			rep3 = _run(_catalog(0), update_content=True)
+			self.assertTrue(
+				any(tmpl in u for u in rep3["updated"]), "El diff detecta el cambio de hide_title"
+			)
+			self.assertEqual(_hide(), 0)
+			# catálogo SIN la clave se comporta como 0 (default) e idempotente
+			rep4 = _run(_catalog(None))
+			self.assertEqual(len(rep4["updated"]), 0, "Ausencia de hide_title == 0, sin cambios")
+			self.assertEqual(_hide(), 0)
+		finally:
+			if frappe.db.exists("Proposal Template", tmpl):
+				frappe.delete_doc("Proposal Template", tmpl, force=True, ignore_permissions=True)
+			if frappe.db.exists("Proposal Section", sec):
+				frappe.delete_doc("Proposal Section", sec, force=True, ignore_permissions=True)
+			frappe.db.commit()  # nosemgrep — limpieza de fixtures de test
+
 	def test_print_format_seeding_e_idempotencia(self):
 		"""Capacidad genérica: crea un Print Format desde html_file/css_file (assets externos),
 		compone el html con <style>, es idempotente y NUNCA toca un Print Format PROTEGIDO."""

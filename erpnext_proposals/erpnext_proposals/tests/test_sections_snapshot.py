@@ -28,7 +28,15 @@ TEMPLATE = "_Test Snap Template"
 ITEM = "_Test Snap Item"
 CUSTOMER = "_Test Snap Customer"
 ORIGINAL = "<p>Contenido original de la sección.</p>"
-SNAP_KEYS = {"sequence", "title", "content", "source_section", "is_executive_summary", "captured_on"}
+SNAP_KEYS = {
+	"sequence",
+	"title",
+	"content",
+	"source_section",
+	"is_executive_summary",
+	"hide_title",
+	"captured_on",
+}
 
 
 class TestSectionsSnapshot(unittest.TestCase):
@@ -135,6 +143,13 @@ class TestSectionsSnapshot(unittest.TestCase):
 		frappe.db.set_value("Proposal Section", SECTION, "content", content, update_modified=False)
 		frappe.clear_document_cache("Proposal Section", SECTION)
 
+	def _set_template_hide_title(self, val):
+		"""Marca hide_title en la (única) fila de Proposal Template Section del template de prueba."""
+		t = frappe.get_doc("Proposal Template", TEMPLATE)
+		t.sections[0].hide_title = int(val)
+		t.save(ignore_permissions=True)
+		frappe.clear_document_cache("Proposal Template", TEMPLATE)
+
 	# ── 1-2: generación inicial ────────────────────────────────────────────────
 
 	def test_01_generation_builds_snapshot_with_structure(self):
@@ -236,3 +251,73 @@ class TestSectionsSnapshot(unittest.TestCase):
 		doc.flags.ignore_links = True
 		doc.submit()
 		self.assertEqual(self._raw(q.name), before, "Submit conserva el snapshot existente")
+
+	# ── hide_title (presentación por Template) ─────────────────────────────────
+
+	def test_09_hide_title_default_zero(self):
+		q = self._make_draft()
+		snap = self._snap(q.name)
+		self.assertIn("hide_title", snap[0], "La entrada del snapshot incluye hide_title")
+		self.assertEqual(snap[0]["hide_title"], 0, "Sin marcar en el Template → hide_title=0")
+
+	def test_10_hide_title_captured_from_template_section(self):
+		self._set_template_hide_title(1)
+		try:
+			q = self._make_draft()
+			self.assertEqual(
+				self._snap(q.name)[0]["hide_title"], 1, "hide_title se congela desde la fila del Template"
+			)
+		finally:
+			self._set_template_hide_title(0)
+
+	def test_11_version_copies_hide_title_literally(self):
+		self._set_template_hide_title(1)
+		try:
+			q = self._make_draft()
+			self.assertEqual(self._snap(q.name)[0]["hide_title"], 1)
+			doc = frappe.get_doc("Quotation", q.name)
+			doc.flags.ignore_mandatory = True
+			doc.flags.ignore_links = True
+			doc.submit()
+			frappe.db.set_value("Quotation", q.name, "workflow_state", "Rechazada", update_modified=False)
+			# cambiar el Template DESPUÉS de versionar no debe afectar la copia literal
+			self._set_template_hide_title(0)
+			v2 = create_new_proposal_version(q.name, reason="hide_title literal")
+			self._quotations.append(v2)
+			self.assertEqual(
+				self._snap(v2)[0]["hide_title"],
+				1,
+				"La versión copia hide_title literal (no relee el Template)",
+			)
+		finally:
+			self._set_template_hide_title(0)
+
+	def test_12_resync_updates_hide_title_in_draft(self):
+		q = self._make_draft()
+		self.assertEqual(self._snap(q.name)[0]["hide_title"], 0)
+		self._set_template_hide_title(1)
+		try:
+			resync_scope_from_catalog(q.name)
+			self.assertEqual(
+				self._snap(q.name)[0]["hide_title"],
+				1,
+				"resync en Draft actualiza hide_title desde el Template",
+			)
+		finally:
+			self._set_template_hide_title(0)
+
+	def test_13_hide_title_immutable_after_submit(self):
+		q = self._make_draft()
+		self.assertEqual(self._snap(q.name)[0]["hide_title"], 0)
+		doc = frappe.get_doc("Quotation", q.name)
+		doc.flags.ignore_mandatory = True
+		doc.flags.ignore_links = True
+		doc.submit()
+		# cambiar el Template tras el submit no altera el snapshot congelado
+		self._set_template_hide_title(1)
+		try:
+			self.assertEqual(
+				self._snap(q.name)[0]["hide_title"], 0, "Desde En Revisión/Submit el snapshot es inmutable"
+			)
+		finally:
+			self._set_template_hide_title(0)
