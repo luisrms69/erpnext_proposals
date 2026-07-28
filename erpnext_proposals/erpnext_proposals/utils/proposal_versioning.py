@@ -311,6 +311,9 @@ def create_new_proposal_version(quotation_name: str, reason: str, summary: str =
 			"taxes": [_copy_tax(t) for t in old.taxes],
 			"payment_terms_template": pt_template,
 			"payment_schedule": pay_schedule,
+			# Snapshot de Sections: copia LITERAL de la versión anterior (mismo contenido/orden/fuentes/
+			# captured_on). No se consultan Proposal Template ni Proposal Section maestros al versionar.
+			"proposal_sections_snapshot": old.proposal_sections_snapshot,
 			"quotation_scope_items": [_copy_scope_item(s) for s in old.quotation_scope_items],
 		}
 	)
