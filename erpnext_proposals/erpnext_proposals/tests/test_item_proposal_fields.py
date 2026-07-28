@@ -29,6 +29,8 @@ REMOVED_FIELDS = (
 # Nuevos Custom Fields sobre Item.
 ITEM_FIELDS = ("proposal_methodology", "proposal_expected_result", "proposal_scope_limit")
 ITEM_SECTION = "proposal_content_section"
+# Copia técnica de los 3 campos en la línea nativa Quotation Item (hidden + read_only).
+QITEM_TECH_FIELDS = ("proposal_methodology", "proposal_expected_result", "proposal_scope_limit")
 
 
 def _fixture_records():
@@ -79,10 +81,25 @@ class TestItemProposalFields(unittest.TestCase):
 		self.assertEqual(by_name["Item-proposal_expected_result"]["insert_after"], "proposal_methodology")
 		self.assertEqual(by_name["Item-proposal_scope_limit"]["insert_after"], "proposal_expected_result")
 
+	def test_fixture_declares_quotation_item_technical_fields(self):
+		"""Copia técnica en la línea nativa Quotation Item: Text Editor, hidden, read_only, no_copy=0."""
+		by_name = {f["name"]: f for f in _fixture_records()}
+		for fn in QITEM_TECH_FIELDS:
+			rec = by_name.get(f"Quotation Item-{fn}")
+			self.assertIsNotNone(rec, f"Falta el Custom Field Quotation Item-{fn} en el fixture")
+			self.assertEqual(rec["dt"], "Quotation Item")
+			self.assertEqual(rec["fieldtype"], "Text Editor")
+			self.assertEqual(rec["hidden"], 1, f"{fn} debe estar oculto en Quotation Item")
+			self.assertEqual(rec["read_only"], 1, f"{fn} debe ser read_only en Quotation Item")
+			self.assertEqual(
+				rec.get("no_copy", 0), 0, f"{fn}: no_copy=0 para conservarlo al duplicar/versionar"
+			)
+			self.assertEqual(rec.get("reqd", 0), 0, f"{fn} debe ser opcional")
+
 	def test_no_editorial_or_block_type_in_scope_doctypes(self):
 		for folder in ("scope_item", "quotation_scope_item"):
 			order = set(_doctype_field_order(folder))
-			for fn in REMOVED_FIELDS + ("section_editorial", "block_type"):
+			for fn in (*REMOVED_FIELDS, "section_editorial", "block_type"):
 				self.assertNotIn(fn, order, f"{fn} no debe existir en {folder}.json")
 
 	def test_hooks_filter_includes_item_fields(self):
@@ -92,6 +109,7 @@ class TestItemProposalFields(unittest.TestCase):
 		dt_filter = next(c for c in cf["filters"] if c[0] == "dt")[2]
 		fn_filter = next(c for c in cf["filters"] if c[0] == "fieldname")[2]
 		self.assertIn("Item", dt_filter)
+		self.assertIn("Quotation Item", dt_filter)
 		for fn in (ITEM_SECTION, *ITEM_FIELDS):
 			self.assertIn(fn, fn_filter, f"hooks.py debe filtrar el fieldname {fn}")
 
@@ -124,6 +142,33 @@ class TestItemProposalFields(unittest.TestCase):
 
 		self.assertEqual(len(fns), len(set(fns)), "Fieldnames duplicados en el filtro de hooks")
 
+	def test_copy_item_preserves_proposal_fields_from_row(self):
+		"""Versionado: `_copy_item` conserva proposal_* DESDE la línea anterior (Quotation Item),
+		nunca relee el Item maestro (solo lee el row recibido)."""
+		from erpnext_proposals.erpnext_proposals.utils.proposal_versioning import _copy_item
+
+		row = frappe._dict(
+			{
+				"item_code": "IT",
+				"item_name": "N",
+				"description": "d",
+				"qty": 1,
+				"uom": "Nos",
+				"rate": 10,
+				"price_list_rate": 10,
+				"discount_percentage": 0,
+				"item_tax_template": None,
+				"warehouse": None,
+				"proposal_methodology": "<p>m</p>",
+				"proposal_expected_result": "<p>r</p>",
+				"proposal_scope_limit": "<p>l</p>",
+			}
+		)
+		copied = _copy_item(row)
+		self.assertEqual(copied["proposal_methodology"], "<p>m</p>")
+		self.assertEqual(copied["proposal_expected_result"], "<p>r</p>")
+		self.assertEqual(copied["proposal_scope_limit"], "<p>l</p>")
+
 	# ── Metadata-level (requieren bench migrate del rediseño) ────────────────────
 
 	def test_meta_item_has_three_optional_text_editors(self):
@@ -153,3 +198,73 @@ class TestItemProposalFields(unittest.TestCase):
 			meta = frappe.get_meta(dt)
 			for fn in (*REMOVED_FIELDS, "block_type"):
 				self.assertIsNone(meta.get_field(fn), f"{dt} no debe tener {fn} tras migrate")
+
+	def test_meta_quotation_item_fields_hidden_readonly(self):
+		if not _migrated():
+			self.skipTest("requiere bench migrate del rediseño")
+		meta = frappe.get_meta("Quotation Item")
+		for fn in QITEM_TECH_FIELDS:
+			f = meta.get_field(fn)
+			self.assertIsNotNone(f, f"Quotation Item debe tener {fn} tras migrate")
+			self.assertEqual(f.fieldtype, "Text Editor")
+			self.assertTrue(f.hidden, f"{fn} debe estar oculto en Quotation Item")
+			self.assertTrue(f.read_only, f"{fn} debe ser read_only en Quotation Item")
+
+	def test_loader_manages_item_proposal_fields(self):
+		"""El loader crea, actualiza y limpia (null explícito) los 3 campos de contenido en Item."""
+		if not _migrated():
+			self.skipTest("requiere bench migrate del rediseño")
+		import os
+		import tempfile
+
+		from erpnext_proposals.erpnext_proposals.catalog_data import catalog_loader
+
+		code = "_ITEMPROP-LOADER"
+		grp = frappe.db.get_value("Item Group", {"is_group": 0}, "name")
+		uom = "Nos" if frappe.db.exists("UOM", "Nos") else frappe.db.get_value("UOM", {}, "name")
+		fd, path = tempfile.mkstemp(suffix=".json")
+		os.close(fd)
+
+		def _cat(vals):
+			item = {
+				"item_code": code,
+				"item_name": "Loader Prop",
+				"item_group": grp,
+				"stock_uom": uom,
+				"is_stock_item": 0,
+			}
+			item.update(vals)
+			return {
+				"version": "t",
+				"catalog": "demo",
+				"phases": [],
+				"sections": [],
+				"versioned": [],
+				"items": [item],
+				"scope_items": [],
+				"templates": [],
+			}
+
+		try:
+			with open(path, "w", encoding="utf-8") as fh:
+				json.dump(_cat({f: f"<p>{f}</p>" for f in QITEM_TECH_FIELDS}), fh)
+			catalog_loader.run(catalog_path=path, dry_run=False)
+			for f in QITEM_TECH_FIELDS:
+				self.assertEqual(frappe.db.get_value("Item", code, f), f"<p>{f}</p>")
+
+			with open(path, "w", encoding="utf-8") as fh:
+				json.dump(_cat({f: f"<p>{f} v2</p>" for f in QITEM_TECH_FIELDS}), fh)
+			catalog_loader.run(catalog_path=path, dry_run=False, update_content=True)
+			for f in QITEM_TECH_FIELDS:
+				self.assertEqual(frappe.db.get_value("Item", code, f), f"<p>{f} v2</p>")
+
+			with open(path, "w", encoding="utf-8") as fh:
+				json.dump(_cat({f: None for f in QITEM_TECH_FIELDS}), fh)
+			catalog_loader.run(catalog_path=path, dry_run=False, update_content=True)
+			for f in QITEM_TECH_FIELDS:
+				self.assertFalse(frappe.db.get_value("Item", code, f), f"{f} debe quedar vacío")
+		finally:
+			os.remove(path)
+			if frappe.db.exists("Item", code):
+				frappe.delete_doc("Item", code, force=True, ignore_permissions=True)
+			frappe.db.commit()  # nosemgrep — limpieza de fixtures de test

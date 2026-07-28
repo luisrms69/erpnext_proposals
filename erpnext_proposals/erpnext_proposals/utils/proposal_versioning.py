@@ -168,6 +168,11 @@ def _copy_item(item) -> dict:
 		"discount_percentage": item.discount_percentage,
 		"item_tax_template": item.item_tax_template,
 		"warehouse": item.warehouse,
+		# Contenido general congelado del Item: se conserva de la versión anterior (línea Quotation Item),
+		# NUNCA se relee el Item maestro al versionar.
+		"proposal_methodology": item.get("proposal_methodology"),
+		"proposal_expected_result": item.get("proposal_expected_result"),
+		"proposal_scope_limit": item.get("proposal_scope_limit"),
 	}
 
 

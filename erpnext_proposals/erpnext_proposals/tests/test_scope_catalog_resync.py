@@ -339,6 +339,40 @@ class TestScopeCatalogResync(unittest.TestCase):
 			si.title = orig_title
 			si.save(ignore_permissions=True)
 
+	# ── D3. Contenido general del Item → línea nativa Quotation Item ─────────────
+
+	def test_item_proposal_fields_copy_and_resync(self):
+		"""Item.proposal_* se copia (congelado) a la línea nativa Quotation Item en la generación y se
+		refresca en resync; NUNCA vive en Quotation Scope Item."""
+		if not frappe.get_meta("Quotation Item").get_field("proposal_methodology"):
+			self.skipTest("requiere Quotation Item.proposal_* (bench migrate)")
+		flds = ("proposal_methodology", "proposal_expected_result", "proposal_scope_limit")
+		item = frappe.get_doc("Item", ITEM_A)
+		orig = {f: item.get(f) for f in flds}
+		for f in flds:
+			item.set(f, f"<p>{f} A</p>")
+		item.save(ignore_permissions=True)
+		try:
+			q = self._make_quotation([ITEM_A])
+			row = next(r for r in q.items if r.item_code == ITEM_A)
+			for f in flds:
+				self.assertEqual(row.get(f), f"<p>{f} A</p>", f"{f} debe copiarse a la línea Quotation Item")
+			for sr in q.quotation_scope_items:
+				for f in flds:
+					self.assertIsNone(sr.get(f), f"{f} NO debe vivir en Quotation Scope Item")
+
+			for f in flds:
+				item.set(f, f"<p>{f} B</p>")
+			item.save(ignore_permissions=True)
+			resync_scope_from_catalog(q.name)
+			row = next(r for r in frappe.get_doc("Quotation", q.name).items if r.item_code == ITEM_A)
+			for f in flds:
+				self.assertEqual(row.get(f), f"<p>{f} B</p>", f"{f} debe refrescarse en resync (Borrador)")
+		finally:
+			for f, v in orig.items():
+				item.set(f, v)
+			item.save(ignore_permissions=True)
+
 	# ── E. Fila manual bajo condición destructiva ───────────────────────────────
 
 	def test_04_manual_row_survives_destructive_resync(self):

@@ -81,6 +81,9 @@ def on_quotation_validate(doc, method=None):
 			)
 	if not doc.proposal_template:
 		return
+	# Copia el contenido general del Item a las líneas nativas Quotation Item (congelado): el PDF y las
+	# versiones usan la copia, no el Item maestro. Solo en Borrador y generación (no en versiones).
+	_copy_item_proposal_fields(doc)
 	_generate_scope_items(doc)
 
 
@@ -178,6 +181,22 @@ def _generate_scope_items(doc):
 				},
 			)
 			existing.add((item.item_code, si.name))
+
+
+# Contenido general del Item que se copia (congelado) a la línea nativa Quotation Item.
+_ITEM_PROPOSAL_FIELDS = ("proposal_methodology", "proposal_expected_result", "proposal_scope_limit")
+
+
+def _copy_item_proposal_fields(doc) -> None:
+	"""Copia proposal_methodology/expected_result/scope_limit del Item maestro a cada línea nativa
+	Quotation Item. Congela el contenido en la propuesta: el PDF y las versiones leen esta copia y
+	NUNCA releen el Item maestro. Se ejecuta solo en Borrador (generación/resync)."""
+	for row in doc.items or []:
+		if not row.item_code:
+			continue
+		vals = frappe.db.get_value("Item", row.item_code, _ITEM_PROPOSAL_FIELDS, as_dict=True) or {}
+		for f in _ITEM_PROPOSAL_FIELDS:
+			row.set(f, vals.get(f))
 
 
 # Campos del Quotation Scope Item controlados por el catálogo Scope Item.
@@ -309,6 +328,8 @@ def resync_scope_from_catalog(quotation_name: str) -> dict:
 		)
 		added += 1
 
+	# Refresca también el contenido general del Item en las líneas nativas Quotation Item (Borrador).
+	_copy_item_proposal_fields(doc)
 	doc.save()
 	return {
 		"updated": updated,

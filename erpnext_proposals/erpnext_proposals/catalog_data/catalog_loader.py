@@ -266,21 +266,36 @@ def _seed_items(items: list, report: dict, dry_run: bool, update_content: bool =
 	"""Crea/actualiza idempotentemente ERPNext Items (capacidad genérica). Identidad: item_code.
 	Los datos concretos (nombres, grupos, descripciones) viven en el catálogo externo, no en el app.
 	Solo se comparan/actualizan los campos que el catálogo provee (no se fuerzan vacíos)."""
-	fields = ["item_name", "item_group", "stock_uom", "is_stock_item", "is_sales_item", "description"]
+	fields = [
+		"item_name",
+		"item_group",
+		"stock_uom",
+		"is_stock_item",
+		"is_sales_item",
+		"description",
+		# Contenido general de la propuesta (Text Editor). Se administran igual que el resto:
+		# clave presente fija el valor, null explícito limpia, clave ausente no toca.
+		"proposal_methodology",
+		"proposal_expected_result",
+		"proposal_scope_limit",
+	]
 	for it in items:
 		code = it["item_code"]
 		label = f"Item '{code}'"
-		provided = {f: it.get(f) for f in fields if it.get(f) is not None}
+		provided, cleared = _managed_fields(it, fields)
+		keys = list(provided.keys()) + list(cleared)
 		if not frappe.db.exists("Item", code):
 			if not dry_run:
 				doc = {"doctype": "Item", "item_code": code}
 				doc.update(provided)
+				for f in cleared:
+					doc[f] = None
 				frappe.get_doc(doc).insert(ignore_permissions=True)
 			report["created"].append(label)
 			continue
 
-		current = frappe.db.get_value("Item", code, list(provided.keys()), as_dict=True) if provided else {}
-		diffs = _diff(provided, current)
+		current = frappe.db.get_value("Item", code, keys, as_dict=True) if keys else {}
+		diffs = _diff_managed(provided, cleared, current)
 		if not diffs:
 			report["unchanged"].append(label)
 		elif update_content:
@@ -288,6 +303,8 @@ def _seed_items(items: list, report: dict, dry_run: bool, update_content: bool =
 				doc = frappe.get_doc("Item", code)
 				for f, v in provided.items():
 					doc.set(f, v)
+				for f in cleared:
+					doc.set(f, None)
 				doc.save(ignore_permissions=True)
 			report["updated"].append(f"{label}: {diffs}")
 		else:
