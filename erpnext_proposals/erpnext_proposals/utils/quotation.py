@@ -183,19 +183,32 @@ def _generate_scope_items(doc):
 			existing.add((item.item_code, si.name))
 
 
-# Contenido general del Item que se copia (congelado) a la línea nativa Quotation Item.
-_ITEM_PROPOSAL_FIELDS = ("proposal_methodology", "proposal_expected_result", "proposal_scope_limit")
+# Contenido general del Item que se CONGELA en la línea nativa Quotation Item (bloque del servicio).
+_FROZEN_ITEM_FIELDS = (
+	"description",
+	"proposal_methodology",
+	"proposal_expected_result",
+	"proposal_scope_limit",
+)
 
 
-def _copy_item_proposal_fields(doc) -> None:
-	"""Copia proposal_methodology/expected_result/scope_limit del Item maestro a cada línea nativa
-	Quotation Item. Congela el contenido en la propuesta: el PDF y las versiones leen esta copia y
-	NUNCA releen el Item maestro. Se ejecuta solo en Borrador (generación/resync)."""
+def _copy_item_proposal_fields(doc, force: bool = False) -> None:
+	"""Congela el contenido general del Item (description + proposal_*) en cada línea nativa Quotation
+	Item, para que el PDF y las versiones usen la copia y NUNCA relean el Item maestro.
+
+	- Sin `force` (generación inicial): solo congela las líneas NUEVAS (Item recién incorporado). Un
+	  guardado normal de un Borrador NO relee ni actualiza líneas ya congeladas (no toca el Item).
+	- `force=True` (resync explícito del catálogo en Borrador): refresca los cuatro valores en TODAS
+	  las líneas desde el Item maestro.
+	"""
 	for row in doc.items or []:
 		if not row.item_code:
 			continue
-		vals = frappe.db.get_value("Item", row.item_code, _ITEM_PROPOSAL_FIELDS, as_dict=True) or {}
-		for f in _ITEM_PROPOSAL_FIELDS:
+		if not force and not row.is_new():
+			# Guardado normal: la línea ya está congelada; no se relee el Item.
+			continue
+		vals = frappe.db.get_value("Item", row.item_code, _FROZEN_ITEM_FIELDS, as_dict=True) or {}
+		for f in _FROZEN_ITEM_FIELDS:
 			row.set(f, vals.get(f))
 
 
@@ -328,8 +341,8 @@ def resync_scope_from_catalog(quotation_name: str) -> dict:
 		)
 		added += 1
 
-	# Refresca también el contenido general del Item en las líneas nativas Quotation Item (Borrador).
-	_copy_item_proposal_fields(doc)
+	# Resync explícito: refresca los cuatro valores del bloque del servicio en TODAS las líneas.
+	_copy_item_proposal_fields(doc, force=True)
 	doc.save()
 	return {
 		"updated": updated,

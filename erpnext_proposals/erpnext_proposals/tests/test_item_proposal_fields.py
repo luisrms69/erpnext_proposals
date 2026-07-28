@@ -143,15 +143,15 @@ class TestItemProposalFields(unittest.TestCase):
 		self.assertEqual(len(fns), len(set(fns)), "Fieldnames duplicados en el filtro de hooks")
 
 	def test_copy_item_preserves_proposal_fields_from_row(self):
-		"""Versionado: `_copy_item` conserva proposal_* DESDE la línea anterior (Quotation Item),
-		nunca relee el Item maestro (solo lee el row recibido)."""
+		"""Versionado: `_copy_item` conserva los cuatro valores (description + proposal_*) DESDE la
+		línea anterior (Quotation Item); nunca relee el Item maestro (solo lee el row recibido)."""
 		from erpnext_proposals.erpnext_proposals.utils.proposal_versioning import _copy_item
 
 		row = frappe._dict(
 			{
 				"item_code": "IT",
 				"item_name": "N",
-				"description": "d",
+				"description": "<p>d</p>",
 				"qty": 1,
 				"uom": "Nos",
 				"rate": 10,
@@ -165,6 +165,7 @@ class TestItemProposalFields(unittest.TestCase):
 			}
 		)
 		copied = _copy_item(row)
+		self.assertEqual(copied["description"], "<p>d</p>")
 		self.assertEqual(copied["proposal_methodology"], "<p>m</p>")
 		self.assertEqual(copied["proposal_expected_result"], "<p>r</p>")
 		self.assertEqual(copied["proposal_scope_limit"], "<p>l</p>")
