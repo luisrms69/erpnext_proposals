@@ -1,4 +1,5 @@
 import base64
+import json
 import mimetypes
 import os
 
@@ -53,6 +54,96 @@ def render_section_content(content: str, doc) -> str:
 def parse_json(val) -> list:
 	"""Wrapper around frappe.parse_json for Jinja sandbox (module attrs are restricted)."""
 	return frappe.parse_json(val) or []
+
+
+# Excepciones que puede lanzar json.loads (ValueError incluye JSONDecodeError; TypeError si el valor no
+# es str/bytes). Se declara como constante nombrada para evitar la tupla literal en el `except`, cuya
+# forma con/sin paréntesis es inestable entre versiones de ruff-format.
+_JSON_ERRORS = (ValueError, TypeError)
+
+# Campos obligatorios de cada entrada del snapshot de secciones (ver utils/quotation._build_sections_snapshot).
+_SNAPSHOT_REQUIRED_FIELDS = (
+	"sequence",
+	"title",
+	"content",
+	"source_section",
+	"is_executive_summary",
+	"captured_on",
+)
+
+
+def _is_nonempty_str(val) -> bool:
+	return isinstance(val, str) and bool(val.strip())
+
+
+def _valid_snapshot_entry(entry) -> bool:
+	"""True solo si la entrada tiene la estructura mínima y tipos correctos. No lanza."""
+	if not isinstance(entry, dict):
+		return False
+	for field in _SNAPSHOT_REQUIRED_FIELDS:
+		if field not in entry:
+			return False
+	# sequence: entero, nunca boolean
+	seq = entry["sequence"]
+	if isinstance(seq, bool) or not isinstance(seq, int):
+		return False
+	# strings no vacíos
+	if not _is_nonempty_str(entry["title"]):
+		return False
+	if not _is_nonempty_str(entry["content"]):
+		return False
+	if not _is_nonempty_str(entry["source_section"]):
+		return False
+	if not _is_nonempty_str(entry["captured_on"]):
+		return False
+	# is_executive_summary: boolean o entero 0/1
+	ies = entry["is_executive_summary"]
+	if isinstance(ies, bool):
+		pass
+	elif isinstance(ies, int) and ies in (0, 1):
+		pass
+	else:
+		return False
+	return True
+
+
+def get_sections_snapshot(doc) -> dict:
+	"""Lectura fail-closed de ``proposal_sections_snapshot`` para Print Formats.
+
+	Devuelve SIEMPRE ``{"valid": bool, "reason": str, "sections": list}`` y NUNCA lanza hacia Jinja,
+	de modo que el Print Format pueda mostrar una advertencia técnica limpia en vez de un PDF roto.
+
+	NO consulta maestros vivos (Proposal Template / Proposal Section / Item / etc.), NO renderiza ni
+	modifica el Jinja almacenado en ``content`` y NO reconstruye datos faltantes. Una sola entrada
+	inválida invalida TODO el snapshot (sin descartes silenciosos).
+
+	``reason`` (estable, sin datos sensibles): ``missing`` | ``invalid_json`` | ``invalid_structure`` |
+	``empty`` | ``ok``. Cuando es válido, las entradas se devuelven completas (conservando propiedades
+	adicionales) y ordenadas de forma estable por ``sequence``.
+	"""
+	raw = getattr(doc, "proposal_sections_snapshot", None)
+
+	if raw is None or not isinstance(raw, str) or not raw.strip():
+		return {"valid": False, "reason": "missing", "sections": []}
+
+	try:
+		data = json.loads(raw)
+	except _JSON_ERRORS:
+		return {"valid": False, "reason": "invalid_json", "sections": []}
+
+	if not isinstance(data, list):
+		return {"valid": False, "reason": "invalid_structure", "sections": []}
+
+	if len(data) == 0:
+		return {"valid": False, "reason": "empty", "sections": []}
+
+	for entry in data:
+		if not _valid_snapshot_entry(entry):
+			return {"valid": False, "reason": "invalid_structure", "sections": []}
+
+	# sorted() es estable: entradas con igual sequence conservan su orden original.
+	sections = sorted(data, key=lambda e: e["sequence"])
+	return {"valid": True, "reason": "ok", "sections": sections}
 
 
 def get_logo_url(logo_path: str) -> str:
