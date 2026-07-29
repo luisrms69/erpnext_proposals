@@ -90,13 +90,11 @@ class TestCatalogLoader(unittest.TestCase):
 		import os
 		import tempfile
 
+		from erpnext_proposals.erpnext_proposals.tests.company import get_test_item_group
+
 		item_code, phase = "_DEMO-SVC-ITEM", "FASE_DEMO_ITEMS"
 		linked, modular = "_DEMO-SC-LINKED", "_DEMO-SC-MODULAR"
-		grp = (
-			"Services"
-			if frappe.db.exists("Item Group", "Services")
-			else frappe.db.get_value("Item Group", {"is_group": 0}, "name")
-		)
+		grp = get_test_item_group()
 		uom = "Nos" if frappe.db.exists("UOM", "Nos") else frappe.db.get_value("UOM", {}, "name")
 		catalog = {
 			"version": "t",
@@ -316,8 +314,10 @@ class TestCatalogLoader(unittest.TestCase):
 		import os
 		import tempfile
 
+		from erpnext_proposals.erpnext_proposals.tests.company import get_test_item_group
+
 		item, sc = "_DEMO-ITEM-NULL", "_DEMO-SC-NULL"
-		grp = frappe.db.get_value("Item Group", {"is_group": 0}, "name")
+		grp = get_test_item_group()
 		uom = "Nos" if frappe.db.exists("UOM", "Nos") else frappe.db.get_value("UOM", {}, "name")
 		fd, path = tempfile.mkstemp(suffix=".json")
 		os.close(fd)

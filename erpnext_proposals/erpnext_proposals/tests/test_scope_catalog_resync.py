@@ -84,7 +84,10 @@ class TestScopeCatalogResync(unittest.TestCase):
 
 	@classmethod
 	def _setup_master_data(cls):
-		from erpnext_proposals.erpnext_proposals.tests.company import get_test_company
+		from erpnext_proposals.erpnext_proposals.tests.company import (
+			get_test_company,
+			get_test_item_group,
+		)
 
 		cls.company = get_test_company()
 		if not cls.company:
@@ -112,9 +115,7 @@ class TestScopeCatalogResync(unittest.TestCase):
 		if not frappe.db.exists("UOM", "Nos"):
 			frappe.get_doc({"doctype": "UOM", "uom_name": "Nos"}).insert(ignore_permissions=True)
 
-		ig = frappe.db.get_value("Item Group", {"is_group": 0}, "name") or frappe.db.get_value(
-			"Item Group", {}, "name"
-		)
+		ig = get_test_item_group()
 		for code in (ITEM_A, ITEM_B):
 			if not frappe.db.exists("Item", code):
 				frappe.get_doc(

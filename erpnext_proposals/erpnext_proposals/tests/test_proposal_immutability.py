@@ -75,7 +75,10 @@ class TestProposalImmutability(unittest.TestCase):
 
 	@classmethod
 	def _setup_masters(cls):
-		from erpnext_proposals.erpnext_proposals.tests.company import get_test_company
+		from erpnext_proposals.erpnext_proposals.tests.company import (
+			get_test_company,
+			get_test_item_group,
+		)
 
 		cls.company = get_test_company()
 		if not cls.company:
@@ -108,9 +111,7 @@ class TestProposalImmutability(unittest.TestCase):
 		if not frappe.db.exists("UOM", "Nos"):
 			frappe.get_doc({"doctype": "UOM", "uom_name": "Nos"}).insert(ignore_permissions=True)
 
-		ig = frappe.db.get_value("Item Group", {"is_group": 0}, "name") or frappe.db.get_value(
-			"Item Group", {}, "name"
-		)
+		ig = get_test_item_group()
 		if not frappe.db.exists("Item", "_Test Imm Item"):
 			frappe.get_doc(
 				{

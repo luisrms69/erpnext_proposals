@@ -1,8 +1,8 @@
 # CONTINUITY.md — erpnext_proposals
 
-**Fecha:** 2026-07-27
+**Fecha:** 2026-07-29
 **Rama activa:** `chore/gitignore-local-artifacts` (base `a11584d` = `upstream/version-16`).
-**Tarea actual:** Serie de commits de endurecimiento pre-despliegue lista para PR hacia `version-16`. Todos los cambios son genéricos y aptos para el repo público; el contenido comercial/branding sigue fuera del repo.
+**Tarea actual:** **PR #33 abierto** hacia `version-16`. Cerrando el CI: tras instalar `facturacion_mexico` en CI, los tests que crean `Item` fallaban en el site fresco (`MandatoryError: item_group`) porque sin Setup Wizard no hay Item Groups hoja. Fix: helper `get_test_item_group()` determinista. Todos los cambios son genéricos y aptos para el repo público; el contenido comercial/branding sigue fuera del repo.
 
 ---
 
@@ -10,9 +10,9 @@
 
 Estoy trabajando en:
 Split en commits lógicos de la preparación pre-despliegue de `erpnext_proposals`. Toda la serie va en
-**una sola rama** (`chore/gitignore-local-artifacts`), un commit por bloque funcional, para abrir **un**
-PR hacia `version-16`. Suite completa **180 tests OK (1 skip)** con `facturacion_mexico` instalada en el
-site de pruebas.
+**una sola rama** (`chore/gitignore-local-artifacts`), un commit por bloque funcional, en **un** PR
+(#33) hacia `version-16`. Suite completa **226 tests OK (1 skip)** con `facturacion_mexico` instalada en el
+site de pruebas. `__version__ = 0.1.0`. Estado: **cerrando CI** (fix de `item_group` determinista en tests).
 
 Plan que estoy siguiendo:
 1. Serie de commits C1–C7 en la rama (hecho — ver "Commits de esta rama").
@@ -57,8 +57,16 @@ Cada paso con autorización explícita; nunca escritura en BD/servidores sin avi
    `due_date` inválidos: conserva el Payment Terms Template si existe, deja el schedule vacío para que
    ERPNext lo regenere, y bloquea con mensaje claro los calendarios manuales no reproducibles. +tests 17/18/19.
 
+### Commits posteriores en la rama (docs, versión y CI)
+- Documentación del gate (arquitectura, print-formats, **ADR-0007** contenido editorial en Item, referencia
+  regenerada, `mkdocs.yml`); `mkdocs build --strict` limpio.
+- `chore(release): 0.1.0` — bump SemVer (MINOR) por el alcance del PR.
+- `ci: instalar facturacion_mexico en el workflow` (`bench get-app --branch main` + `install-app`).
+- `test(proposals): Item Group hoja determinista` — helper `get_test_item_group()` en `tests/company.py`
+  usado por los 12 tests que crean `Item`; resuelve `MandatoryError: item_group` en el site fresco de CI.
+
 ### Verificación
-- Suite completa `erpnext_proposals`: **180 OK (1 skip)** con `facturacion_mexico` instalada.
+- Suite completa `erpnext_proposals`: **226 OK (1 skip)** con `facturacion_mexico` instalada.
 - `ruff check` / `ruff format --check` / `git diff --check` limpios. Diff público sin datos de cliente,
   folios, contenido editorial, rutas privadas ni nombres de formatos/templates privados.
 

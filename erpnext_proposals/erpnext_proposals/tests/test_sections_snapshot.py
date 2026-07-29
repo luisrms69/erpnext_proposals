@@ -14,7 +14,7 @@ import unittest
 
 import frappe
 
-from erpnext_proposals.erpnext_proposals.tests.company import get_test_company
+from erpnext_proposals.erpnext_proposals.tests.company import get_test_company, get_test_item_group
 from erpnext_proposals.erpnext_proposals.tests.fiscal_year import (
 	cleanup_fiscal_year,
 	ensure_current_fiscal_year,
@@ -62,7 +62,7 @@ class TestSectionsSnapshot(unittest.TestCase):
 			).insert(ignore_permissions=True)
 		if not frappe.db.exists("UOM", "Nos"):
 			frappe.get_doc({"doctype": "UOM", "uom_name": "Nos"}).insert(ignore_permissions=True)
-		ig = frappe.db.get_value("Item Group", {"is_group": 0}, "name")
+		ig = get_test_item_group()
 		if not frappe.db.exists("Item", ITEM):
 			frappe.get_doc(
 				{

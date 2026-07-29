@@ -219,9 +219,10 @@ class TestItemProposalFields(unittest.TestCase):
 		import tempfile
 
 		from erpnext_proposals.erpnext_proposals.catalog_data import catalog_loader
+		from erpnext_proposals.erpnext_proposals.tests.company import get_test_item_group
 
 		code = "_ITEMPROP-LOADER"
-		grp = frappe.db.get_value("Item Group", {"is_group": 0}, "name")
+		grp = get_test_item_group()
 		uom = "Nos" if frappe.db.exists("UOM", "Nos") else frappe.db.get_value("UOM", {}, "name")
 		fd, path = tempfile.mkstemp(suffix=".json")
 		os.close(fd)

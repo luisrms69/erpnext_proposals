@@ -263,9 +263,9 @@ def _ensure_item():
 	if not frappe.db.exists("UOM", "Nos"):
 		frappe.get_doc({"doctype": "UOM", "uom_name": "Nos"}).insert(ignore_permissions=True)
 	if not frappe.db.exists("Item", name):
-		ig = frappe.db.get_value("Item Group", {"is_group": 0}, "name") or frappe.db.get_value(
-			"Item Group", {}, "name"
-		)
+		from erpnext_proposals.erpnext_proposals.tests.company import get_test_item_group
+
+		ig = get_test_item_group()
 		frappe.get_doc(
 			{
 				"doctype": "Item",

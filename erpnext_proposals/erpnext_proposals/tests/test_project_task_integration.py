@@ -77,6 +77,8 @@ class TestProjectTaskIntegration(unittest.TestCase):
 
 	@classmethod
 	def _setup(cls):
+		from erpnext_proposals.erpnext_proposals.tests.company import get_test_item_group
+
 		cg = frappe.db.get_value("Customer Group", {"is_group": 0}, "name")
 		if not cg:
 			raise unittest.SkipTest("No Customer Group found.")
@@ -93,7 +95,7 @@ class TestProjectTaskIntegration(unittest.TestCase):
 		cls.customer = "_Test PTI Customer"
 		if not frappe.db.exists("UOM", "Nos"):
 			frappe.get_doc({"doctype": "UOM", "uom_name": "Nos"}).insert(ignore_permissions=True)
-		ig = frappe.db.get_value("Item Group", {"is_group": 0}, "name")
+		ig = get_test_item_group()
 		for code in (ITEM_A, ITEM_B):
 			if not frappe.db.exists("Item", code):
 				frappe.get_doc(
