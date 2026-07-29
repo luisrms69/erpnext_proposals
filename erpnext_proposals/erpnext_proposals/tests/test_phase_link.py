@@ -31,7 +31,9 @@ class TestPhaseLink(unittest.TestCase):
 	def setUpClass(cls):
 		super().setUpClass()
 		cls._quotations = []
-		cls.company = frappe.db.get_value("Company", {}, "name")
+		from erpnext_proposals.erpnext_proposals.tests.company import get_test_company
+
+		cls.company = get_test_company()
 		if not cls.company:
 			raise unittest.SkipTest("No Company found on test site.")
 		cls._created_phases = ensure_test_phases()
@@ -56,6 +58,8 @@ class TestPhaseLink(unittest.TestCase):
 
 	@classmethod
 	def _setup(cls):
+		from erpnext_proposals.erpnext_proposals.tests.company import get_test_item_group
+
 		cg = frappe.db.get_value("Customer Group", {"is_group": 0}, "name")
 		if not cg:
 			raise unittest.SkipTest("No Customer Group found.")
@@ -72,7 +76,7 @@ class TestPhaseLink(unittest.TestCase):
 		cls.customer = "_Test Phase Customer"
 		if not frappe.db.exists("UOM", "Nos"):
 			frappe.get_doc({"doctype": "UOM", "uom_name": "Nos"}).insert(ignore_permissions=True)
-		ig = frappe.db.get_value("Item Group", {"is_group": 0}, "name")
+		ig = get_test_item_group()
 		if not frappe.db.exists("Item", ITEM_P):
 			frappe.get_doc(
 				{

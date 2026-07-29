@@ -33,12 +33,22 @@ sin volver a resolver. Una **nueva versión** hereda ese formato como override e
 |---|---|
 | `resolve_commercial_print_format(doc)` | congelada → el congelado; Borrador → resolución dinámica |
 | `dynamic_commercial_print_format(doc)` | cadena override → template → default |
+| `sync_proposal_print_format_from_template(doc)` | al aplicar/cambiar el Template (o si el override está vacío), **puebla** `proposal_print_format` con el formato del Template; corre en `validate` de la Quotation |
 | `freeze_effective_print_format(doc)` | persiste el efectivo al congelar (idempotente) |
 | `validate_print_format(name)` | valida que el formato sea usable para Quotation (existe, doc_type, no disabled) |
 | `get_effective_commercial_print_format(quotation)` | whitelisted; lo usa el botón *Imprimir Propuesta Comercial* (JS) |
 
 El mismo resolver se usa en el snapshot de impresión y al adjuntar el PDF comercial, de modo que
 todos los caminos de impresión coinciden en el formato efectivo.
+
+### Logo del PDF
+
+El logo del formato se hereda de `Company.company_logo` (sin branding hardcodeado). Dos helpers Jinja
+en `utils/printing.py` lo exponen:
+
+- `get_logo_url(...)` — URL/ruta del logo para usar en `<img src>`.
+- `get_logo_data_uri(logo_path)` — el logo **embebido como data URI** (base64), útil cuando el motor de
+  PDF no resuelve rutas relativas o el archivo debe viajar dentro del HTML.
 
 ---
 
@@ -116,15 +126,35 @@ al alcance y la inversión:
 - Sección con `sequence >= 500` → se renderiza **después** de la Inversión (bloque 8).
 
 Es una convención definida en el Jinja de `propuesta_comercial.json` (buckets
-`body_sections` / `late_sections`). Hoy los 3 templates instalados usan sequences 10–100,
-por lo que **todas** sus secciones caen antes del alcance. Actualmente no existen secciones
-narrativas posteriores a la Inversión.
+`body_sections` / `late_sections`). Los Proposal Templates provienen del **catálogo** (no se
+instalan con la app); cada Template decide, por la `sequence` de sus secciones, cuáles caen
+**antes** del alcance (`sequence < 500`) y cuáles **después** de la Inversión (`sequence >= 500`).
 
 **Para colocar una sección después de la Inversión** —por ejemplo términos legales, garantías
 o condiciones comerciales— asignarle `sequence >= 500` en el `Proposal Template Section`.
 
 > El umbral 500 vive únicamente en el Jinja del Print Format. Al editar templates, respetar
 > esta convención — de lo contrario una sección "legal" aparecerá en medio del cuerpo.
+
+### Estructura de la entrada del snapshot y `hide_title`
+
+Cada entrada congelada en `proposal_sections_snapshot` (ver `_build_sections_snapshot`) tiene:
+`sequence`, `title`, `content` (Jinja crudo), `source_section`, `is_executive_summary`,
+**`hide_title`** y `captured_on`.
+
+`hide_title` es una **propiedad opcional de presentación por Template** que vive en
+`Proposal Template Section` (Check, default `0`), no en `Proposal Section` — la misma Section
+canónica puede mostrar su heading en un Template y ocultarlo en otro sin duplicarse. Se **congela**
+en el snapshot al capturar, de modo que cambios posteriores del Template no alteran PDFs históricos;
+el versionamiento la copia literalmente y el resync en Borrador la actualiza desde el Template.
+
+Semántica en el Print Format (`render_section`): `hide_title = 1` → **no** se renderiza el
+`block-title` (el `block-body` sí); `0` o **ausente** → se muestra el heading (comportamiento
+histórico). Es una decisión genérica basada exclusivamente en `hide_title`, sin depender de
+`source_section`, título, nombre, `sequence`, posición ni `is_executive_summary`.
+
+Compatibilidad: `hide_title` **no** es campo requerido en `get_sections_snapshot`; los snapshots
+históricos sin la propiedad siguen siendo `valid=True` y muestran su heading como hasta ahora.
 
 ---
 
@@ -156,6 +186,6 @@ rentabilidad-estimada-baseline-2026-05-21.pdf  ← baseline con tabla Alcance Co
 | `propuesta_comercial.json` | Fuente de verdad del Print Format comercial genérico (default) |
 | `rentabilidad_estimada.json` | Fuente de verdad del Print Format de rentabilidad |
 | `utils/print_format.py` | Resolución y congelamiento del formato comercial efectivo |
-| `utils/printing.py` | Helpers Jinja: `render_section_content`, `parse_json`, `get_logo_url` |
+| `utils/printing.py` | Helpers Jinja: `render_section_content`, `parse_json`, `get_sections_snapshot` (lectura fail-closed del snapshot), `get_logo_url`, `get_logo_data_uri` |
 | `report/profitability_estimate/` | Fuente de datos para Rentabilidad Estimada |
 | `working_docs/archive/visual-regression/` | PDFs de evidencia histórica por formato |

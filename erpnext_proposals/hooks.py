@@ -8,7 +8,9 @@ app_license = "mit"
 # Apps
 # ------------------
 
-required_apps = ["erpnext", "hrms"]
+# facturacion_mexico es requerida: aporta los maestros fiscales (UOM SAT, Item Groups) que los
+# Items de propuestas referencian. Frappe impide instalar erpnext_proposals si no está presente.
+required_apps = ["erpnext", "hrms", "facturacion_mexico"]
 
 # Jinja
 # ------------------
@@ -18,7 +20,9 @@ jinja = {
 		"erpnext_proposals.erpnext_proposals.report.profitability_estimate.profitability_estimate.get_profitability_data",
 		"erpnext_proposals.erpnext_proposals.utils.printing.render_section_content",
 		"erpnext_proposals.erpnext_proposals.utils.printing.parse_json",
+		"erpnext_proposals.erpnext_proposals.utils.printing.get_sections_snapshot",
 		"erpnext_proposals.erpnext_proposals.utils.printing.get_logo_url",
+		"erpnext_proposals.erpnext_proposals.utils.printing.get_logo_data_uri",
 		"erpnext_proposals.erpnext_proposals.utils.phase.phase_label",
 		"erpnext_proposals.erpnext_proposals.utils.phase.order_phases",
 	]
@@ -31,7 +35,7 @@ fixtures = [
 	{
 		"doctype": "Custom Field",
 		"filters": [
-			["dt", "in", ["Quotation", "Task"]],
+			["dt", "in", ["Quotation", "Task", "Item", "Quotation Item"]],
 			[
 				"fieldname",
 				"in",
@@ -67,6 +71,12 @@ fixtures = [
 					"proposal_versioning_row2",
 					"proposal_versioning_col2",
 					"proposal_revision_section",
+					"proposal_print_format",
+					"proposal_effective_print_format",
+					"proposal_content_section",
+					"proposal_methodology",
+					"proposal_expected_result",
+					"proposal_scope_limit",
 				],
 			],
 		],

@@ -84,7 +84,12 @@ class TestScopeCatalogResync(unittest.TestCase):
 
 	@classmethod
 	def _setup_master_data(cls):
-		cls.company = frappe.db.get_value("Company", {}, "name")
+		from erpnext_proposals.erpnext_proposals.tests.company import (
+			get_test_company,
+			get_test_item_group,
+		)
+
+		cls.company = get_test_company()
 		if not cls.company:
 			raise unittest.SkipTest("No Company found on test site — run bench migrate first.")
 
@@ -110,9 +115,7 @@ class TestScopeCatalogResync(unittest.TestCase):
 		if not frappe.db.exists("UOM", "Nos"):
 			frappe.get_doc({"doctype": "UOM", "uom_name": "Nos"}).insert(ignore_permissions=True)
 
-		ig = frappe.db.get_value("Item Group", {"is_group": 0}, "name") or frappe.db.get_value(
-			"Item Group", {}, "name"
-		)
+		ig = get_test_item_group()
 		for code in (ITEM_A, ITEM_B):
 			if not frappe.db.exists("Item", code):
 				frappe.get_doc(
@@ -336,6 +339,52 @@ class TestScopeCatalogResync(unittest.TestCase):
 		finally:
 			si.title = orig_title
 			si.save(ignore_permissions=True)
+
+	# ── D3. Contenido general del Item → línea nativa Quotation Item ─────────────
+
+	def test_item_proposal_fields_copy_and_resync(self):
+		"""Congela description + proposal_* del Item en la línea nativa Quotation Item: la generación
+		copia los cuatro; un guardado normal NO relee el Item; cambiar el Item no altera la línea sin
+		resync; el resync explícito refresca los cuatro. Nunca vive en Quotation Scope Item."""
+		if not frappe.get_meta("Quotation Item").get_field("proposal_methodology"):
+			self.skipTest("requiere Quotation Item.proposal_* (bench migrate)")
+		flds = ("description", "proposal_methodology", "proposal_expected_result", "proposal_scope_limit")
+		item = frappe.get_doc("Item", ITEM_A)
+		orig = {f: item.get(f) for f in flds}
+		for f in flds:
+			item.set(f, f"<p>{f} A</p>")
+		item.save(ignore_permissions=True)
+		try:
+			# 1) generación inicial copia los 4 valores desde el Item
+			q = self._make_quotation([ITEM_A])
+			row = next(r for r in q.items if r.item_code == ITEM_A)
+			for f in flds:
+				self.assertEqual(row.get(f), f"<p>{f} A</p>", f"{f} debe congelarse en Quotation Item")
+			# 7) el contenido NO vive en Quotation Scope Item
+			for sr in q.quotation_scope_items:
+				for f in ("proposal_methodology", "proposal_expected_result", "proposal_scope_limit"):
+					self.assertIsNone(sr.get(f), f"{f} NO debe vivir en Quotation Scope Item")
+
+			# 2/3) cambiar el Item + guardado NORMAL no relee ni altera la línea congelada
+			for f in flds:
+				item.set(f, f"<p>{f} B</p>")
+			item.save(ignore_permissions=True)
+			frappe.get_doc("Quotation", q.name).save(ignore_permissions=True)  # guardado normal
+			row = next(r for r in frappe.get_doc("Quotation", q.name).items if r.item_code == ITEM_A)
+			for f in flds:
+				self.assertEqual(
+					row.get(f), f"<p>{f} A</p>", f"{f}: un guardado normal no debe releer el Item"
+				)
+
+			# 4) resync explícito refresca los cuatro valores
+			resync_scope_from_catalog(q.name)
+			row = next(r for r in frappe.get_doc("Quotation", q.name).items if r.item_code == ITEM_A)
+			for f in flds:
+				self.assertEqual(row.get(f), f"<p>{f} B</p>", f"{f} debe refrescarse en resync (Borrador)")
+		finally:
+			for f, v in orig.items():
+				item.set(f, v)
+			item.save(ignore_permissions=True)
 
 	# ── E. Fila manual bajo condición destructiva ───────────────────────────────
 

@@ -135,10 +135,16 @@ Ver `docs/tecnico/print-formats.md` para el flujo completo de cambios.
 
 ## Catálogo inicial
 
-El catálogo base (10 secciones + 3 templates) se crea por `install.py` en `after_install`.
-No se sobreescribe en migrate. Si se necesita recrear en un site limpio:
+`install.py` (`after_install`) **no** siembra contenido comercial: solo sincroniza el Desktop Icon
+de la app. **Ningún** Proposal Section, Template, Item, Scope Item, Phase, Print Format ni Payment
+Term se crea en `install` ni en `migrate` (evita contaminar producción y cada nuevo install). Ver
+[ADR-0006](../adr/0006-separacion-app-generica-personalizacion-privada.md).
+
+Todo el contenido comercial se carga **explícitamente** con el loader genérico e idempotente, desde
+un kit de catálogo externo (privado por cliente, fuera del repo):
 
 ```bash
 bench --site <site> execute \
-  "erpnext_proposals.erpnext_proposals.install.after_install"
+  erpnext_proposals.erpnext_proposals.catalog_data.catalog_loader.run \
+  --kwargs "{'catalog_path': '/ruta/al/catalogo.json', 'update_content': True, 'dry_run': True}"
 ```

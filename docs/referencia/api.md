@@ -1,7 +1,7 @@
 <!--
   ARCHIVO GENERADO AUTOMÁTICAMENTE. NO EDITAR MANUALMENTE.
   Regenerar con: python3 scripts/generate_reference.py
-  Fecha generación: 2026-07-15 15:38
+  Fecha generación: 2026-07-29 04:14
 -->
 
 
@@ -15,6 +15,8 @@ Accesibles desde el cliente JS con `frappe.call({method: '...'})` o desde Python
 
 - **erpnext_proposals/erpnext_proposals/utils/cost_matrix.py**
   - [`rebuild_cost_matrix`](#rebuild-cost-matrix)
+- **erpnext_proposals/erpnext_proposals/utils/print_format.py**
+  - [`get_effective_commercial_print_format`](#get-effective-commercial-print-format)
 - **erpnext_proposals/erpnext_proposals/utils/project.py**
   - [`create_project_from_quotation`](#create-project-from-quotation)
 - **erpnext_proposals/erpnext_proposals/utils/proposal_versioning.py**
@@ -34,6 +36,16 @@ Accesibles desde el cliente JS con `frappe.call({method: '...'})` o desde Python
 **Módulo:** `erpnext_proposals.erpnext_proposals.utils.cost_matrix`
 
 Rebuilds Proposal Cost Matrix from employee cost data.
+
+
+## `erpnext_proposals/erpnext_proposals/utils/print_format.py`
+
+
+### `get_effective_commercial_print_format(quotation)`
+
+**Módulo:** `erpnext_proposals.erpnext_proposals.utils.print_format`
+
+Formato comercial efectivo de una Quotation (usado por el botón de impresión en JS).
 
 
 ## `erpnext_proposals/erpnext_proposals/utils/project.py`

@@ -26,7 +26,7 @@ y de gestión.
 | Permisos | Guard de roles para endpoints críticos | `utils/permissions.py` | Activo |
 | Print Formats | PDF comercial (default genérico) y Rentabilidad Estimada (privado); helpers Jinja | `print_format/`, `utils/printing.py` | Activo |
 | Resolución de Print Format | Cadena override→template→default y congelamiento del efectivo (ADR-0005) | `utils/print_format.py` | Activo |
-| Loader de catálogos | Carga genérica e idempotente de catálogos por ruta externa (ADR-0006) | `catalog_data/catalog_loader.py` | Activo |
+| Loader de catálogos | Carga genérica e idempotente por ruta externa: Proposal Phases, Sections, Items (+ campos editoriales), Scope Items, Proposal Templates, Print Formats y **Payment Terms / Payment Terms Templates** (ADR-0006) | `catalog_data/catalog_loader.py` | Activo |
 | Reporte de rentabilidad | Fuente de datos compartida entre UI y Print Format | `report/profitability_estimate/` | Activo |
 | Override de Quotation | Bloquea `declare_enquiry_lost` en propuestas con workflow | `overrides/quotation_override.py` | Activo |
 | Sales Order hooks | Propaga proyecto y cost center de Quotation a SO | `utils/sales_order.py` | Activo |
@@ -37,11 +37,11 @@ y de gestión.
 
 | Flujo | Entrada | Proceso | Salida | Docs relacionados |
 |---|---|---|---|---|
-| Creación de propuesta | Nueva Quotation con `proposal_group` | `before_insert` valida grupo único; `validate` genera scope items desde catálogo (**append-only**: solo agrega combinaciones `(item, scope_item)` faltantes; no actualiza ni elimina filas existentes) | Quotation en Borrador con scope | `utils/quotation.py` |
-| Sincronizar alcance desde catálogo | Botón (solo Borrador) → `resync_scope_from_catalog` | **update + remove + add** sobre filas `auto_generated=1`: refresca campos controlados por catálogo, elimina las sin respaldo (Scope Item deshabilitado/borrado o Item quitado) y agrega nuevas; preserva `include_in_proposal` y filas manuales (`auto_generated=0`) | Alcance sincronizado con el catálogo vigente | `utils/quotation.py` |
-| Avance a En Revision | Workflow action "Enviar a Revision" | `validate_workflow`: valida campos, congela snapshot de secciones y costos, genera y adjunta PDFs | Quotation submitted (docstatus=1), snapshot congelado, PDFs adjuntos | `utils/workflow_validations.py` |
+| Creación de propuesta | Nueva Quotation con `proposal_group` | `before_insert` valida grupo único; `validate` genera scope items desde catálogo (**append-only**: solo agrega combinaciones `(item, scope_item)` faltantes; no actualiza ni elimina filas existentes), **congela el contenido editorial del `Item` en cada `Quotation Item`** (`_copy_item_proposal_fields`, solo líneas nuevas) y captura el `proposal_sections_snapshot` de las Proposal Sections **únicamente si está vacío** (un guardado normal posterior **no** lo regenera ni relee los maestros). También sincroniza `proposal_print_format` desde el Template (`sync_proposal_print_format_from_template`) | Quotation en Borrador con scope, contenido de Item congelado y snapshot de secciones capturado | `utils/quotation.py` |
+| Sincronizar alcance desde catálogo | Botón (solo Borrador) → `resync_scope_from_catalog` | **update + remove + add** sobre filas `auto_generated=1`: refresca campos controlados por catálogo, elimina las sin respaldo (Scope Item deshabilitado/borrado o Item quitado) y agrega nuevas; preserva `include_in_proposal` y filas manuales (`auto_generated=0`). También **regenera** el `proposal_sections_snapshot` desde los maestros vigentes — es la **única** vía de actualizar el snapshot, y solo mientras la propuesta siga en Borrador | Alcance y snapshot de secciones sincronizados con el catálogo vigente | `utils/quotation.py` |
+| Avance a En Revision | Workflow action "Enviar a Revision" | `validate_workflow`: valida campos, **conserva** el `proposal_sections_snapshot` ya capturado en Borrador (lo crea como fallback solo si viene un Borrador legacy sin snapshot), **congela las tarifas de costo** (idempotente por fila; también se aplica en el Submit de respaldo), genera y adjunta PDFs | Quotation submitted (docstatus=1), snapshot de secciones inmutable, tarifas congeladas, PDFs adjuntos | `utils/workflow_validations.py` |
 | Aprobación / Rechazo | Workflow action "Aprobar" o "Rechazar" | Registra `reviewed_by`, `reviewed_on`; si aprobada: registra `approved_by`, `approved_on` | Quotation en Aprobada o Rechazada con trazabilidad | `utils/workflow_validations.py` |
-| Versionado | Quotation Rechazada + acción "Crear nueva versión" | Copia campos a nueva Quotation; marca original como `superseded_by_proposal`; bloquea si hay proyecto activo en la versión anterior | Nueva Quotation en Borrador vinculada | `utils/proposal_versioning.py` |
+| Versionado | Quotation Rechazada + acción "Crear nueva versión" | Copia campos a nueva Quotation (incluye el `proposal_sections_snapshot` **literal** y el contenido congelado de cada `Quotation Item`); marca original como `superseded_by_proposal`; bloquea si hay proyecto activo en la versión anterior. **Regenera** el payment schedule válido para la nueva `transaction_date` (`_resolve_new_version_payment` / `_is_automatic_single_row`), no copia fechas viejas | Nueva Quotation en Borrador vinculada | `utils/proposal_versioning.py` |
 | Marcar como Ganada | Workflow action "Marcar como Ganada" | Transición Enviada al Cliente → Ganada | Quotation en estado Ganada; habilita botón Crear Proyecto y Sales Order | `fixtures/workflow.json` |
 | Crear proyecto | Botón "Crear/Ver Proyecto" (estado Ganada) | Crea Project + Tasks desde scope items; idempotente: reutiliza proyecto si ya existe | Proyecto ERPNext con Tasks vinculadas a scope items | `utils/project.py` |
 | Propagación a Sales Order | Creación de SO desde Quotation Ganada | `validate` y `on_submit` propagan `proposal_project` y `proposal_cost_center` al SO | SO con proyecto y cost center heredados | `utils/sales_order.py` |
@@ -54,14 +54,133 @@ y de gestión.
 | DocType | Propósito | Relaciones | Notas |
 |---|---|---|---|
 | `Proposal Section` | Bloque de texto narrativo reutilizable | Referenciado por `Proposal Template Section` | Tiene flag `is_executive_summary` para resaltar en portada |
-| `Proposal Template` | Agrupa secciones en orden para un tipo de proyecto | Tiene child table `Proposal Template Section` | 3 templates instalados por `install.py` |
-| `Proposal Template Section` | Fila de sección en un template | Link a `Proposal Section`; soporte para `custom_title` y `custom_content` | Child table de `Proposal Template` |
-| `Scope Item` | Actividad del catálogo maestro | Link a `Item` de ERPNext (`erpnext_item`); `phase` **Link a `Proposal Phase`** | Sin precio; describe trabajo, perfil y horas estimadas |
+| `Proposal Template` | Agrupa secciones en orden para un tipo de proyecto | Tiene child table `Proposal Template Section` | Se cargan desde el **catálogo** (loader), **no** por `install.py` (ADR-0006) |
+| `Proposal Template Section` | Fila de sección en un template | Link a `Proposal Section`; soporte para `custom_title` y `custom_content`; **`hide_title`** (Check, oculta el heading por Template) | Child table de `Proposal Template` |
+| `Scope Item` | Actividad del catálogo maestro | Link a `Item` de ERPNext (`erpnext_item`); `phase` **Link a `Proposal Phase`** | Sin precio; describe trabajo, perfil y horas estimadas. El **contenido editorial** del servicio (metodología, resultado esperado, límite del alcance) vive en el **Item**, no aquí |
 | `Quotation Scope Item` | Copia congelada de un Scope Item dentro de una Quotation | Parent: `Quotation`; link a `Scope Item`, `Task` y `phase`→`Proposal Phase` | Child table; `rate_locked` se fija en transición a En Revision. Flags: `include_in_proposal` (visible en PDF) y `is_internal_cost_task` (tarea interna: entra en costo/rentabilidad, se excluye del PDF comercial) |
+| `Item` (extendido) | Contenido comercial del servicio | Custom fields editoriales administrados por el catálogo | `proposal_content_section`, `proposal_methodology`, `proposal_expected_result`, `proposal_scope_limit` — descripción/metodología/resultado/límite del servicio |
+| `Quotation Item` (extendido) | Copia **congelada** del contenido editorial del Item dentro de la Quotation | Child de `Quotation` | `proposal_methodology`, `proposal_expected_result`, `proposal_scope_limit` copiados del Item al generar el alcance; el PDF usa esta copia y **no** relee el Item maestro |
 | `Proposal Phase` | Catálogo de fases (`phase_code`, `phase_name`, `sequence`) | Referenciado por `phase` en Scope Item / Quotation Scope Item | El orden en propuesta/reportes/Tasks usa `sequence`; el display usa `phase_name`. Helpers en `utils/phase.py` (`phase_label`, `order_phases`, jinja methods) |
 | `Proposal Cost Matrix` | Costos por (Designation, Activity Type) | Alimenta freeze de costos en scope items | Rebuildeado diariamente; `is_general_rate=1` para filas de promedio por designación |
 | `Proposal Cost Matrix Log` | Historial de cambios de tasa | Parent: ninguno | Append-only; creado por `cost_matrix.py` en cada cambio de tasa |
-| `Quotation` (extendido) | Documento central; extendido con ~25 custom fields | Tiene child `Quotation Scope Item`; link a `Project` | Custom fields en fixture; extended class via `QuotationProposalMixin` |
+| `Quotation` (extendido) | Documento central; extendido con ~30 custom fields | Tiene child `Quotation Scope Item`; link a `Project` | Custom fields en fixture; extended class via `QuotationProposalMixin` |
+
+---
+
+## Modelo de contenido y congelamiento
+
+El contenido de la propuesta se **captura y congela** dentro de la Quotation en el momento de su
+elaboración (Borrador). El PDF y las versiones posteriores **nunca releen** los maestros del catálogo:
+usan siempre la copia congelada. Así, un cambio posterior en el catálogo no altera propuestas ya
+enviadas ni PDFs históricos.
+
+### Contenido editorial del servicio: `Item` → `Quotation Item` (congelado)
+
+El contenido comercial de cada servicio (descripción, metodología, resultado esperado y límite del
+alcance) vive en **custom fields del `Item`**, administrados por el catálogo:
+
+| Campo (custom) | DocType | Uso |
+|---|---|---|
+| `proposal_content_section` | `Item` | Section Break (agrupa el contenido de propuesta en el Item) |
+| `proposal_methodology` | `Item` | Metodología del servicio (Text Editor) |
+| `proposal_expected_result` | `Item` | Resultado esperado (Text Editor) |
+| `proposal_scope_limit` | `Item` | Límite del alcance / servicios no incluidos (Text Editor) |
+| `description`, `proposal_methodology`, `proposal_expected_result`, `proposal_scope_limit` | `Quotation Item` | **Copia congelada** del contenido del Item dentro de la Quotation |
+
+Al generar el alcance de una Quotation, `_copy_item_proposal_fields(doc)` (en `utils/quotation.py`)
+copia esos cuatro campos del `Item` a cada línea nativa `Quotation Item`
+(constante `_FROZEN_ITEM_FIELDS`). Reglas:
+
+- **Generación inicial (Borrador):** solo congela las líneas **nuevas** (Item recién incorporado). Un
+  guardado normal de un Borrador **no** relee ni pisa líneas ya congeladas.
+- **Resync explícito** (`force=True`, botón *Regenerar alcance*, solo en Borrador): refresca los cuatro
+  valores en **todas** las líneas desde el Item maestro.
+- El Print Format comercial (y el híbrido *Servicios no incluidos*) lee `Quotation Item`, **no** el
+  Item maestro.
+
+> Decisión relacionada: el contenido editorial vive en el `Item`, **no** en `Scope Item`
+> (los Scope Items solo describen actividad, perfil y horas). Ver ADR-0007.
+
+### Snapshot inmutable de Proposal Sections
+
+El cuerpo narrativo (Proposal Sections del Template) se congela en el campo
+`Quotation.proposal_sections_snapshot` (Long Text, JSON). Funciones en `utils/quotation.py`:
+
+- `_build_sections_snapshot(doc)` — arma la lista de entradas desde el Template resuelto.
+- `_sync_sections_snapshot(doc, force=False)` — captura el snapshot **solo si está vacío** (generación
+  inicial en Borrador). Con `force=True` (resync en Borrador) lo **regenera** desde los maestros
+  vigentes. Un guardado normal **no** lo regenera ni relee maestros.
+
+Cada **entrada** del snapshot tiene: `sequence`, `title`, `content` (Jinja crudo), `source_section`,
+`is_executive_summary`, **`hide_title`** y `captured_on`.
+
+**Ciclo de vida del snapshot:**
+
+| Momento | Qué pasa con el snapshot |
+|---|---|
+| Creación en Borrador | Se captura **una vez** (si está vacío) desde el Template |
+| Guardado normal en Borrador | **No** se toca (no se relee el Template) |
+| Resync (*Regenerar alcance*, solo Borrador) | **Única** vía de actualizarlo: se regenera desde los maestros vigentes |
+| Borrador → En Revision (freeze) | Se **conserva** el ya capturado; solo se crea como fallback si un Borrador legacy no lo tenía. A partir de aquí es **inmutable** |
+| Nueva versión (versionado) | Se copia **literalmente** (mismo contenido/orden/`captured_on`); no se consultan maestros |
+
+**Lectura fail-closed** — `utils/printing.py::get_sections_snapshot(doc)` (expuesto como método Jinja):
+valida el JSON y cada entrada (helpers `_is_nonempty_str`, `_valid_snapshot_entry`). Si el snapshot
+está ausente, vacío o es inválido, devuelve `valid=False` y el Print Format muestra **solo** una
+advertencia de no entrega — **no** renderiza alcance, inversión ni firma. Los snapshots históricos sin
+`hide_title` siguen siendo `valid=True` (campo **no** requerido; retrocompatibilidad).
+
+### `hide_title` — heading opcional por Template
+
+`hide_title` (Check, default `0`) vive en **`Proposal Template Section`** (no en `Proposal Section`):
+la misma Section canónica puede mostrar su heading en un Template y ocultarlo en otro sin duplicarse.
+Se **congela** en cada entrada del snapshot. En el Print Format (`render_section`): `hide_title = 1` →
+no se renderiza el `block-title` (el body sí); `0` o ausente → se muestra el heading. Ver
+`tecnico/print-formats.md`.
+
+---
+
+## Loader de catálogos
+
+Todo el contenido comercial (genérico o por cliente) se carga con el **loader genérico e idempotente**
+`catalog_data/catalog_loader.py`, **explícitamente por ruta externa** — nunca en `install` ni `migrate`
+(ADR-0006). El kit del catálogo es un JSON + assets (HTML/CSS de Print Formats) que vive **fuera** del
+repo (privado por cliente).
+
+### Qué siembra (por clave del JSON)
+
+| Clave JSON | DocType destino | Identidad | Función |
+|---|---|---|---|
+| `phases` | `Proposal Phase` | `phase_code` | `_seed_phases` |
+| `sections` | `Proposal Section` | `section_name` | `_seed_sections` |
+| `items` | `Item` (+ campos editoriales de propuesta) | `item_code` | `_seed_items` |
+| `scope_items` | `Scope Item` | `code` / nombre | `_seed_scope_items` |
+| `payment_terms` | `Payment Term` | `payment_term_name` | `_seed_payment_terms` |
+| `payment_terms_templates` | `Payment Terms Template` | `template_name` | `_seed_payment_terms_templates` |
+| `templates` | `Proposal Template` (+ filas de sección) | `template_name` | `_seed_templates` |
+| `print_formats` | `Print Format` (HTML/CSS desde archivos del kit) | `name` | `_seed_print_formats` |
+
+### Garantías del loader
+
+- **Idempotente:** identidad por nombre/código; una segunda corrida no duplica.
+- **`update_content`:** sin él, un registro que difiere del catálogo se reporta como **conflicto** (no
+  se escribe); con `update_content=True`, se **actualiza** el contenido gestionado. Solo administra los
+  campos provistos por el catálogo (`_managed_fields` / `_diff_managed`).
+- **`dry_run`:** previsualiza (Creados / Sin cambios / Actualizados / Conflictos) sin escribir.
+- **Nunca borra:** 0 `delete_doc` en el código.
+- **Print Formats protegidos:** `Propuesta Comercial` y `Rentabilidad Estimada` (assets del repo
+  público) están en `PROTECTED_PRINT_FORMATS`; el loader los reporta como conflicto y **nunca** los
+  escribe (ADR-0005/0006).
+- **`capabilities()`:** declara la versión de capacidades del loader; el instalador del kit la verifica
+  para exigir que el código del app en el bench destino soporte lo que el catálogo usa.
+
+Invocación:
+
+```bash
+bench --site <site> execute \
+  erpnext_proposals.erpnext_proposals.catalog_data.catalog_loader.run \
+  --kwargs "{'catalog_path': '/ruta/al/catalogo.json', 'update_content': True, 'dry_run': True}"
+```
 
 ---
 
@@ -126,3 +245,4 @@ El submit automático ocurre en la transición Borrador → En Revision porque e
 | [ADR-0004](../adr/0004-phase-link-proposal-phase.md) | `phase` como Link a Proposal Phase |
 | [ADR-0005](../adr/0005-resolucion-congelamiento-print-format.md) | Resolución y congelamiento del Print Format comercial |
 | [ADR-0006](../adr/0006-separacion-app-generica-personalizacion-privada.md) | Separación app genérica vs personalización privada por cliente |
+| [ADR-0007](../adr/0007-contenido-editorial-item-y-congelamiento.md) | Contenido editorial del servicio en `Item` y congelamiento inmutable (snapshot) |

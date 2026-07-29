@@ -8,6 +8,7 @@
   "sequence",
   "proposal_section",
   "custom_title",
+  "hide_title",
   "include_by_default",
   "use_custom_content",
   "custom_content"
@@ -34,6 +35,13 @@
    "in_list_view": 1,
    "label": "Custom Title",
    "description": "Override del título. Si vacío, usa el título de Proposal Section."
+  },
+  {
+   "fieldname": "hide_title",
+   "default": "0",
+   "fieldtype": "Check",
+   "label": "Hide Title",
+   "description": "Presentación por Template: si está marcado, el heading de esta sección no se muestra en el PDF (el contenido sí). Ausente o 0 = mostrar heading (comportamiento histórico)."
   },
   {
    "fieldname": "include_by_default",

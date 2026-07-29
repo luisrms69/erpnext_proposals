@@ -31,7 +31,12 @@ class TestPrintFormatResolution(unittest.TestCase):
 	@classmethod
 	def setUpClass(cls):
 		super().setUpClass()
-		cls.company = frappe.db.get_value("Company", {}, "name")
+		from erpnext_proposals.erpnext_proposals.tests.company import (
+			get_test_company,
+			get_test_cost_center,
+		)
+
+		cls.company = get_test_company()
 		if not cls.company:
 			raise unittest.SkipTest("No Company on test site.")
 		cls._fy = ensure_current_fiscal_year()
@@ -97,7 +102,7 @@ class TestPrintFormatResolution(unittest.TestCase):
 
 		cls.customer = _ensure_customer()
 		cls.item = _ensure_item()
-		cls.cost_center = frappe.db.get_value("Cost Center", {"is_group": 0, "company": cls.company}, "name")
+		cls.cost_center = get_test_cost_center(cls.company)
 		_ensure(
 			"Scope Item",
 			SCOPE,
@@ -210,6 +215,8 @@ class TestPrintFormatResolution(unittest.TestCase):
 
 	# ── helper ────────────────────────────────────────────────────────────────
 	def _submit_proposal(self, template):
+		from erpnext_proposals.erpnext_proposals.tests.company import get_test_price_list
+
 		doc = frappe.get_doc(
 			{
 				"doctype": "Quotation",
@@ -222,6 +229,7 @@ class TestPrintFormatResolution(unittest.TestCase):
 				"proposal_template": template,
 				"proposal_title": "PF Test",
 				"proposal_cost_center": self.cost_center,
+				"selling_price_list": get_test_price_list(),
 				"items": [{"item_code": self.item, "qty": 1, "rate": 5000, "uom": "Nos"}],
 			}
 		)
@@ -261,9 +269,9 @@ def _ensure_item():
 	if not frappe.db.exists("UOM", "Nos"):
 		frappe.get_doc({"doctype": "UOM", "uom_name": "Nos"}).insert(ignore_permissions=True)
 	if not frappe.db.exists("Item", name):
-		ig = frappe.db.get_value("Item Group", {"is_group": 0}, "name") or frappe.db.get_value(
-			"Item Group", {}, "name"
-		)
+		from erpnext_proposals.erpnext_proposals.tests.company import get_test_item_group
+
+		ig = get_test_item_group()
 		frappe.get_doc(
 			{
 				"doctype": "Item",

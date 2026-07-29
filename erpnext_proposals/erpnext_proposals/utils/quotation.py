@@ -58,9 +58,14 @@ def on_quotation_validate(doc, method=None):
 		doc.proposal_version = 1
 	# Banderas de alcance: una fila no puede ser vendible E interna a la vez.
 	_validate_internal_cost_flags(doc)
-	# Print Format comercial (override): debe existir, ser de Quotation y no estar deshabilitado (Caso F).
-	from erpnext_proposals.erpnext_proposals.utils.print_format import validate_print_format
+	# Print Format comercial: al aplicar/cambiar la plantilla (o si el override está vacío), poblar
+	# `proposal_print_format` con el formato de la Proposal Template. Luego validar (Caso F).
+	from erpnext_proposals.erpnext_proposals.utils.print_format import (
+		sync_proposal_print_format_from_template,
+		validate_print_format,
+	)
 
+	sync_proposal_print_format_from_template(doc)
 	validate_print_format(doc.get("proposal_print_format"))
 	# Skip scope generation when creating a new version (scope already copied)
 	if doc.flags.get("skip_scope_generation"):
@@ -76,6 +81,12 @@ def on_quotation_validate(doc, method=None):
 			)
 	if not doc.proposal_template:
 		return
+	# Copia el contenido general del Item a las líneas nativas Quotation Item (congelado): el PDF y las
+	# versiones usan la copia, no el Item maestro. Solo en Borrador y generación (no en versiones).
+	_copy_item_proposal_fields(doc)
+	# Snapshot de Sections narrativas: se construye desde el Template solo si aún está vacío (generación
+	# inicial en Borrador); un guardado normal no lo regenera ni consulta maestros.
+	_sync_sections_snapshot(doc)
 	_generate_scope_items(doc)
 
 
@@ -173,6 +184,35 @@ def _generate_scope_items(doc):
 				},
 			)
 			existing.add((item.item_code, si.name))
+
+
+# Contenido general del Item que se CONGELA en la línea nativa Quotation Item (bloque del servicio).
+_FROZEN_ITEM_FIELDS = (
+	"description",
+	"proposal_methodology",
+	"proposal_expected_result",
+	"proposal_scope_limit",
+)
+
+
+def _copy_item_proposal_fields(doc, force: bool = False) -> None:
+	"""Congela el contenido general del Item (description + proposal_*) en cada línea nativa Quotation
+	Item, para que el PDF y las versiones usen la copia y NUNCA relean el Item maestro.
+
+	- Sin `force` (generación inicial): solo congela las líneas NUEVAS (Item recién incorporado). Un
+	  guardado normal de un Borrador NO relee ni actualiza líneas ya congeladas (no toca el Item).
+	- `force=True` (resync explícito del catálogo en Borrador): refresca los cuatro valores en TODAS
+	  las líneas desde el Item maestro.
+	"""
+	for row in doc.items or []:
+		if not row.item_code:
+			continue
+		if not force and not row.is_new():
+			# Guardado normal: la línea ya está congelada; no se relee el Item.
+			continue
+		vals = frappe.db.get_value("Item", row.item_code, _FROZEN_ITEM_FIELDS, as_dict=True) or {}
+		for f in _FROZEN_ITEM_FIELDS:
+			row.set(f, vals.get(f))
 
 
 # Campos del Quotation Scope Item controlados por el catálogo Scope Item.
@@ -304,6 +344,10 @@ def resync_scope_from_catalog(quotation_name: str) -> dict:
 		)
 		added += 1
 
+	# Resync explícito: refresca los cuatro valores del bloque del servicio en TODAS las líneas y
+	# regenera el snapshot de Sections desde los maestros actuales (actualiza captured_on).
+	_copy_item_proposal_fields(doc, force=True)
+	_sync_sections_snapshot(doc, force=True)
 	doc.save()
 	return {
 		"updated": updated,
@@ -314,36 +358,49 @@ def resync_scope_from_catalog(quotation_name: str) -> dict:
 
 
 def freeze_proposal(doc) -> None:
-	"""Freeze narrative sections and costing rates at the formal review point.
+	"""Congela las Sections narrativas (snapshot) y las tarifas de costeo en el punto de revisión formal.
 
-	Called when the proposal transitions Borrador → En Revision.
-	Idempotent: if snapshot already exists, does nothing.
-	Hard-fails if the snapshot cannot be created — no silent fallback.
+	Se llama en Borrador → En Revisión (y como fallback en Submit). El snapshot ya suele existir desde la
+	generación en Borrador: aquí se CONSERVA literalmente; solo se crea como fallback si llega un Draft
+	legacy sin snapshot. Las tarifas se congelan siempre (idempotente por fila: rate_locked). Hard-fails
+	si el snapshot no puede crearse.
 	"""
 	if not getattr(doc, "proposal_template", None):
 		return  # no template — nothing to freeze
 
-	# Congelar el Print Format comercial efectivo (idempotente) — sobrevive incluso si el snapshot ya existe.
+	# Congelar el Print Format comercial efectivo (idempotente).
 	from erpnext_proposals.erpnext_proposals.utils.print_format import freeze_effective_print_format
 
 	freeze_effective_print_format(doc)
 
-	if getattr(doc, "proposal_sections_snapshot", None):
-		return  # already frozen — never overwrite
-
-	_freeze_section_content(doc)
+	# Snapshot: conservar el existente; crear solo si viene un Draft legacy sin snapshot.
+	_sync_sections_snapshot(doc)
 	_freeze_costing_rates(doc)
 
 
-def _freeze_section_content(doc) -> None:
-	"""Serialize all template sections to JSON snapshot (raw Jinja, not rendered HTML).
+def _sync_sections_snapshot(doc, force: bool = False) -> None:
+	"""Construye/actualiza `proposal_sections_snapshot` desde los maestros (Template + Proposal Section).
 
-	Hard-fails with frappe.throw if snapshot cannot be created.
-	No silent fallback to live catalog in formal states.
+	- Sin ``force``: solo si el snapshot está vacío (generación inicial en Borrador o fallback legacy en
+	  freeze). Un snapshot ya poblado se conserva LITERALMENTE — un guardado normal no consulta maestros
+	  ni regenera contenido aunque las Sections maestras hayan cambiado, y no altera ``captured_on``.
+	- ``force=True`` (resync explícito en Borrador): regenera y reemplaza el snapshot desde los maestros
+	  actuales, actualizando ``captured_on``.
 	"""
-	if not doc.proposal_template:
+	if not getattr(doc, "proposal_template", None):
 		return
+	if not force and (getattr(doc, "proposal_sections_snapshot", None) or "").strip():
+		return  # ya poblado y sin force → conservar literalmente
+	doc.proposal_sections_snapshot = json.dumps(_build_sections_snapshot(doc), ensure_ascii=False)
 
+
+def _build_sections_snapshot(doc) -> list:
+	"""Serializa las Sections del Template al snapshot (Jinja crudo, no HTML renderizado).
+
+	Ordena por ``sequence``, excluye Sections deshabilitadas y contenido vacío. Estructura por entrada:
+	sequence, title, content, source_section, is_executive_summary, hide_title, captured_on. Hard-fails
+	si no puede leer una Section — sin fallback silencioso a maestros vivos en estados formales.
+	"""
 	try:
 		tmpl = frappe.get_doc("Proposal Template", doc.proposal_template)
 		snapshot = []
@@ -372,11 +429,12 @@ def _freeze_section_content(doc) -> None:
 					"content": content,
 					"source_section": ps.section_name,
 					"is_executive_summary": ps.is_executive_summary or 0,
+					# Presentación por Template (Proposal Template Section): congela si el heading se oculta.
+					"hide_title": int(row.hide_title or 0),
 					"captured_on": now,
 				}
 			)
-
-		doc.proposal_sections_snapshot = json.dumps(snapshot, ensure_ascii=False)
+		return snapshot
 
 	except frappe.exceptions.ValidationError:
 		raise  # re-raise frappe.throw calls
