@@ -33,12 +33,22 @@ sin volver a resolver. Una **nueva versión** hereda ese formato como override e
 |---|---|
 | `resolve_commercial_print_format(doc)` | congelada → el congelado; Borrador → resolución dinámica |
 | `dynamic_commercial_print_format(doc)` | cadena override → template → default |
+| `sync_proposal_print_format_from_template(doc)` | al aplicar/cambiar el Template (o si el override está vacío), **puebla** `proposal_print_format` con el formato del Template; corre en `validate` de la Quotation |
 | `freeze_effective_print_format(doc)` | persiste el efectivo al congelar (idempotente) |
 | `validate_print_format(name)` | valida que el formato sea usable para Quotation (existe, doc_type, no disabled) |
 | `get_effective_commercial_print_format(quotation)` | whitelisted; lo usa el botón *Imprimir Propuesta Comercial* (JS) |
 
 El mismo resolver se usa en el snapshot de impresión y al adjuntar el PDF comercial, de modo que
 todos los caminos de impresión coinciden en el formato efectivo.
+
+### Logo del PDF
+
+El logo del formato se hereda de `Company.company_logo` (sin branding hardcodeado). Dos helpers Jinja
+en `utils/printing.py` lo exponen:
+
+- `get_logo_url(...)` — URL/ruta del logo para usar en `<img src>`.
+- `get_logo_data_uri(logo_path)` — el logo **embebido como data URI** (base64), útil cuando el motor de
+  PDF no resuelve rutas relativas o el archivo debe viajar dentro del HTML.
 
 ---
 
@@ -176,6 +186,6 @@ rentabilidad-estimada-baseline-2026-05-21.pdf  ← baseline con tabla Alcance Co
 | `propuesta_comercial.json` | Fuente de verdad del Print Format comercial genérico (default) |
 | `rentabilidad_estimada.json` | Fuente de verdad del Print Format de rentabilidad |
 | `utils/print_format.py` | Resolución y congelamiento del formato comercial efectivo |
-| `utils/printing.py` | Helpers Jinja: `render_section_content`, `parse_json`, `get_logo_url` |
+| `utils/printing.py` | Helpers Jinja: `render_section_content`, `parse_json`, `get_sections_snapshot` (lectura fail-closed del snapshot), `get_logo_url`, `get_logo_data_uri` |
 | `report/profitability_estimate/` | Fuente de datos para Rentabilidad Estimada |
 | `working_docs/archive/visual-regression/` | PDFs de evidencia histórica por formato |

@@ -1,7 +1,7 @@
 <!--
   ARCHIVO GENERADO AUTOMÁTICAMENTE. NO EDITAR MANUALMENTE.
   Regenerar con: python3 scripts/generate_reference.py
-  Fecha generación: 2026-07-15 15:38
+  Fecha generación: 2026-07-29 04:14
 -->
 
 
@@ -88,6 +88,7 @@ Fuente: `erpnext_proposals/erpnext_proposals/doctype/proposal_template/proposal_
 |---|---|---|---|---|
 | `template_name` | Template Name | Data | ✅ |  |
 | `description` | Description | Small Text |  |  |
+| `print_format` | Print Format | Link |  | Print Format |
 | `sections` | Sections | Table |  | Proposal Template Section |
 
 
@@ -101,6 +102,7 @@ Fuente: `erpnext_proposals/erpnext_proposals/doctype/proposal_template_section/p
 | `sequence` | Sequence | Int |  |  |
 | `proposal_section` | Proposal Section | Link | ✅ | Proposal Section |
 | `custom_title` | Custom Title | Data |  |  |
+| `hide_title` | Hide Title | Check |  |  |
 | `include_by_default` | Include by Default | Check |  |  |
 | `use_custom_content` | Use Custom Content | Check |  |  |
 | `custom_content` | Custom Content | Text Editor |  |  |
@@ -120,6 +122,7 @@ Fuente: `erpnext_proposals/erpnext_proposals/doctype/quotation_scope_item/quotat
 | `code` | Code | Data |  |  |
 | `title` | Title | Data |  |  |
 | `include_in_proposal` | Include in Proposal | Check |  |  |
+| `is_internal_cost_task` | Tarea interna de costo | Check |  |  |
 | `description` | Description | Text Editor |  |  |
 | `deliverable` | Deliverable | Text Editor |  |  |
 | `phase` | Phase | Link |  | Proposal Phase |
@@ -146,6 +149,7 @@ Fuente: `erpnext_proposals/erpnext_proposals/doctype/scope_item/scope_item.json`
 | `title` | Title | Data | ✅ |  |
 | `enabled` | Enabled | Check |  |  |
 | `visible_in_proposal` | Visible in Proposal | Check |  |  |
+| `is_internal_cost_task` | Tarea interna de costo | Check |  |  |
 | `description` | Description | Text Editor |  |  |
 | `deliverable` | Deliverable | Text Editor |  |  |
 | `phase` | Phase | Link |  | Proposal Phase |
