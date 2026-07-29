@@ -69,10 +69,19 @@ Cada paso con autorización explícita; nunca escritura en BD/servidores sin avi
   `selling_price_list`. Resuelve `MandatoryError` (selling_price_list / proposal_cost_center) al
   re-guardar/versionar Quotations en el site fresco. Validado en `ci-mirror-proposals.localhost`.
 
-### Site espejo de CI (reproducción local)
+- `test(proposals): sembrar Party Type y Warehouse Type` — helper `_ensure_shared_masters()` en
+  `tests/company.py` (llamado por `get_test_company`): siembra `Warehouse Type "Transit"` y
+  `Party Type Customer/Supplier` con `account_type`. Sin ellos, crear la Company falla
+  (`create_default_warehouses` → LinkValidationError "Goods In Transit") y el validate de la Quotation
+  revienta en `get_party_account` (`AttributeError NoneType.lower`). Con Transit pre-sembrado la Company
+  se crea con su árbol de cuentas completo (`default_receivable_account`).
+
+### Site espejo de CI (reproducción local) — CLAVE
 `ci-mirror-proposals.localhost` = `bench new-site` + install `erpnext`/`hrms`/`facturacion_mexico`/
-`erpnext_proposals` **sin Setup Wizard**, idéntico al pipeline de CI. Sirve para reproducir los fallos
-de CI localmente (~10s/corrida) en vez de esperar ~13 min por ciclo. Suite ahí: **143 OK / 11 skip**.
+`erpnext_proposals` **sin Setup Wizard**, idéntico al pipeline de CI (misma erpnext 16.27). Reproduce los
+fallos de CI localmente (~10s/corrida) en vez de ~13 min por ciclo. **Para validar el camino de creación
+fresca de la Company** hay que borrar `_Test Proposals Co` y re-correr (si no, se reusa la Company vieja
+y no se ejercita el path). Suite ahí (fresh company): **143 OK / 11 skip / 0 errores**.
 
 ### Verificación
 - Suite completa `erpnext_proposals`: **226 OK (1 skip)** con `facturacion_mexico` instalada.

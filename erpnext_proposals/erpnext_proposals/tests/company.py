@@ -39,6 +39,7 @@ def get_test_company() -> str:
 	- Nunca selecciona "la primera Company" del site ni depende de Global Defaults.
 	- No modifica ni elimina Companies creadas por otras suites (ERPNext, etc.).
 	"""
+	_ensure_shared_masters()
 	if not frappe.db.exists("Company", TEST_COMPANY):
 		frappe.get_doc(
 			{
@@ -50,6 +51,28 @@ def get_test_company() -> str:
 			}
 		).insert(ignore_permissions=True)
 	return TEST_COMPANY
+
+
+def _ensure_shared_masters() -> None:
+	"""Siembra los masters globales que el Setup Wizard normalmente crea y que el site fresco de CI
+	(bench new-site + install-app SIN Setup Wizard) NO tiene. Sin ellos:
+
+	- `Warehouse Type "Transit"`: ERPNext lo referencia al crear el almacén "Goods In Transit" por
+	  defecto de la Company → `create_default_warehouses` lanza LinkValidationError y aborta la Company.
+	- `Party Type "Customer"/"Supplier"` (con `account_type`): el validate de la Quotation llama
+	  `get_party_account`, que lee `Party Type.account_type`; si el Party Type no existe da
+	  `AttributeError: 'NoneType' object has no attribute 'lower'`.
+
+	Idempotente; no altera los registros si ya existen.
+	"""
+	if not frappe.db.exists("Warehouse Type", "Transit"):
+		# Warehouse Type usa autoname Prompt → el nombre se fija con `__newname`.
+		frappe.get_doc({"doctype": "Warehouse Type", "__newname": "Transit"}).insert(ignore_permissions=True)
+	for party_type, account_type in (("Customer", "Receivable"), ("Supplier", "Payable")):
+		if not frappe.db.exists("Party Type", party_type):
+			frappe.get_doc(
+				{"doctype": "Party Type", "party_type": party_type, "account_type": account_type}
+			).insert(ignore_permissions=True)
 
 
 def get_test_item_group() -> str:
