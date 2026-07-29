@@ -30,12 +30,14 @@ por el nombre real del site.
 |---|---|
 | `erpnext` | **Requerida** (`required_apps`) — la app no instala sin ella |
 | `hrms` | **Requerida** (`required_apps`) — fuente salarial de la matriz de costos / Rentabilidad Estimada |
+| `facturacion_mexico` | **Requerida** (`required_apps`) — provee la configuración fiscal/de impuestos (IVA) que aplican las cotizaciones |
 
 ```bash
 bench --site <site> list-apps
-# Deben aparecer: frappe, erpnext, hrms
-# Si falta hrms:
+# Deben aparecer: frappe, erpnext, hrms, facturacion_mexico
+# Si falta alguna, instalarla antes:
 bench --site <site> install-app hrms
+bench --site <site> install-app facturacion_mexico
 ```
 
 ---
@@ -46,10 +48,11 @@ bench --site <site> install-app hrms
 bench --site <site> install-app erpnext_proposals
 ```
 
-En la **primera instalación**, el hook `after_install`:
-
-- Crea el **catálogo base**: 10 Proposal Sections + 3 Proposal Templates (no se sobreescribe en migrate).
-- Sincroniza el **Desktop Icon** de la app automáticamente (no requiere `sync-desktop-icons` manual).
+En la **primera instalación**, el hook `after_install` **solo** sincroniza el **Desktop Icon** de la
+app (no requiere `sync-desktop-icons` manual). **No** crea contenido comercial: Sections, Templates,
+Items, Scope Items, Phases, Print Formats y Payment Terms se cargan aparte con el **loader del
+catálogo** (ver [ADR-0006](../adr/0006-separacion-app-generica-personalizacion-privada.md) y la
+sección de carga del catálogo más abajo).
 
 ---
 

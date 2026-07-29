@@ -17,7 +17,7 @@ Algunas etapas ocurren automáticamente al guardar. Otras requieren acción manu
 **Quién:** Administrador o Proposals Manager
 **Cuándo:** Una sola vez antes de crear la primera propuesta. Se puede actualizar en cualquier momento.
 
-El sistema instala automáticamente 10 secciones de texto base y 3 templates al instalarse por primera vez. Antes de usar el módulo en producción conviene:
+La app **no** instala contenido comercial de ejemplo al instalarse. Las **Secciones**, **Templates** y **Alcances** se cargan desde un catálogo (kit privado por cliente) mediante el loader del catálogo. Antes de usar el módulo en producción conviene:
 
 1. Revisar las **Secciones de propuesta** y personalizar su contenido al tono y estilo del negocio
 2. Revisar los **Templates de propuesta** existentes o crear nuevos

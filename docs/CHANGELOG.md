@@ -9,8 +9,16 @@
   por cliente — ver ADR-0006.
 
 ### Docs
-- `tecnico/print-formats.md`: sección de resolución y congelamiento del formato comercial.
-- `tecnico/arquitectura.md`: loader de catálogos, resolución de Print Format, flag `is_internal_cost_task`.
+- `tecnico/print-formats.md`: sección de resolución y congelamiento del formato comercial; `hide_title`
+  y estructura del snapshot de secciones; convención del umbral `sequence >= 500` sin referirse a
+  templates "instalados".
+- `tecnico/arquitectura.md`: loader de catálogos (incluye Items, Print Formats y Payment Terms /
+  Payment Terms Templates); modelo de contenido editorial en `Item` y su copia congelada en
+  `Quotation Item`; `hide_title` en `Proposal Template Section`; los Templates/Sections se cargan por
+  catálogo, **no** por `install.py`.
+- `tecnico/setup.md`, `tecnico/despliegue-produccion.md`, `usuario/flujo-operativo.md`: corregido que
+  `after_install` **no** siembra contenido comercial (solo Desktop Icon); el contenido se carga con el
+  loader del catálogo. `facturacion_mexico` agregado como `required_app`.
 - ADR-0005 y ADR-0006.
 
 ## [0.0.1] — 2026-05-18

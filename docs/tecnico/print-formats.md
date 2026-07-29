@@ -116,9 +116,9 @@ al alcance y la inversión:
 - Sección con `sequence >= 500` → se renderiza **después** de la Inversión (bloque 8).
 
 Es una convención definida en el Jinja de `propuesta_comercial.json` (buckets
-`body_sections` / `late_sections`). Hoy los 3 templates instalados usan sequences 10–100,
-por lo que **todas** sus secciones caen antes del alcance. Actualmente no existen secciones
-narrativas posteriores a la Inversión.
+`body_sections` / `late_sections`). Los Proposal Templates provienen del **catálogo** (no se
+instalan con la app); cada Template decide, por la `sequence` de sus secciones, cuáles caen
+**antes** del alcance (`sequence < 500`) y cuáles **después** de la Inversión (`sequence >= 500`).
 
 **Para colocar una sección después de la Inversión** —por ejemplo términos legales, garantías
 o condiciones comerciales— asignarle `sequence >= 500` en el `Proposal Template Section`.

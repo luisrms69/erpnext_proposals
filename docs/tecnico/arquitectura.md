@@ -26,7 +26,7 @@ y de gestión.
 | Permisos | Guard de roles para endpoints críticos | `utils/permissions.py` | Activo |
 | Print Formats | PDF comercial (default genérico) y Rentabilidad Estimada (privado); helpers Jinja | `print_format/`, `utils/printing.py` | Activo |
 | Resolución de Print Format | Cadena override→template→default y congelamiento del efectivo (ADR-0005) | `utils/print_format.py` | Activo |
-| Loader de catálogos | Carga genérica e idempotente de catálogos por ruta externa (ADR-0006) | `catalog_data/catalog_loader.py` | Activo |
+| Loader de catálogos | Carga genérica e idempotente por ruta externa: Proposal Phases, Sections, Items (+ campos editoriales), Scope Items, Proposal Templates, Print Formats y **Payment Terms / Payment Terms Templates** (ADR-0006) | `catalog_data/catalog_loader.py` | Activo |
 | Reporte de rentabilidad | Fuente de datos compartida entre UI y Print Format | `report/profitability_estimate/` | Activo |
 | Override de Quotation | Bloquea `declare_enquiry_lost` en propuestas con workflow | `overrides/quotation_override.py` | Activo |
 | Sales Order hooks | Propaga proyecto y cost center de Quotation a SO | `utils/sales_order.py` | Activo |
@@ -54,14 +54,16 @@ y de gestión.
 | DocType | Propósito | Relaciones | Notas |
 |---|---|---|---|
 | `Proposal Section` | Bloque de texto narrativo reutilizable | Referenciado por `Proposal Template Section` | Tiene flag `is_executive_summary` para resaltar en portada |
-| `Proposal Template` | Agrupa secciones en orden para un tipo de proyecto | Tiene child table `Proposal Template Section` | 3 templates instalados por `install.py` |
-| `Proposal Template Section` | Fila de sección en un template | Link a `Proposal Section`; soporte para `custom_title` y `custom_content` | Child table de `Proposal Template` |
-| `Scope Item` | Actividad del catálogo maestro | Link a `Item` de ERPNext (`erpnext_item`); `phase` **Link a `Proposal Phase`** | Sin precio; describe trabajo, perfil y horas estimadas |
+| `Proposal Template` | Agrupa secciones en orden para un tipo de proyecto | Tiene child table `Proposal Template Section` | Se cargan desde el **catálogo** (loader), **no** por `install.py` (ADR-0006) |
+| `Proposal Template Section` | Fila de sección en un template | Link a `Proposal Section`; soporte para `custom_title` y `custom_content`; **`hide_title`** (Check, oculta el heading por Template) | Child table de `Proposal Template` |
+| `Scope Item` | Actividad del catálogo maestro | Link a `Item` de ERPNext (`erpnext_item`); `phase` **Link a `Proposal Phase`** | Sin precio; describe trabajo, perfil y horas estimadas. El **contenido editorial** del servicio (metodología, resultado esperado, límite del alcance) vive en el **Item**, no aquí |
 | `Quotation Scope Item` | Copia congelada de un Scope Item dentro de una Quotation | Parent: `Quotation`; link a `Scope Item`, `Task` y `phase`→`Proposal Phase` | Child table; `rate_locked` se fija en transición a En Revision. Flags: `include_in_proposal` (visible en PDF) y `is_internal_cost_task` (tarea interna: entra en costo/rentabilidad, se excluye del PDF comercial) |
+| `Item` (extendido) | Contenido comercial del servicio | Custom fields editoriales administrados por el catálogo | `proposal_content_section`, `proposal_methodology`, `proposal_expected_result`, `proposal_scope_limit` — descripción/metodología/resultado/límite del servicio |
+| `Quotation Item` (extendido) | Copia **congelada** del contenido editorial del Item dentro de la Quotation | Child de `Quotation` | `proposal_methodology`, `proposal_expected_result`, `proposal_scope_limit` copiados del Item al generar el alcance; el PDF usa esta copia y **no** relee el Item maestro |
 | `Proposal Phase` | Catálogo de fases (`phase_code`, `phase_name`, `sequence`) | Referenciado por `phase` en Scope Item / Quotation Scope Item | El orden en propuesta/reportes/Tasks usa `sequence`; el display usa `phase_name`. Helpers en `utils/phase.py` (`phase_label`, `order_phases`, jinja methods) |
 | `Proposal Cost Matrix` | Costos por (Designation, Activity Type) | Alimenta freeze de costos en scope items | Rebuildeado diariamente; `is_general_rate=1` para filas de promedio por designación |
 | `Proposal Cost Matrix Log` | Historial de cambios de tasa | Parent: ninguno | Append-only; creado por `cost_matrix.py` en cada cambio de tasa |
-| `Quotation` (extendido) | Documento central; extendido con ~25 custom fields | Tiene child `Quotation Scope Item`; link a `Project` | Custom fields en fixture; extended class via `QuotationProposalMixin` |
+| `Quotation` (extendido) | Documento central; extendido con ~30 custom fields | Tiene child `Quotation Scope Item`; link a `Project` | Custom fields en fixture; extended class via `QuotationProposalMixin` |
 
 ---
 
