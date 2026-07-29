@@ -31,7 +31,10 @@ class TestPrintFormatResolution(unittest.TestCase):
 	@classmethod
 	def setUpClass(cls):
 		super().setUpClass()
-		from erpnext_proposals.erpnext_proposals.tests.company import get_test_company
+		from erpnext_proposals.erpnext_proposals.tests.company import (
+			get_test_company,
+			get_test_cost_center,
+		)
 
 		cls.company = get_test_company()
 		if not cls.company:
@@ -99,7 +102,7 @@ class TestPrintFormatResolution(unittest.TestCase):
 
 		cls.customer = _ensure_customer()
 		cls.item = _ensure_item()
-		cls.cost_center = frappe.db.get_value("Cost Center", {"is_group": 0, "company": cls.company}, "name")
+		cls.cost_center = get_test_cost_center(cls.company)
 		_ensure(
 			"Scope Item",
 			SCOPE,
@@ -212,6 +215,8 @@ class TestPrintFormatResolution(unittest.TestCase):
 
 	# ── helper ────────────────────────────────────────────────────────────────
 	def _submit_proposal(self, template):
+		from erpnext_proposals.erpnext_proposals.tests.company import get_test_price_list
+
 		doc = frappe.get_doc(
 			{
 				"doctype": "Quotation",
@@ -224,6 +229,7 @@ class TestPrintFormatResolution(unittest.TestCase):
 				"proposal_template": template,
 				"proposal_title": "PF Test",
 				"proposal_cost_center": self.cost_center,
+				"selling_price_list": get_test_price_list(),
 				"items": [{"item_code": self.item, "qty": 1, "rate": 5000, "uom": "Nos"}],
 			}
 		)

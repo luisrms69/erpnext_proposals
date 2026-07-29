@@ -27,6 +27,7 @@ TEST_COMPANY_ABBR = "_TPC"
 TEST_COMPANY_CURRENCY = "MXN"
 
 TEST_ITEM_GROUP = "_Test Proposals Item Group"
+TEST_PRICE_LIST = "_Test Proposals Selling"
 
 
 def get_test_company() -> str:
@@ -80,3 +81,43 @@ def get_test_item_group() -> str:
 			}
 		).insert(ignore_permissions=True)
 	return TEST_ITEM_GROUP
+
+
+def get_test_cost_center(company: str | None = None) -> str:
+	"""Devuelve un Cost Center hoja para la Company de pruebas, determinista e idempotente.
+
+	El site fresco de CI crea el árbol de cuentas de la Company pero NO cost centers, por lo que
+	`proposal_cost_center` (reqd=1) queda vacío y la Quotation falla con `MandatoryError`. El helper
+	crea la raíz del árbol de cost centers de la Company (si falta) y un cost center hoja bajo ella.
+	"""
+	company = company or get_test_company()
+	existing = frappe.db.get_value("Cost Center", {"is_group": 0, "company": company}, "name")
+	if existing:
+		return existing
+	# ERPNext crea la raíz del árbol con flags.ignore_mandatory (no puede hacerse con un insert normal
+	# porque `parent_cost_center` es obligatorio salvo en la raíz). Reutilizamos su propio método.
+	frappe.get_doc("Company", company).create_default_cost_center()
+	return frappe.db.get_value("Cost Center", {"is_group": 0, "company": company}, "name")
+
+
+def get_test_price_list() -> str:
+	"""Devuelve una Price List de venta en MXN, determinista e idempotente.
+
+	El site fresco de CI no siembra ninguna Price List, por lo que `Quotation.selling_price_list`
+	(y `price_list_currency`/`plc_conversion_rate` derivados) quedan vacíos y la Quotation falla al
+	guardarse sin `ignore_mandatory`. El helper devuelve una Price List de venta existente o crea una
+	en MXN (misma moneda que `get_test_company`, para conversion_rate = 1).
+	"""
+	existing = frappe.db.get_value("Price List", {"selling": 1}, "name")
+	if existing:
+		return existing
+	if not frappe.db.exists("Price List", TEST_PRICE_LIST):
+		frappe.get_doc(
+			{
+				"doctype": "Price List",
+				"price_list_name": TEST_PRICE_LIST,
+				"selling": 1,
+				"currency": TEST_COMPANY_CURRENCY,
+			}
+		).insert(ignore_permissions=True)
+	return TEST_PRICE_LIST

@@ -14,7 +14,12 @@ import unittest
 
 import frappe
 
-from erpnext_proposals.erpnext_proposals.tests.company import get_test_company, get_test_item_group
+from erpnext_proposals.erpnext_proposals.tests.company import (
+	get_test_company,
+	get_test_cost_center,
+	get_test_item_group,
+	get_test_price_list,
+)
 from erpnext_proposals.erpnext_proposals.tests.fiscal_year import (
 	cleanup_fiscal_year,
 	ensure_current_fiscal_year,
@@ -88,9 +93,7 @@ class TestSectionsSnapshot(unittest.TestCase):
 			t = frappe.get_doc({"doctype": "Proposal Template", "template_name": TEMPLATE})
 			t.append("sections", {"proposal_section": SECTION, "sequence": 10, "include_by_default": 1})
 			t.insert(ignore_permissions=True)
-		cls.cost_center = frappe.db.get_value(
-			"Cost Center", {"is_group": 0, "company": cls.company}, "name"
-		) or frappe.db.get_value("Cost Center", {"is_group": 0}, "name")
+		cls.cost_center = get_test_cost_center(cls.company)
 		cls._quotations = []
 
 	@classmethod
@@ -125,6 +128,7 @@ class TestSectionsSnapshot(unittest.TestCase):
 				"proposal_template": TEMPLATE,
 				"proposal_title": title,
 				"proposal_cost_center": self.cost_center,
+				"selling_price_list": get_test_price_list(),
 				"items": [{"item_code": ITEM, "item_name": ITEM, "qty": 1, "rate": 1000, "uom": "Nos"}],
 			}
 		)

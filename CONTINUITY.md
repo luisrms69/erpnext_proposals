@@ -2,7 +2,7 @@
 
 **Fecha:** 2026-07-29
 **Rama activa:** `chore/gitignore-local-artifacts` (base `a11584d` = `upstream/version-16`).
-**Tarea actual:** **PR #33 abierto** hacia `version-16`. Cerrando el CI: tras instalar `facturacion_mexico` en CI, los tests que crean `Item` fallaban en el site fresco (`MandatoryError: item_group`) porque sin Setup Wizard no hay Item Groups hoja. Fix: helper `get_test_item_group()` determinista. Todos los cambios son genéricos y aptos para el repo público; el contenido comercial/branding sigue fuera del repo.
+**Tarea actual:** **PR #33 abierto** hacia `version-16`. Cerrando el CI: el site fresco de CI (sin Setup Wizard) no siembra masters que los tests asumen. Fixes sucesivos con helpers deterministas en `tests/company.py`: `get_test_item_group()` (grupos hoja), `get_test_cost_center()` (árbol de cost centers vía `Company.create_default_cost_center()`) y `get_test_price_list()` (Price List de venta MXN), más setear `selling_price_list` en las Quotations de prueba. Validado en un **site espejo idéntico al de CI** (`ci-mirror-proposals.localhost`): 143 OK / 0 errores. Todos los cambios son genéricos y aptos para el repo público.
 
 ---
 
@@ -64,6 +64,15 @@ Cada paso con autorización explícita; nunca escritura en BD/servidores sin avi
 - `ci: instalar facturacion_mexico en el workflow` (`bench get-app --branch main` + `install-app`).
 - `test(proposals): Item Group hoja determinista` — helper `get_test_item_group()` en `tests/company.py`
   usado por los 12 tests que crean `Item`; resuelve `MandatoryError: item_group` en el site fresco de CI.
+- `test(proposals): Cost Center y Price List deterministas` — helpers `get_test_cost_center()` /
+  `get_test_price_list()`; `test_sections_snapshot` y `test_print_format_resolution` los usan y setean
+  `selling_price_list`. Resuelve `MandatoryError` (selling_price_list / proposal_cost_center) al
+  re-guardar/versionar Quotations en el site fresco. Validado en `ci-mirror-proposals.localhost`.
+
+### Site espejo de CI (reproducción local)
+`ci-mirror-proposals.localhost` = `bench new-site` + install `erpnext`/`hrms`/`facturacion_mexico`/
+`erpnext_proposals` **sin Setup Wizard**, idéntico al pipeline de CI. Sirve para reproducir los fallos
+de CI localmente (~10s/corrida) en vez de esperar ~13 min por ciclo. Suite ahí: **143 OK / 11 skip**.
 
 ### Verificación
 - Suite completa `erpnext_proposals`: **226 OK (1 skip)** con `facturacion_mexico` instalada.
