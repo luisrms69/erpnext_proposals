@@ -1,29 +1,31 @@
 # CONTINUITY.md — erpnext_proposals
 
-**Fecha:** 2026-07-29
-**Rama activa:** `chore/gitignore-local-artifacts` (base `a11584d` = `upstream/version-16`).
-**Tarea actual:** **PR #33 abierto** hacia `version-16`. Cerrando el CI: el site fresco de CI (sin Setup Wizard) no siembra masters que los tests asumen. Fixes sucesivos con helpers deterministas en `tests/company.py`: `get_test_item_group()` (grupos hoja), `get_test_cost_center()` (árbol de cost centers vía `Company.create_default_cost_center()`) y `get_test_price_list()` (Price List de venta MXN), más setear `selling_price_list` en las Quotations de prueba. Validado en un **site espejo idéntico al de CI** (`ci-mirror-proposals.localhost`): 143 OK / 0 errores. Todos los cambios son genéricos y aptos para el repo público.
+**Fecha:** 2026-07-30
+**Rama activa:** `feat/quotation-fiscal-taxes` (base `0f74e86` = `upstream/version-16`, PR #33 ya mergeado + release v0.1.0).
+**Tarea actual:** **Impuesto automático en Quotation** reutilizando **por import (read-only)** la resolución fiscal de `facturacion_mexico` — adapter exclusivo en `erpnext_proposals` (`utils/quotation_tax.py`, hook `Quotation.before_validate`). `facturacion_mexico` **no se modifica**. Solo aplica con `quotation_to == "Customer"`; usa `proposal_cost_center` → CC→Branch→zona→STCT; no-op suave si falta config (no bloquea); respeta `taxes_and_charges` manual; sin validación SAT estricta de Sales Invoice. Ver **ADR-0008**. 9/9 tests nuevos OK; suite completa **235 OK / 1 skip**; ruff + `mkdocs --strict` limpios.
 
 ---
 
 ## Recuperación rápida
 
 Estoy trabajando en:
-Split en commits lógicos de la preparación pre-despliegue de `erpnext_proposals`. Toda la serie va en
-**una sola rama** (`chore/gitignore-local-artifacts`), un commit por bloque funcional, en **un** PR
-(#33) hacia `version-16`. Suite completa **226 tests OK (1 skip)** con `facturacion_mexico` instalada en el
-site de pruebas. `__version__ = 0.1.0`. Estado: **cerrando CI** (fix de `item_group` determinista en tests).
+Commit del adapter fiscal de Quotation en `feat/quotation-fiscal-taxes` vía `/ship commit`. Alcance:
+`utils/quotation_tax.py` (nuevo), hook `Quotation.before_validate` en `hooks.py`,
+`tests/test_quotation_fiscal_taxes.py` (9 tests) + documentación pública (ADR-0008, arquitectura,
+flujo-operativo, CHANGELOG, mkdocs nav). `facturacion_mexico` sin cambios (solo import de sus helpers).
 
 Plan que estoy siguiendo:
-1. Serie de commits C1–C7 en la rama (hecho — ver "Commits de esta rama").
-2. `/ship pr` hacia `version-16` cuando se autorice (bump de versión + gates documentales del skill).
-3. Despliegue: instalar app en producción; aplicar el catálogo privado por ruta externa (`bench execute`
-   del loader); smoke test.
-4. Revisar una copia de la base de producción antes de aplicar el catálogo (checklist privado).
+1. `/ship commit` del adapter + docs (hecho en este bloque).
+2. **Bump `__version__` → 0.2.0** (feat → MINOR) ANTES del PR — no incluido en este commit por alcance;
+   el gate SemVer de `/ship pr` lo exige.
+3. `/ship push` → PR hacia `version-16` cuando se autorice.
+4. Pendientes en paralelo (fuera del repo público): versionamiento formal del kit privado
+   (`sha256sum -c` + marker de versión instalada + git privado); falso warning de logo del instalador
+   (rutas DFP `/file/...`); proceso CRM Deal→Customer para contacto/linkage. Ver el análisis de secuencia.
 
 Criterio de avance:
 Cada paso con autorización explícita; nunca escritura en BD/servidores sin aviso. Git solo vía `/ship`.
-[[feedback_git_solo_via_ship]] · Una sola rama para toda la serie. [[feedback_una_sola_rama_commits]]
+[[feedback_git_solo_via_ship]]
 
 ---
 

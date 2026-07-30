@@ -3,6 +3,12 @@
 ## [No liberado]
 
 ### Added
+- Impuesto automático en Quotation reutilizando **por import** (read-only) la resolución fiscal de
+  `facturacion_mexico` (Centro de Costos → Branch → zona → STCT). Adapter exclusivo en
+  `erpnext_proposals` (`utils/quotation_tax.py`, hook `Quotation.before_validate`); `facturacion_mexico`
+  **no se modifica**. Solo aplica con `quotation_to == "Customer"`; no-op suave si falta configuración;
+  respeta selección manual de `taxes_and_charges`; sin la validación SAT estricta de Sales Invoice —
+  ver ADR-0008.
 - Resolución del Print Format comercial (override → Proposal Template → default) con congelamiento
   del formato efectivo — ver ADR-0005.
 - Loader genérico de catálogos por ruta externa y separación app-genérica vs personalización privada
