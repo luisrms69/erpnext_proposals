@@ -36,6 +36,7 @@ nav:
     - ADR-0005 Resolución y congelamiento de Print Format: adr/0005-resolucion-congelamiento-print-format.md
     - ADR-0006 App genérica vs personalización privada: adr/0006-separacion-app-generica-personalizacion-privada.md
     - ADR-0007 Contenido editorial en Item y congelamiento: adr/0007-contenido-editorial-item-y-congelamiento.md
+    - ADR-0008 Impuesto automático en Quotation (reúso facturacion_mexico): adr/0008-integracion-fiscal-quotation-reuso-facturacion-mexico.md
 
 theme:
   name: material

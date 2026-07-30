@@ -196,6 +196,28 @@ bench --site <site> execute \
 | `Employee` + `Activity Cost` | Fuente primaria de costos por designación | `utils/cost_matrix.py` — `_fetch_activity_cost_data()` | Primera fuente en jerarquía de costos |
 | Frappe `File` | Almacenamiento de PDFs generados | `utils/quotation.py` — `attach_proposal_pdfs()` | PDF público: Propuesta Comercial; privado: Rentabilidad Estimada |
 | Frappe Realtime | Notificación al cliente JS cuando PDFs están listos | `utils/quotation.py` — `frappe.publish_realtime()` | Evento: `erpnext_proposals_pdfs_attached` |
+| `facturacion_mexico` (impuestos) | Impuesto automático en Quotation reutilizando la resolución fiscal existente | `utils/quotation_tax.py` — `apply_fiscal_taxes` (hook `Quotation.before_validate`) | **Read-only sobre `facturacion_mexico`** (solo `import`); ver abajo y **ADR-0008** |
+
+### Impuesto automático en Quotation (reúso read-only de `facturacion_mexico`)
+
+El adapter `utils/quotation_tax.py` (`apply_fiscal_taxes`, hook `Quotation.before_validate`) fija
+automáticamente el `Sales Taxes and Charges Template` (STCT) de la Quotation **reutilizando por
+importación** los helpers de resolución de `facturacion_mexico` (`_get_customer_default_cc`,
+`_get_branch_from_cost_center`, `_get_border_zone_status`, `_determinar_variante_stct`,
+`_find_stct_by_variant`). La aplicación final usa el nativo de ERPNext `get_taxes_and_charges`.
+
+- **`facturacion_mexico` NO se modifica** — la reutilización es solo por `import` de funciones puras de
+  lectura; su flujo de Sales Invoice permanece intacto (`erpnext_proposals` no engancha Sales Invoice).
+- Solo aplica cuando **`quotation_to == "Customer"`**.
+- Usa **`proposal_cost_center`** (o el CC por defecto del Customer) y la configuración fiscal existente
+  **Centro de Costos → Branch (Oficina Fiscal) → zona → variante → STCT**.
+- **No-op suave**: si no resuelve la configuración fiscal (sin CC, sin Branch mapeada, sin zona o sin
+  STCT), no hace nada y **no bloquea** el guardado.
+- **Respeta la selección manual**: si `taxes_and_charges` ya tiene valor, no lo sobrescribe.
+- **No** importa `_set_stct_by_branch` (bloqueante) y **no** aplica la validación SAT estricta del
+  Sales Invoice (clave SAT por línea, CC obligatorio).
+
+Ver **ADR-0008**.
 
 ---
 
@@ -246,3 +268,4 @@ El submit automático ocurre en la transición Borrador → En Revision porque e
 | [ADR-0005](../adr/0005-resolucion-congelamiento-print-format.md) | Resolución y congelamiento del Print Format comercial |
 | [ADR-0006](../adr/0006-separacion-app-generica-personalizacion-privada.md) | Separación app genérica vs personalización privada por cliente |
 | [ADR-0007](../adr/0007-contenido-editorial-item-y-congelamiento.md) | Contenido editorial del servicio en `Item` y congelamiento inmutable (snapshot) |
+| [ADR-0008](../adr/0008-integracion-fiscal-quotation-reuso-facturacion-mexico.md) | Impuesto automático en Quotation por reutilización read-only de `facturacion_mexico` |

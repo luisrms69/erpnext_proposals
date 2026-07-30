@@ -54,6 +54,17 @@ Con la Cotización abierta, ir a la pestaña **Propuesta** y completar:
 
 Al guardar la Cotización, el sistema busca automáticamente en el catálogo de alcances actividades que correspondan a los ítems cotizados y las agrega a la tabla de alcance. Este proceso es silencioso: si no hay coincidencias en el catálogo, la tabla queda vacía.
 
+**Impuestos automáticos:** si la cotización está dirigida a un **Cliente** (no a un CRM Deal / Prospecto)
+y el **Centro de Costos de la propuesta** tiene su sucursal fiscal configurada, al guardar se asigna
+automáticamente la plantilla de impuestos correspondiente (el mismo IVA que tendría la factura),
+reutilizando la configuración fiscal de Facturación México. Notas:
+
+- Si la configuración fiscal está incompleta (sin sucursal fiscal mapeada al Centro de Costos), la
+  cotización **se guarda igual, sin impuestos** — no se bloquea.
+- Si ya seleccionaste una plantilla de impuestos **a mano**, el sistema **no la reemplaza**.
+- No se aplican las validaciones fiscales estrictas de la factura (clave SAT por línea): la cotización
+  es comercial, no fiscal.
+
 ### Paso 4. Revisar y ajustar el alcance
 
 Revisar la tabla **Alcance** en la pestaña Propuesta:
