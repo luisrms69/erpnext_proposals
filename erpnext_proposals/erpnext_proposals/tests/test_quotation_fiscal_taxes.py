@@ -28,6 +28,10 @@ from erpnext_proposals.erpnext_proposals.tests.company import (
 	get_test_item_group,
 	get_test_price_list,
 )
+from erpnext_proposals.erpnext_proposals.tests.fiscal_year import (
+	cleanup_fiscal_year,
+	ensure_current_fiscal_year,
+)
 
 STCT_BASICO = "IVA Nacional - Básico"
 MANUAL_STCT = "_Test Manual STCT"
@@ -187,6 +191,10 @@ class TestQuotationFiscalTaxes(unittest.TestCase):
 
 		cls.company = get_test_company()
 		cls.abbr = frappe.db.get_value("Company", cls.company, "abbr")
+		# Fiscal Year activo: al aplicar impuestos, ERPNext calcula el payment schedule y resuelve el
+		# Fiscal Year (get_fiscal_year). El site fresco de CI no lo trae; sin él, la Quotation con
+		# impuestos falla con FiscalYearError.
+		cls._fy = ensure_current_fiscal_year()
 		# Asegura el árbol de cost centers de la company (crea raíz + Main si falta).
 		get_test_cost_center(cls.company)
 		cls.item_group = get_test_item_group()
@@ -318,6 +326,7 @@ class TestQuotationFiscalTaxes(unittest.TestCase):
 					frappe.delete_doc("Quotation", n, force=True, ignore_permissions=True)
 				except Exception:
 					pass
+		cleanup_fiscal_year(getattr(cls, "_fy", None))
 		super().tearDownClass()
 
 	def _make_quotation(
