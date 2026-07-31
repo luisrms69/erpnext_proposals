@@ -197,6 +197,8 @@ bench --site <site> execute \
 | Frappe `File` | Almacenamiento de PDFs generados | `utils/quotation.py` — `attach_proposal_pdfs()` | PDF público: Propuesta Comercial; privado: Rentabilidad Estimada |
 | Frappe Realtime | Notificación al cliente JS cuando PDFs están listos | `utils/quotation.py` — `frappe.publish_realtime()` | Evento: `erpnext_proposals_pdfs_attached` |
 | `facturacion_mexico` (impuestos) | Impuesto automático en Quotation reutilizando la resolución fiscal existente | `utils/quotation_tax.py` — `apply_fiscal_taxes` (hook `Quotation.before_validate`) | **Read-only sobre `facturacion_mexico`** (solo `import`); ver abajo y **ADR-0008** |
+| ERPNext `Contact` | Resolución y persistencia del contacto dirigido de la Quotation | `utils/quotation_contact.py` — `set_proposal_contact` (hook `Quotation.before_insert`), `autocorrect_missing_contact` (hook `Quotation.validate`) | Reúso nativo `get_default_contact`/`get_contact_details`; ver abajo y **ADR-0009** |
+| Frappe CRM `CRM Deal` (opcional) | Contacto del Deal como autoritativo al crear la Quotation | `utils/quotation_contact.py` — `_deal_primary_contact` | Lectura **desacoplada** (guardada por `frappe.db.exists`); sin dependencia del app `crm` |
 
 ### Impuesto automático en Quotation (reúso read-only de `facturacion_mexico`)
 
@@ -218,6 +220,29 @@ importación** los helpers de resolución de `facturacion_mexico` (`_get_custome
   Sales Invoice (clave SAT por línea, CC obligatorio).
 
 Ver **ADR-0008**.
+
+### Contacto dirigido de la Quotation (Deal → Customer)
+
+El módulo `utils/quotation_contact.py` resuelve y **persiste** el contacto con el que va dirigida la
+propuesta, dentro del ciclo normal del documento (sin patches, backfills manuales ni escrituras
+directas a BD). Dos enganches, misma resolución (Deal → Customer), distinta autoridad:
+
+- **`before_insert` — `set_proposal_contact` (autoritativo):** si la Quotation nace de un `CRM Deal`
+  con contacto válido, ese contacto **gana** sobre el prefill del CRM o el *fetch* nativo. Sin contacto
+  del Deal, *fallback* al contacto por defecto del Customer (`get_default_contact`).
+- **`validate` — `autocorrect_missing_contact` (solo-si-vacío):** aplica únicamente cuando
+  `docstatus == 0`, `quotation_to == "Customer"` y `contact_person` está **vacío**. Rellena (Deal; si
+  no, Customer) y **no sobrescribe** un contacto ya definido. Así un Draft antiguo sin contacto se
+  corrige solo al guardarse; los documentos Submitted/frozen no se tocan.
+
+- La lectura del Deal (`_deal_primary_contact`) está **desacoplada del app `crm`**: consulta por
+  `frappe.db` y solo si el DocType `CRM Deal` existe. Prioridad: fila `is_primary = 1` → `CRM Deal.contact`
+  → primera fila; el candidato se descarta si no existe como `Contact`.
+- Los derivados (`contact_display`/`contact_email`/`contact_mobile`/…) se pueblan con el nativo
+  `get_contact_details`. El **Print Format** sigue usando `doc.contact_display` sin lógica especial —
+  con esto el PDF muestra la **persona** y no el nombre de la empresa.
+
+Ver **ADR-0009**.
 
 ---
 

@@ -1,27 +1,24 @@
 # CONTINUITY.md — erpnext_proposals
 
 **Fecha:** 2026-07-30
-**Rama activa:** `feat/quotation-fiscal-taxes` (base `0f74e86` = `upstream/version-16`, PR #33 ya mergeado + release v0.1.0).
-**Tarea actual:** **Impuesto automático en Quotation** reutilizando **por import (read-only)** la resolución fiscal de `facturacion_mexico` — adapter exclusivo en `erpnext_proposals` (`utils/quotation_tax.py`, hook `Quotation.before_validate`). `facturacion_mexico` **no se modifica**. Solo aplica con `quotation_to == "Customer"`; usa `proposal_cost_center` → CC→Branch→zona→STCT; no-op suave si falta config (no bloquea); respeta `taxes_and_charges` manual; sin validación SAT estricta de Sales Invoice. Ver **ADR-0008**. 9/9 tests nuevos OK; suite completa **235 OK / 1 skip**; ruff + `mkdocs --strict` limpios.
+**Rama activa:** `feat/quotation-contact-from-deal` (base `upstream/version-16` = v0.2.0, PR #34 fiscal ya mergeado).
+**Tarea actual:** **Resolución y persistencia del contacto dirigido de la Quotation** — módulo `utils/quotation_contact.py` con dos hooks: `before_insert` (`set_proposal_contact`, el contacto del Deal es autoritativo; fallback al default del Customer) y `validate` (`autocorrect_missing_contact`, autocorrige Drafts con `contact_person` vacío solo si `docstatus==0` y `quotation_to==Customer`; nunca sobrescribe manual ni toca Submitted). Lectura del Deal desacoplada del app `crm` (`_deal_primary_contact`, guardada por `frappe.db.exists`); derivados con `get_contact_details`; el Print Format sigue usando `doc.contact_display`. Sin patch/backfill/bench-execute/escritura directa a BD; genérico (sin código por sitio/cliente). Ver **ADR-0009**. Tests con mocking (sin app crm) **13/13 OK**; suite completa **248 OK / 1 skip**; ruff + `mkdocs --strict` limpios; bump **0.3.0** (MINOR) incluido.
 
 ---
 
 ## Recuperación rápida
 
 Estoy trabajando en:
-Commit del adapter fiscal de Quotation en `feat/quotation-fiscal-taxes` vía `/ship commit`. Alcance:
-`utils/quotation_tax.py` (nuevo), hook `Quotation.before_validate` en `hooks.py`,
-`tests/test_quotation_fiscal_taxes.py` (9 tests) + documentación pública (ADR-0008, arquitectura,
-flujo-operativo, CHANGELOG, mkdocs nav). `facturacion_mexico` sin cambios (solo import de sus helpers).
+`/ship commit` de la resolución del contacto dirigido en `feat/quotation-contact-from-deal`. Alcance:
+`utils/quotation_contact.py` (nuevo), 2 hooks en `hooks.py` (`before_insert`+`validate`),
+`tests/test_quotation_contact.py` (13 tests, con mocking del Deal), bump `__init__.py` → 0.3.0 y
+documentación pública (ADR-0009, arquitectura, flujo-operativo usuario, referencia regenerada, mkdocs nav).
 
 Plan que estoy siguiendo:
-1. `/ship commit` del adapter + docs (hecho en este bloque).
-2. **Bump `__version__` → 0.2.0** (feat → MINOR) ANTES del PR — no incluido en este commit por alcance;
-   el gate SemVer de `/ship pr` lo exige.
-3. `/ship push` → PR hacia `version-16` cuando se autorice.
-4. Pendientes en paralelo (fuera del repo público): versionamiento formal del kit privado
-   (`sha256sum -c` + marker de versión instalada + git privado); falso warning de logo del instalador
-   (rutas DFP `/file/...`); proceso CRM Deal→Customer para contacto/linkage. Ver el análisis de secuencia.
+1. `/ship commit` del módulo + docs + bump 0.3.0 (este bloque). **Sin push/PR/merge/tag** hasta autorización.
+2. `/ship push` → PR hacia `version-16` cuando se autorice (gate SemVer ya satisfecho: 0.2.0 → 0.3.0).
+3. Pendientes en paralelo (fuera del repo público): versionamiento formal del kit privado (issue #35);
+   falso warning de logo del instalador (rutas DFP `/file/...`); revisión editorial posterior.
 
 Criterio de avance:
 Cada paso con autorización explícita; nunca escritura en BD/servidores sin aviso. Git solo vía `/ship`.
@@ -132,6 +129,8 @@ ERPNext (crea Companies de prueba) — por eso el fix determinista de Company de
 - App genérica en el repo; catálogos/branding/assets reales fuera del repo, aplicados por site (ADR-0006).
 - Print Format comercial: resolución override → template → default; congelamiento del efectivo (ADR-0005).
 - `facturacion_mexico` es `required_app` (aporta masters fiscales SAT); el loader solo los referencia.
+- Contacto dirigido de la Quotation: Deal autoritativo en `before_insert`, autocorrección solo-si-vacío en
+  `validate`; sin patch/backfill; el Print Format solo lee `doc.contact_display` (ADR-0009).
 
 ---
 

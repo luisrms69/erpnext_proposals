@@ -37,6 +37,7 @@ nav:
     - ADR-0006 App genérica vs personalización privada: adr/0006-separacion-app-generica-personalizacion-privada.md
     - ADR-0007 Contenido editorial en Item y congelamiento: adr/0007-contenido-editorial-item-y-congelamiento.md
     - ADR-0008 Impuesto automático en Quotation (reúso facturacion_mexico): adr/0008-integracion-fiscal-quotation-reuso-facturacion-mexico.md
+    - ADR-0009 Resolución del contacto dirigido de la Quotation: adr/0009-resolucion-contacto-dirigido-quotation.md
 
 theme:
   name: material
