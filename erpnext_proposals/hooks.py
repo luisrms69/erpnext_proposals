@@ -234,11 +234,15 @@ after_install = "erpnext_proposals.erpnext_proposals.install.after_install"
 
 doc_events = {
 	"Quotation": {
-		"before_insert": "erpnext_proposals.erpnext_proposals.utils.quotation.on_quotation_before_insert",
+		"before_insert": [
+			"erpnext_proposals.erpnext_proposals.utils.quotation.on_quotation_before_insert",
+			"erpnext_proposals.erpnext_proposals.utils.quotation_contact.set_proposal_contact",
+		],
 		"before_validate": "erpnext_proposals.erpnext_proposals.utils.quotation_tax.apply_fiscal_taxes",
 		"validate": [
 			"erpnext_proposals.erpnext_proposals.utils.quotation.on_quotation_validate",
 			"erpnext_proposals.erpnext_proposals.utils.workflow_validations.on_quotation_validate_workflow",
+			"erpnext_proposals.erpnext_proposals.utils.quotation_contact.autocorrect_missing_contact",
 		],
 		"before_submit": "erpnext_proposals.erpnext_proposals.utils.quotation.on_quotation_before_submit",
 		"before_update_after_submit": [

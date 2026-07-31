@@ -65,6 +65,15 @@ reutilizando la configuración fiscal de Facturación México. Notas:
 - No se aplican las validaciones fiscales estrictas de la factura (clave SAT por línea): la cotización
   es comercial, no fiscal.
 
+**Contacto dirigido:** si la cotización está dirigida a un **Cliente**, el sistema completa
+automáticamente la **persona de contacto** de la propuesta (la que aparece en el PDF, no el nombre de la
+empresa). Cuando la cotización proviene de un **Deal de CRM**, prevalece el contacto del Deal; si no,
+se usa el contacto por defecto del Cliente. Notas:
+
+- Si ya elegiste un contacto **a mano**, el sistema **no lo reemplaza**.
+- Una cotización en **Borrador** que quedó sin contacto se completa sola la próxima vez que se guarda;
+  las cotizaciones ya confirmadas (enviadas/ganadas) no se modifican.
+
 ### Paso 4. Revisar y ajustar el alcance
 
 Revisar la tabla **Alcance** en la pestaña Propuesta:
