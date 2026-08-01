@@ -19,6 +19,16 @@ frappe.ui.form.on("Quotation", "onload", function (frm) {
 	ctrl.__proposal_patch_applied = true;
 });
 
+// Issue #17: en una Quotation NUEVA creada desde Frappe CRM, copiar `crm_deal` a `proposal_group`
+// cuando este está vacío (espejo cliente del respaldo de servidor en on_quotation_before_insert, que
+// no alcanza a correr porque el formulario valida los obligatorios en el navegador antes de insertar).
+// Solo en Draft nuevo (frm.is_new()); nunca sobrescribe un grupo capturado manualmente; copia exacta.
+function autofill_proposal_group_from_crm_deal(frm) {
+	if (frm.is_new() && !frm.doc.proposal_group && frm.doc.crm_deal) {
+		frm.set_value("proposal_group", frm.doc.crm_deal);
+	}
+}
+
 frappe.ui.form.on("Quotation", {
 	onload(frm) {
 		// Reload attachments when server signals PDFs are ready (after_commit)
@@ -37,7 +47,15 @@ frappe.ui.form.on("Quotation", {
 		}
 	},
 
+	// Issue #17: al cambiar el Frappe CRM Deal, autocompletar proposal_group en la Quotation nueva.
+	crm_deal(frm) {
+		autofill_proposal_group_from_crm_deal(frm);
+	},
+
 	refresh(frm) {
+		// Issue #17: cubre las Quotations nuevas creadas desde Frappe CRM con crm_deal ya poblado.
+		autofill_proposal_group_from_crm_deal(frm);
+
 		// proposal_version and proposal_group are server-assigned — lock UI editing
 		frm.set_df_property("proposal_version", "read_only", 1);
 		if (frm.doc.proposal_version >= 1) {

@@ -220,6 +220,69 @@ class TestProposalVersioning(unittest.TestCase):
 	def test_05_first_quotation_gets_version_1(self):
 		self.assertEqual(self.v1.proposal_version, 1)
 
+	# ── Issue #17: proposal_group se toma de crm_deal si no hay grupo manual ──
+
+	def setUp(self):
+		if not hasattr(self, "_i17_created"):
+			self._i17_created = []
+
+	def tearDown(self):
+		for n in getattr(self, "_i17_created", []):
+			if frappe.db.exists("Quotation", n):
+				try:
+					frappe.delete_doc("Quotation", n, force=True, ignore_permissions=True)
+				except Exception:
+					pass
+		self._i17_created = []
+
+	def _make_draft(self, proposal_group=None, crm_deal=None):
+		"""Crea una Quotation Draft. `crm_deal` (campo del app CRM, ausente en el site de tests) se
+		pasa como atributo del doc; el hook lo lee con doc.get(...) igual que en un site con CRM."""
+		spec = {
+			"doctype": "Quotation",
+			"quotation_to": "Customer",
+			"party_name": self.customer,
+			"company": self.company,
+			"currency": "MXN",
+			"transaction_date": frappe.utils.today(),
+			"proposal_template": self.proposal_template,
+			"proposal_title": "Issue17",
+			"items": [
+				{
+					"item_code": self.item,
+					"item_name": "_Test Version Item",
+					"qty": 1,
+					"rate": 5000,
+					"uom": "Nos",
+				}
+			],
+		}
+		if proposal_group is not None:
+			spec["proposal_group"] = proposal_group
+		if crm_deal is not None:
+			spec["crm_deal"] = crm_deal
+		doc = frappe.get_doc(spec)
+		doc.insert(ignore_permissions=True, ignore_mandatory=True)
+		self._i17_created.append(doc.name)
+		return doc
+
+	def test_17a_manual_group_preserved_over_crm_deal(self):
+		"""1) Si proposal_group ya tiene valor, se conserva aunque venga crm_deal."""
+		g = f"MANUAL-{frappe.generate_hash(length=6)}"
+		doc = self._make_draft(proposal_group=g, crm_deal="CRM-DEAL-9999")
+		self.assertEqual(doc.proposal_group, g)
+
+	def test_17b_crm_deal_copied_when_group_empty(self):
+		"""2) proposal_group vacío + crm_deal presente → se copia exactamente crm_deal (sin transformar)."""
+		deal = f"CRM-DEAL-{frappe.generate_hash(length=6)}"
+		doc = self._make_draft(proposal_group=None, crm_deal=deal)
+		self.assertEqual(doc.proposal_group, deal)
+
+	def test_17c_both_empty_still_raises(self):
+		"""3) Sin proposal_group ni crm_deal → se mantiene el error obligatorio actual."""
+		with self.assertRaises(frappe.exceptions.ValidationError):
+			self._make_draft(proposal_group=None, crm_deal=None)
+
 	# ── Controlled versioning: create_new_proposal_version ───────────────────
 
 	def test_06_create_v2_from_rejected_v1(self):
