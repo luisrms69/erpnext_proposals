@@ -106,6 +106,32 @@ Este documento es de uso interno. Muestra:
 4. Adjuntar el PDF descargado
 5. Enviar
 
+### Enviar usando el correo de ERPNext (composer de Email)
+
+También puedes enviar la propuesta con el **Email** nativo de ERPNext (ícono de sobre / menú de la
+Cotización). Para las Cotizaciones de propuesta, el módulo ajusta ese diálogo para evitar errores
+comunes (sin reemplazar el comportamiento nativo):
+
+- **Plantilla HTML automática:** si eliges —o está configurado como *Default Email Template* de la
+  Cotización— un **Email Template** con *Use HTML* activado, el diálogo **marca "Use HTML"
+  automáticamente** y carga el contenido en el editor HTML correcto, de modo que el diseño del correo
+  no se degrada. Con una plantilla **sin** HTML, el editor normal funciona como siempre.
+- **No adjunta el formato interno por error:** la casilla **"Attach Document Print" inicia
+  DESMARCADA**. Así se evita adjuntar accidentalmente el formato *Standard* de la Cotización (que
+  puede contener información interna). Los archivos ya adjuntos a la Cotización siguen disponibles en
+  *Select Attachments*.
+- **Si decides adjuntar el PDF:** al marcar "Attach Document Print", el selector queda
+  **preseleccionado con el formato de propuesta** (el formato efectivo de la propuesta o, si no, el
+  configurado en *Proposal Print Format*), **no** con *Standard*.
+- **Tu firma se conserva:** la firma sigue proviniendo del mecanismo nativo de ERPNext (tu firma de
+  usuario o la de la cuenta de correo); activar el modo HTML no la pierde.
+
+!!! note "Requisito para el modo HTML automático"
+    Para que "Use HTML" se active solo debe existir un **Email Template con *Use HTML*** y, si quieres
+    que aplique desde el inicio, configurarlo como **Default Email Template** de la Cotización
+    (*Personalizar formulario → Quotation → Default Email Template*). Sin una plantilla HTML, el correo
+    se redacta en el editor normal.
+
 ### Sobre el estado "Enviada al Cliente"
 
 El estado **"Enviada al Cliente"** en el workflow de aprobación interna **solo indica que alguien marcó ese estado manualmente** en el sistema. No dispara ningún correo, no abre ningún portal ni activa ninguna notificación automática.
