@@ -18,6 +18,12 @@ def on_quotation_before_insert(doc, method=None):
 		assert_single_live_proposal_for_group,
 	)
 
+	# Issue #17: si la Quotation se creó desde Frappe CRM (campo `crm_deal`) y no se capturó un
+	# `proposal_group` manual, se usa el Deal como grupo — copia exacta, sin prefijos ni
+	# transformaciones. `doc.get(...)` es seguro en sitios sin el campo `crm_deal` (CRM no instalado).
+	if not doc.get("proposal_group") and doc.get("crm_deal"):
+		doc.proposal_group = doc.get("crm_deal")
+
 	has_previous = bool(getattr(doc, "previous_proposal", None))
 	has_group = bool(getattr(doc, "proposal_group", None))
 

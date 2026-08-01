@@ -53,6 +53,14 @@ Si se deja vacío, el PDF puede mostrar el folio de la cotización como referenc
 
 Seleccionar el centro de costo al que se asignará el proyecto. Este dato se propaga automáticamente al Proyecto y a la Sales Order.
 
+**Grupo de propuesta** *(requerido)*
+
+Identificador que agrupa las versiones de una misma propuesta (normalmente el ID del deal en tu CRM).
+
+- **Autocompletado desde Frappe CRM:** cuando la Cotización se crea desde **Frappe CRM** y el campo **Frappe CRM Deal** tiene valor, **Grupo de propuesta** se completa **automáticamente** con ese mismo valor al crear la Cotización.
+- Si ya capturaste un **Grupo de propuesta** manualmente, **no se sobrescribe**.
+- La automatización aplica al **crear** la Cotización. Un respaldo del lado servidor cubre además la creación por **API e integraciones** (no solo desde el formulario).
+
 ---
 
 ## Paso 3 — Guardar
