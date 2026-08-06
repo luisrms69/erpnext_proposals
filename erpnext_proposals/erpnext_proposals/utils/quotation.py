@@ -134,6 +134,32 @@ def on_quotation_before_submit(doc, method=None):
 	freeze_proposal(doc)
 
 
+def _dependency_codes_map(scope_item_names: list) -> dict:
+	"""Devuelve {scope_item_name: json_de_codigos_predecesores} para congelar en la Quotation.
+
+	Los predecesores son otros Scope Items (el Link `depends_on` == su código estable, porque
+	Scope Item se nombra por `code`). El JSON es una lista ordenada de códigos; ausencia de
+	dependencias → ``"[]"``. Una consulta única sobre la child table del catálogo.
+	"""
+	names = list({n for n in (scope_item_names or []) if n})
+	result = {n: [] for n in names}
+	if not names:
+		return {}
+	rows = frappe.get_all(
+		"Scope Item Dependency",
+		filters={
+			"parenttype": "Scope Item",
+			"parentfield": "depends_on_scope_items",
+			"parent": ["in", names],
+		},
+		fields=["parent", "depends_on"],
+	)
+	for r in rows:
+		if r.depends_on:
+			result[r.parent].append(r.depends_on)
+	return {n: json.dumps(sorted(codes), ensure_ascii=False) for n, codes in result.items()}
+
+
 def _generate_scope_items(doc):
 	existing = {
 		(row.item_code, row.scope_item)
@@ -161,9 +187,13 @@ def _generate_scope_items(doc):
 				"estimated_hours",
 				"visible_in_proposal",
 				"is_internal_cost_task",
+				"planned_start_offset_days",
+				"planned_duration_days",
+				"is_milestone",
 			],
 			order_by="sequence asc",
 		)
+		dep_codes = _dependency_codes_map([si.name for si in scope_items])
 
 		for si in scope_items:
 			if (item.item_code, si.name) in existing:
@@ -186,6 +216,11 @@ def _generate_scope_items(doc):
 					# Después es propiedad de la propuesta; el resync NO lo sobrescribe.
 					"include_in_proposal": 1 if si.visible_in_proposal else 0,
 					"is_internal_cost_task": si.is_internal_cost_task or 0,
+					# Planeación PMO congelada (opcional; puede venir vacía).
+					"planned_start_offset_days": si.planned_start_offset_days,
+					"planned_duration_days": si.planned_duration_days,
+					"is_milestone": si.is_milestone or 0,
+					"dependency_scope_item_codes": dep_codes.get(si.name, "[]"),
 					"auto_generated": 1,
 				},
 			)
@@ -237,6 +272,11 @@ _CATALOG_CONTROLLED_FIELDS = (
 	"designation",
 	"estimated_hours",
 	"is_internal_cost_task",
+	# Planeación PMO congelada — el resync explícito en Borrador la refresca desde el catálogo.
+	"planned_start_offset_days",
+	"planned_duration_days",
+	"is_milestone",
+	"dependency_scope_item_codes",
 )
 
 
@@ -264,9 +304,13 @@ def _catalog_rows_for_items(item_codes: list) -> dict:
 			"estimated_hours",
 			"is_internal_cost_task",
 			"visible_in_proposal",
+			"planned_start_offset_days",
+			"planned_duration_days",
+			"is_milestone",
 		],
 		order_by="sequence asc",
 	)
+	dep_codes = _dependency_codes_map([si.name for si in rows])
 	for si in rows:
 		result[(si.erpnext_item, si.name)] = {
 			"sequence": si.sequence,
@@ -279,6 +323,11 @@ def _catalog_rows_for_items(item_codes: list) -> dict:
 			"designation": si.default_designation,
 			"estimated_hours": si.estimated_hours,
 			"is_internal_cost_task": si.is_internal_cost_task or 0,
+			# Planeación PMO congelada — controlada por catálogo (refrescada en resync).
+			"planned_start_offset_days": si.planned_start_offset_days,
+			"planned_duration_days": si.planned_duration_days,
+			"is_milestone": si.is_milestone or 0,
+			"dependency_scope_item_codes": dep_codes.get(si.name, "[]"),
 			# Solo para el ADD de resync (valor inicial). NO está en _CATALOG_CONTROLLED_FIELDS,
 			# por lo que el UPDATE nunca sobrescribe include_in_proposal en filas existentes.
 			"include_in_proposal": 1 if si.visible_in_proposal else 0,

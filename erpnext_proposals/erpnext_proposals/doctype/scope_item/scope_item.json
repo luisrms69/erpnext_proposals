@@ -21,7 +21,12 @@
   "section_effort",
   "estimated_hours",
   "default_activity_type",
-  "default_designation"
+  "default_designation",
+  "section_pmo",
+  "planned_start_offset_days",
+  "planned_duration_days",
+  "is_milestone",
+  "depends_on_scope_items"
  ],
  "fields": [
   {
@@ -85,7 +90,7 @@
   {
    "fieldname": "section_classification",
    "fieldtype": "Section Break",
-   "label": "Classification"
+   "label": "Estructura del programa"
   },
   {
    "fieldname": "phase",
@@ -104,27 +109,60 @@
   {
    "fieldname": "section_effort",
    "fieldtype": "Section Break",
-   "label": "Effort (Etapa 3)"
+   "label": "Costeo y esfuerzo"
   },
   {
    "fieldname": "estimated_hours",
    "fieldtype": "Float",
    "label": "Estimated Hours",
-   "description": "Preparatorio para conversión a Project/Tasks en Etapa 3. No funcional en MVP."
+   "description": "Esfuerzo estimado. Se copia a Task.expected_time al generar el Proyecto."
   },
   {
    "fieldname": "default_activity_type",
    "fieldtype": "Link",
    "label": "Default Activity Type",
    "options": "Activity Type",
-   "description": "Preparatorio para Etapa 3."
+   "description": "Perfil/actividad para tarifa y costeo."
   },
   {
    "fieldname": "default_designation",
    "fieldtype": "Link",
    "label": "Default Designation",
    "options": "Designation",
-   "description": "Preparatorio para Etapa 3."
+   "description": "Puesto para tarifa y costeo."
+  },
+  {
+   "fieldname": "section_pmo",
+   "fieldtype": "Section Break",
+   "label": "Planeación PMO (opcional)",
+   "collapsible": 1,
+   "description": "Reglas reutilizables de planeación del catálogo. Opcionales: si se dejan vacías, la Task se crea sin fechas inventadas."
+  },
+  {
+   "fieldname": "planned_start_offset_days",
+   "fieldtype": "Data",
+   "label": "Planned Start Offset (days)",
+   "description": "Offset en días calendario respecto de Project.expected_start_date, como texto entero. Vacío/NULL = SIN offset explícito (se programa por dependencias o queda sin fecha); '0' = inicio explícito en la fecha de inicio del proyecto; entero positivo = días después; negativo = días antes. Se rechaza cualquier valor no entero. Es una regla del catálogo, no una copia de Task.exp_start_date."
+  },
+  {
+   "fieldname": "planned_duration_days",
+   "fieldtype": "Int",
+   "label": "Planned Duration (days)",
+   "description": "Duración en días calendario de la futura Task. No sustituye ni recalcula estimated_hours."
+  },
+  {
+   "fieldname": "is_milestone",
+   "fieldtype": "Check",
+   "label": "Is Milestone",
+   "default": "0",
+   "description": "Valor por defecto para Task.is_milestone. Un hito usa una sola fecha (exp_end_date = exp_start_date)."
+  },
+  {
+   "fieldname": "depends_on_scope_items",
+   "fieldtype": "Table",
+   "label": "Depends On (Scope Items)",
+   "options": "Scope Item Dependency",
+   "description": "Otros Scope Items que preceden a este. Se congelan por código en la Quotation y se resuelven a Task.depends_on nativo al crear el Proyecto."
   }
  ],
  "links": [],

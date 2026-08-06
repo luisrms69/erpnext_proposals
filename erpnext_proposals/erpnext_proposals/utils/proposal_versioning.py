@@ -237,6 +237,11 @@ def _copy_scope_item(scope) -> dict:
 		"designation": scope.designation,
 		"estimated_hours": scope.estimated_hours,
 		"include_in_proposal": scope.include_in_proposal,
+		# Planeación PMO congelada: copia LITERAL de la versión anterior (no se relee el catálogo).
+		"planned_start_offset_days": scope.planned_start_offset_days,
+		"planned_duration_days": scope.planned_duration_days,
+		"is_milestone": scope.is_milestone,
+		"dependency_scope_item_codes": scope.dependency_scope_item_codes,
 		# cost_per_hour, total_cost, project_task NOT copied — recalculated on review
 	}
 

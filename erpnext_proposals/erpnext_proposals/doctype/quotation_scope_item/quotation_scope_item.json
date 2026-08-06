@@ -24,6 +24,11 @@
   "activity_type",
   "designation",
   "project_task",
+  "section_pmo_snapshot",
+  "planned_start_offset_days",
+  "planned_duration_days",
+  "is_milestone",
+  "dependency_scope_item_codes",
   "section_cost_snapshot",
   "costing_rate",
   "rate_source",
@@ -151,6 +156,52 @@
    "options": "Task",
    "read_only": 1,
    "description": "Task de Project generada desde este Scope Item. Se llena al crear el Proyecto desde la Orden de Venta."
+  },
+  {
+   "fieldname": "section_pmo_snapshot",
+   "fieldtype": "Section Break",
+   "label": "Planeación congelada",
+   "collapsible": 1,
+   "description": "Snapshot de la planeación PMO contratada. Congelado desde el catálogo; una propuesta enviada no vuelve a consultar el maestro."
+  },
+  {
+   "fieldname": "planned_start_offset_days",
+   "fieldtype": "Data",
+   "label": "Planned Start Offset (days)",
+   "read_only": 1,
+   "allow_on_submit": 1,
+   "print_hide": 1,
+   "description": "Congelado del Scope Item (texto entero). Vacío/NULL = sin offset explícito; '0' = inicio en la fecha de inicio del proyecto; ± = días después/antes. La diferencia entre vacío y '0' se conserva."
+  },
+  {
+   "fieldname": "planned_duration_days",
+   "fieldtype": "Int",
+   "label": "Planned Duration (days)",
+   "read_only": 1,
+   "allow_on_submit": 1,
+   "print_hide": 1,
+   "description": "Congelado del Scope Item. Duración calendario de la Task."
+  },
+  {
+   "fieldname": "is_milestone",
+   "fieldtype": "Check",
+   "label": "Is Milestone",
+   "default": "0",
+   "read_only": 1,
+   "allow_on_submit": 1,
+   "print_hide": 1,
+   "description": "Congelado del Scope Item. Valor para Task.is_milestone."
+  },
+  {
+   "fieldname": "dependency_scope_item_codes",
+   "fieldtype": "Small Text",
+   "label": "Dependency Scope Item Codes",
+   "hidden": 1,
+   "read_only": 1,
+   "allow_on_submit": 1,
+   "print_hide": 1,
+   "no_copy": 0,
+   "description": "JSON con los códigos estables de Scope Items predecesores, congelados al generar el alcance. Se resuelven a Task.depends_on nativo al crear el Proyecto."
   },
   {
    "fieldname": "section_cost_snapshot",

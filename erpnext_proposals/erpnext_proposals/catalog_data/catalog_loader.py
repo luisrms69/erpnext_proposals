@@ -69,7 +69,10 @@ BASE_SECTIONS = frozenset(
 # externo puede requerir. El instalador de producción la usa para rechazar un app desactualizado.
 # v3: el loader NO crea/actualiza UOM ni Item Groups (masters fiscales) — solo los referencia.
 # v4: soporte de Payment Terms / Payment Terms Templates (condiciones de pago corporativas).
-LOADER_CAPS_VERSION = 4
+# v5: planeación PMO en Scope Item (planned_start_offset_days/planned_duration_days/is_milestone),
+#     dependencias de catálogo (depends_on, 2º paso idempotente) y erpnext_item pendiente
+#     (Scope Item sin Item comercial existente, vinculado al re-ejecutar).
+LOADER_CAPS_VERSION = 5
 
 
 def capabilities() -> dict:
@@ -89,6 +92,8 @@ def capabilities() -> dict:
 		"get_logo_data_uri": callable(getattr(printing, "get_logo_data_uri", None)),
 		"payment_terms": callable(globals().get("_seed_payment_terms"))
 		and callable(globals().get("_seed_payment_terms_templates")),
+		# v5: planeación PMO + dependencias de catálogo + erpnext_item pendiente.
+		"scope_pmo_planning": callable(globals().get("_seed_scope_dependencies")),
 		# El loader NO tiene capacidad de sembrar masters fiscales (UOM / Item Groups).
 		"no_fiscal_master_writes": not callable(globals().get("_seed_item_groups"))
 		and not callable(globals().get("_seed_uoms")),
@@ -117,6 +122,9 @@ def run(catalog_path: str | None = None, dry_run: bool = True, update_content: b
 		"updated": [],
 		"unchanged": [],
 		"conflicts": [],
+		# Scope Items cuyo erpnext_item apunta a un Item que aún no existe: se dejan sin vincular
+		# y se completan al re-ejecutar la sincronización cuando el Item exista.
+		"pending": [],
 	}
 
 	try:
@@ -529,6 +537,10 @@ def _seed_scope_items(items: list, report: dict, dry_run: bool, update_content: 
 		"is_internal_cost_task",
 		"description",
 		"deliverable",
+		# Planeación PMO (opcional): reglas reutilizables del catálogo.
+		"planned_start_offset_days",
+		"planned_duration_days",
+		"is_milestone",
 	]
 	for it in items:
 		code = it["code"]
@@ -540,6 +552,15 @@ def _seed_scope_items(items: list, report: dict, dry_run: bool, update_content: 
 		# Un campo OMITIDO (clave ausente) no se administra: conserva su valor / default del modelo
 		# (así estimated_hours omitido no marca falso conflicto contra el 0.0 del modelo).
 		provided, cleared = _managed_fields(it, fields)
+		# erpnext_item PENDIENTE: el catálogo lo provee pero el Item comercial aún no existe. No se
+		# fuerza el Link (fallaría). Se deja sin vincular y se registra; al re-ejecutar la
+		# sincronización cuando el Item exista, el Link se completa (identidad por `code`, sin duplicar).
+		pending_item = provided.get("erpnext_item")
+		if pending_item and not frappe.db.exists("Item", pending_item):
+			provided.pop("erpnext_item")
+			report["pending"].append(
+				f"{label}: Item '{pending_item}' no existe aún — erpnext_item pendiente (se vinculará al re-ejecutar)"
+			)
 		keys = list(provided.keys()) + list(cleared)
 		if not frappe.db.exists("Scope Item", code):
 			if not dry_run:
@@ -566,6 +587,68 @@ def _seed_scope_items(items: list, report: dict, dry_run: bool, update_content: 
 			report["updated"].append(f"{label}: {diffs}")
 		else:
 			report["conflicts"].append(f"{label}: {diffs}")
+
+	# 2º paso idempotente: dependencias del catálogo (todos los Scope Items ya existen).
+	_seed_scope_dependencies(items, report, dry_run, update_content)
+
+
+def _seed_scope_dependencies(items: list, report: dict, dry_run: bool, update_content: bool = False) -> None:
+	"""Aplica `depends_on` (lista de códigos de Scope Items predecesores) como filas de la child table
+	`depends_on_scope_items`. Segundo paso: se ejecuta tras crear todos los Scope Items del catálogo.
+
+	- Idempotente: identidad por conjunto de códigos; si el conjunto ya coincide, no escribe.
+	- Clave `depends_on` AUSENTE → no administra dependencias (conserva lo existente).
+	- Predecesores que no existen (p. ej. de un Item no contratado) se OMITEN y se reportan; nunca
+	  se crea un Link roto. Auto-referencia/duplicados/ciclos los valida Scope Item.validate().
+	"""
+	for it in items:
+		if "depends_on" not in it:
+			continue
+		code = it["code"]
+		desired = [c for c in (it.get("depends_on") or []) if c]
+		if not frappe.db.exists("Scope Item", code):
+			# dry-run sobre un Scope Item aún no creado: se reportaría en la próxima corrida real.
+			if desired and dry_run:
+				report["updated"].append(
+					f"Scope Item '{code}': {len(desired)} dependencia(s) (pendiente de creación)"
+				)
+			continue
+
+		valid = [c for c in desired if frappe.db.exists("Scope Item", c)]
+		missing = [c for c in desired if not frappe.db.exists("Scope Item", c)]
+		if missing:
+			report["pending"].append(
+				f"Scope Item '{code}': dependencias omitidas (Scope Items inexistentes) {missing}"
+			)
+
+		current = set(
+			frappe.get_all(
+				"Scope Item Dependency",
+				filters={
+					"parenttype": "Scope Item",
+					"parentfield": "depends_on_scope_items",
+					"parent": code,
+				},
+				pluck="depends_on",
+			)
+		)
+		if set(valid) == current:
+			continue  # ya coincide — idempotente, sin escritura
+
+		if not (update_content or not current):
+			# Existe y difiere pero sin update_content: no sobrescribir, reportar conflicto.
+			report["conflicts"].append(
+				f"Scope Item '{code}': dependencias difieren del catálogo {sorted(valid)} vs {sorted(current)} (usar update_content)"
+			)
+			continue
+
+		if not dry_run:
+			doc = frappe.get_doc("Scope Item", code)
+			doc.set("depends_on_scope_items", [])
+			for dep in valid:
+				doc.append("depends_on_scope_items", {"depends_on": dep})
+			doc.save(ignore_permissions=True)
+		report["updated"].append(f"Scope Item '{code}': dependencias {sorted(valid)}")
 
 
 def _seed_templates(
@@ -777,15 +860,17 @@ def _print_report(report: dict, dry_run: bool, data: dict) -> None:
 		f"  Sin cambios:  {len(report['unchanged'])}",
 		f"  Actualizados: {len(report['updated'])}",
 		f"  Reutilizados: {len(report['reused'])}",
+		f"  Pendientes:   {len(report.get('pending', []))}",
 		f"  Conflictos:   {len(report['conflicts'])}",
 		"-" * 70,
 	]
 	for bucket, title in (
 		("created", "CREADOS"),
 		("updated", "ACTUALIZADOS (contenido del catálogo)"),
+		("pending", "PENDIENTES (erpnext_item / dependencias sin resolver — se completan al re-ejecutar)"),
 		("conflicts", "CONFLICTOS (revisar — NO se modificaron)"),
 	):
-		if report[bucket]:
+		if report.get(bucket):
 			lines.append(f"  {title}:")
 			lines.extend(f"    · {x}" for x in report[bucket])
 			lines.append("-" * 70)

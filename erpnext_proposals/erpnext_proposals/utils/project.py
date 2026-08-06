@@ -1,8 +1,39 @@
+import json
+
 import frappe
 from frappe import _
+from frappe.utils import add_days, getdate
 
 from erpnext_proposals.erpnext_proposals.utils.permissions import assert_can_manage_proposals
 from erpnext_proposals.erpnext_proposals.utils.phase import phase_label, phase_sequence
+
+
+def _parse_dep_codes(raw) -> list:
+	"""Parsea el JSON congelado de códigos de Scope Items predecesores. Tolerante a valores vacíos."""
+	if not raw:
+		return []
+	try:
+		value = json.loads(raw)
+	except ValueError, TypeError:
+		return []
+	return [str(c) for c in value if c] if isinstance(value, list) else []
+
+
+def _offset_value(raw):
+	"""Convierte el offset (Data nullable) a int, o None si NO hay offset explícito.
+
+	Vacío/NULL → None (sin offset → se programa por dependencias o queda sin fecha).
+	'0' → 0 (inicio explícito en la fecha de inicio del proyecto). ±N → int. La conversión a int
+	ocurre solo aquí (al calcular), nunca se almacena convertido."""
+	if raw is None:
+		return None
+	s = str(raw).strip()
+	if s == "":
+		return None
+	try:
+		return int(s)
+	except ValueError:
+		return None
 
 
 @frappe.whitelist()
@@ -104,52 +135,84 @@ def create_project_from_quotation(quotation_name: str):
 	# Orden: fases por Proposal Phase.sequence, luego secuencia del scope, luego idx.
 	exec_rows.sort(key=lambda r: (phase_sequence(r.phase), r.sequence or 0, r.idx))
 
+	# Nodos contratados con su Task, para los pasos de dependencias y programación. Incluye Tasks
+	# reutilizadas de una corrida previa: un reintento completa deps/fechas faltantes sin duplicar.
+	contracted: list = []  # [{scope, task, parent, offset, duration, milestone, dep_codes}]
+	task_by_scope: dict = {}  # Scope Item name (== code) -> Task name
+
 	for row in exec_rows:
+		parent = _phase_parent_task(row.phase)
 		# Idempotencia de la hija: por referencia guardada o por trazabilidad.
 		if row.project_task and frappe.db.exists("Task", row.project_task):
+			task_name = row.project_task
 			counters["tasks_skipped"] += 1
-			continue
-		existing_child = frappe.db.get_value(
-			"Task", {"project": project.name, "source_quotation_scope_item": row.name}, "name"
-		)
-		if existing_child:
-			frappe.db.set_value(
-				"Quotation Scope Item", row.name, "project_task", existing_child, update_modified=False
+		else:
+			existing_child = frappe.db.get_value(
+				"Task", {"project": project.name, "source_quotation_scope_item": row.name}, "name"
 			)
-			counters["tasks_skipped"] += 1
-			continue
+			if existing_child:
+				frappe.db.set_value(
+					"Quotation Scope Item", row.name, "project_task", existing_child, update_modified=False
+				)
+				task_name = existing_child
+				counters["tasks_skipped"] += 1
+			else:
+				subject = (
+					f"{row.title or row.code} — {row.item_code}" if row.item_code else (row.title or row.code)
+				)
+				desc_parts = []
+				if row.description:
+					desc_parts.append(row.description)
+				if row.deliverable:
+					desc_parts.append(f"<p><strong>Entregable:</strong></p>{row.deliverable}")
+				if row.activity_type:
+					desc_parts.append(f"<p><strong>Tipo de actividad:</strong> {row.activity_type}</p>")
+				if row.designation:
+					desc_parts.append(f"<p><strong>Perfil:</strong> {row.designation}</p>")
 
-		parent = _phase_parent_task(row.phase)
-		subject = f"{row.title or row.code} — {row.item_code}" if row.item_code else (row.title or row.code)
+				task = frappe.get_doc(
+					{
+						"doctype": "Task",
+						"subject": subject,
+						"project": project.name,
+						"parent_task": parent,
+						"is_group": 0,
+						"expected_time": row.estimated_hours or 0,
+						"description": "".join(desc_parts),
+						"status": "Open",
+						"is_milestone": 1 if row.is_milestone else 0,
+						"source_quotation_scope_item": row.name,
+					}
+				)
+				task.insert(ignore_permissions=True)
+				counters["tasks_created"] += 1
+				frappe.db.set_value(
+					"Quotation Scope Item", row.name, "project_task", task.name, update_modified=False
+				)
+				task_name = task.name
 
-		desc_parts = []
-		if row.description:
-			desc_parts.append(row.description)
-		if row.deliverable:
-			desc_parts.append(f"<p><strong>Entregable:</strong></p>{row.deliverable}")
-		if row.activity_type:
-			desc_parts.append(f"<p><strong>Tipo de actividad:</strong> {row.activity_type}</p>")
-		if row.designation:
-			desc_parts.append(f"<p><strong>Perfil:</strong> {row.designation}</p>")
-
-		task = frappe.get_doc(
+		contracted.append(
 			{
-				"doctype": "Task",
-				"subject": subject,
-				"project": project.name,
-				"parent_task": parent,
-				"is_group": 0,
-				"expected_time": row.estimated_hours or 0,
-				"description": "".join(desc_parts),
-				"status": "Open",
-				"source_quotation_scope_item": row.name,
+				"scope": row.scope_item or row.name,
+				"task": task_name,
+				"parent": parent,
+				"offset": row.planned_start_offset_days,
+				"duration": row.planned_duration_days,
+				"milestone": 1 if row.is_milestone else 0,
+				"dep_codes": row.dependency_scope_item_codes,
 			}
 		)
-		task.insert(ignore_permissions=True)
-		counters["tasks_created"] += 1
-		frappe.db.set_value(
-			"Quotation Scope Item", row.name, "project_task", task.name, update_modified=False
-		)
+		if row.scope_item and task_name:
+			task_by_scope[row.scope_item] = task_name
+
+	# ── 2º paso idempotente: dependencias nativas (Task.depends_on / Task Depends On) ──
+	dep_edges = _resolve_native_dependencies(contracted, task_by_scope, counters)
+
+	# ── Programación de fechas (offset o propagación por predecesoras) ──
+	undatable = _schedule_tasks(project, contracted, dep_edges)
+
+	# ── Roll-up de fechas de las Task padre de fase (min inicio / max fin de sus hijas) ──
+	_rollup_phase_dates(contracted)
 
 	frappe.db.commit()  # nosemgrep
 
@@ -159,4 +222,171 @@ def create_project_from_quotation(quotation_name: str):
 		"parent_tasks_reused": counters["parent_reused"],
 		"tasks_created": counters["tasks_created"],
 		"tasks_skipped": counters["tasks_skipped"],
+		"dependencies_created": counters.get("deps_created", 0),
+		# Tasks realmente no fechables (sin offset y sin predecesora con fecha): no se inventan fechas.
+		"undatable_tasks": undatable,
 	}
+
+
+def _resolve_native_dependencies(contracted: list, task_by_scope: dict, counters: dict) -> dict:
+	"""Traduce los códigos congelados en dependencias nativas Task.depends_on. Idempotente.
+
+	- Solo crea la relación si AMBAS Tasks existen dentro del mismo Project (predecesora contratada).
+	- Omite predecesores no contratados y evita duplicar relaciones existentes.
+	- Valida ciclos sobre el subgrafo contratado antes de escribir (rollback si hay ciclo).
+	Devuelve el grafo {task_sucesora: set(task_predecesora)} para la etapa de programación.
+	"""
+	dep_edges: dict = {}
+	for node in contracted:
+		task = node["task"]
+		for pcode in _parse_dep_codes(node["dep_codes"]):
+			ptask = task_by_scope.get(pcode)
+			if not ptask or ptask == task:  # no contratada o auto-referencia → omitir
+				continue
+			dep_edges.setdefault(task, set()).add(ptask)
+
+	_assert_no_task_cycle(dep_edges, [n["task"] for n in contracted])
+
+	created = 0
+	for stask, ptasks in dep_edges.items():
+		existing = set(
+			frappe.get_all("Task Depends On", filters={"parenttype": "Task", "parent": stask}, pluck="task")
+		)
+		to_add = ptasks - existing
+		if not to_add:
+			continue
+		doc = frappe.get_doc("Task", stask)
+		for pt in sorted(to_add):
+			doc.append("depends_on", {"task": pt})
+		doc.save(ignore_permissions=True)
+		created += len(to_add)
+	counters["deps_created"] = created
+	return dep_edges
+
+
+def _assert_no_task_cycle(dep_edges: dict, all_tasks: list) -> None:
+	"""Kahn sobre el subgrafo contratado. Si no se pueden ordenar todos los nodos → hay ciclo."""
+	nodes = set(all_tasks)
+	preds = {t: set(dep_edges.get(t, set())) & nodes for t in nodes}
+	indeg = {t: len(preds[t]) for t in nodes}
+	succ: dict = {t: [] for t in nodes}
+	for t, ps in preds.items():
+		for p in ps:
+			succ[p].append(t)
+	queue = [t for t in nodes if indeg[t] == 0]
+	seen = 0
+	while queue:
+		t = queue.pop()
+		seen += 1
+		for s in succ[t]:
+			indeg[s] -= 1
+			if indeg[s] == 0:
+				queue.append(s)
+	if seen != len(nodes):
+		frappe.throw(
+			_("Dependencia cíclica entre Tasks del Proyecto: no se puede programar. Revise el catálogo.")
+		)
+
+
+def _topo_order(tasks: list, preds: dict) -> list:
+	"""Orden topológico (Kahn) para procesar cada Task después de sus predecesoras contratadas."""
+	indeg = {t: len(preds[t]) for t in tasks}
+	succ: dict = {t: [] for t in tasks}
+	for t, ps in preds.items():
+		for p in ps:
+			succ[p].append(t)
+	queue = [t for t in tasks if indeg[t] == 0]
+	order = []
+	while queue:
+		t = queue.pop(0)
+		order.append(t)
+		for s in succ[t]:
+			indeg[s] -= 1
+			if indeg[s] == 0:
+				queue.append(s)
+	return order
+
+
+def _schedule_tasks(project, contracted: list, dep_edges: dict) -> list:
+	"""Programa exp_start_date/exp_end_date por Task. Orden (por diseño):
+
+	1. Offset EXPLÍCITO (Data no vacío, incluye '0') → fecha = Project.expected_start_date + offset
+	   (admite negativos). '0' inicia en la fecha de inicio del proyecto.
+	2. Sin offset pero con predecesoras fechadas → inicio = día siguiente al fin más tardío de ellas
+	   (el orden topológico repite la resolución por dependencias hasta no poder calcular más).
+	3. Sin offset y sin predecesora fechada → sin fechas (no se inventan); se reporta.
+
+	Vacío y '0' son distintos: vacío = sin offset (regla 2/3); '0' = inicio explícito (regla 1).
+
+	Fin: hito -> exp_end_date = exp_start_date; normal con duracion -> inicio + max(dur,1) - 1;
+	con inicio pero sin duración → mismo día (mínimo determinista para encadenar sucesoras).
+	"""
+	nodes = {n["task"]: n for n in contracted}
+	preds = {t: set(dep_edges.get(t, set())) & set(nodes) for t in nodes}
+	project_start = getdate(project.expected_start_date) if project.expected_start_date else None
+
+	start_by_task: dict = {}
+	end_by_task: dict = {}
+	undatable: list = []
+
+	for task in _topo_order(list(nodes), preds):
+		node = nodes[task]
+		offset = _offset_value(node["offset"])
+		start = None
+		if offset is not None and project_start is not None:
+			# 1) Offset explícito (incluye '0') → fecha de inicio del proyecto + offset.
+			start = add_days(project_start, offset)
+		elif offset is None:
+			# 2) Sin offset → día siguiente al fin más tardío de sus predecesoras YA fechadas.
+			#    El orden topológico garantiza que las predecesoras contratadas ya se resolvieron
+			#    (equivale a repetir la resolución por dependencias hasta no poder calcular más).
+			pred_ends = [end_by_task[p] for p in preds[task] if end_by_task.get(p)]
+			if pred_ends:
+				start = add_days(max(pred_ends), 1)
+
+		if start is None:
+			# 4) Ni offset explícito ni predecesora fechada → sin fechas; se reporta.
+			undatable.append({"task": task, "subject": node["scope"]})
+			continue
+
+		start = getdate(start)
+		if node["milestone"]:
+			end = start
+		elif node["duration"]:
+			end = add_days(start, max(int(node["duration"]), 1) - 1)
+		else:
+			end = start  # inicio conocido sin duración → 1 día calendario (determinista)
+		end = getdate(end)
+
+		start_by_task[task] = start
+		end_by_task[task] = end
+		frappe.db.set_value(
+			"Task",
+			task,
+			{"exp_start_date": start, "exp_end_date": end, "is_milestone": 1 if node["milestone"] else 0},
+			update_modified=False,
+		)
+
+	# Guardar en el nodo para el roll-up de padres.
+	for node in contracted:
+		node["_start"] = start_by_task.get(node["task"])
+		node["_end"] = end_by_task.get(node["task"])
+	return undatable
+
+
+def _rollup_phase_dates(contracted: list) -> None:
+	"""Actualiza cada Task padre de fase con el mínimo inicio y máximo fin de sus hijas fechadas."""
+	by_parent: dict = {}
+	for node in contracted:
+		if node.get("parent"):
+			by_parent.setdefault(node["parent"], []).append(node)
+	for parent, children in by_parent.items():
+		starts = [c["_start"] for c in children if c.get("_start")]
+		ends = [c["_end"] for c in children if c.get("_end")]
+		if starts and ends:
+			frappe.db.set_value(
+				"Task",
+				parent,
+				{"exp_start_date": min(starts), "exp_end_date": max(ends)},
+				update_modified=False,
+			)
