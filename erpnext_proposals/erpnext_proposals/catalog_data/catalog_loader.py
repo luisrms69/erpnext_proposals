@@ -72,7 +72,10 @@ BASE_SECTIONS = frozenset(
 # v5: planeación PMO en Scope Item (planned_start_offset_days/planned_duration_days/is_milestone),
 #     dependencias de catálogo (depends_on, 2º paso idempotente) y erpnext_item pendiente
 #     (Scope Item sin Item comercial existente, vinculado al re-ejecutar).
-LOADER_CAPS_VERSION = 5
+# v6: Designations (erpnext) y Skills (hrms) idempotentes por nombre + relación nativa
+#     Designation.skills (child Designation Skill), con gate HRMS: sin HRMS las Skills/relaciones
+#     quedan 'pending' y se completan al re-ejecutar. NO crea Activity Types/Costs/tarifas/empleados.
+LOADER_CAPS_VERSION = 6
 
 
 def capabilities() -> dict:
@@ -94,6 +97,9 @@ def capabilities() -> dict:
 		and callable(globals().get("_seed_payment_terms_templates")),
 		# v5: planeación PMO + dependencias de catálogo + erpnext_item pendiente.
 		"scope_pmo_planning": callable(globals().get("_seed_scope_dependencies")),
+		# v6: Designations + Skills + relación nativa Designation.skills (gate HRMS con pending).
+		"designations_skills": callable(globals().get("_seed_designations"))
+		and callable(globals().get("_seed_skills")),
 		# El loader NO tiene capacidad de sembrar masters fiscales (UOM / Item Groups).
 		"no_fiscal_master_writes": not callable(globals().get("_seed_item_groups"))
 		and not callable(globals().get("_seed_uoms")),
@@ -128,6 +134,12 @@ def run(catalog_path: str | None = None, dry_run: bool = True, update_content: b
 	}
 
 	try:
+		# Perfiles/capacidades ANTES del resto: los Scope Items pueden referenciar default_designation
+		# (Link → Designation), así que las Designations deben existir primero. Orden con HRMS: Skills →
+		# Designations (+ relación) → resto. Sin HRMS: Designations sí; Skills/relaciones a 'pending'.
+		hrms_ok = _hrms_available()
+		_seed_skills(data.get("skills", []), report, dry_run, update_content, hrms_ok)
+		_seed_designations(data.get("designations", []), report, dry_run, update_content, hrms_ok)
 		_seed_phases(data["phases"], report, dry_run)
 		section_remap = _seed_sections(
 			data["sections"], report, dry_run, update_content, set(data.get("versioned", []))
@@ -158,6 +170,151 @@ def run(catalog_path: str | None = None, dry_run: bool = True, update_content: b
 
 	_print_report(report, dry_run, data)
 	return report
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Perfiles y capacidades: Designation (erpnext) + Skill (hrms) + relación nativa
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def _hrms_available() -> bool:
+	"""True si existe la estructura nativa de HRMS para Skills y su relación con Designation:
+	DocType 'Skill', DocType 'Designation Skill' y el campo child 'skills' en Designation (que HRMS
+	agrega por setup.py). Sin ella, las Skills y relaciones se posponen ('pending')."""
+	if not (frappe.db.exists("DocType", "Skill") and frappe.db.exists("DocType", "Designation Skill")):
+		return False
+	return bool(frappe.get_meta("Designation").has_field("skills"))
+
+
+def _seed_skills(skills: list, report: dict, dry_run: bool, update_content: bool, hrms_ok: bool) -> None:
+	"""Crea/conserva idempotentemente Skills (HRMS). Identidad: skill_name. No sobrescribe la
+	descripción existente salvo update_content; reporta diferencias como conflicto. Sin HRMS → pending."""
+	if not skills:
+		return
+	if not hrms_ok:
+		for s in skills:
+			report["pending"].append(
+				f"Skill '{_require(s, 'skill_name')}': HRMS no instalado — pendiente (se creará al re-ejecutar)"
+			)
+		return
+	for s in skills:
+		name = _require(s, "skill_name")
+		label = f"Skill '{name}'"
+		provided = {"description": s["description"]} if s.get("description") is not None else {}
+		if not frappe.db.exists("Skill", name):
+			if not dry_run:
+				doc = {"doctype": "Skill", "skill_name": name}
+				doc.update(provided)
+				frappe.get_doc(doc).insert(ignore_permissions=True)
+			report["created"].append(label)
+			continue
+		current = frappe.db.get_value("Skill", name, list(provided.keys()), as_dict=True) if provided else {}
+		diffs = _diff(provided, current)
+		if not diffs:
+			report["unchanged"].append(label)
+		elif update_content:
+			if not dry_run:
+				doc = frappe.get_doc("Skill", name)
+				for f, v in provided.items():
+					doc.set(f, v)
+				doc.save(ignore_permissions=True)
+			report["updated"].append(f"{label}: {diffs}")
+		else:
+			report["conflicts"].append(f"{label}: {diffs} (no se sobrescribe; usar update_content)")
+
+
+def _seed_designations(
+	designations: list, report: dict, dry_run: bool, update_content: bool, hrms_ok: bool
+) -> None:
+	"""Crea/conserva idempotentemente Designations (erpnext). Identidad: designation_name. No
+	sobrescribe la descripción existente salvo update_content; reporta diferencias. La lista opcional
+	`skills` (nombres exactos) se aplica como relación nativa Designation.skills (solo con HRMS)."""
+	if not designations:
+		return
+	for d in designations:
+		name = _require(d, "designation_name")
+		label = f"Designation '{name}'"
+		provided = {"description": d["description"]} if d.get("description") is not None else {}
+		if not frappe.db.exists("Designation", name):
+			if not dry_run:
+				doc = {"doctype": "Designation", "designation_name": name}
+				doc.update(provided)
+				frappe.get_doc(doc).insert(ignore_permissions=True)
+			report["created"].append(label)
+		else:
+			current = (
+				frappe.db.get_value("Designation", name, list(provided.keys()), as_dict=True)
+				if provided
+				else {}
+			)
+			diffs = _diff(provided, current)
+			if not diffs:
+				report["unchanged"].append(label)
+			elif update_content:
+				if not dry_run:
+					doc = frappe.get_doc("Designation", name)
+					for f, v in provided.items():
+						doc.set(f, v)
+					doc.save(ignore_permissions=True)
+				report["updated"].append(f"{label}: {diffs}")
+			else:
+				report["conflicts"].append(f"{label}: {diffs} (no se sobrescribe; usar update_content)")
+
+		if "skills" in d:
+			_apply_designation_skills(name, d.get("skills") or [], report, dry_run, hrms_ok)
+
+
+def _apply_designation_skills(
+	designation: str, skill_names: list, report: dict, dry_run: bool, hrms_ok: bool
+) -> None:
+	"""Aplica la relación nativa Designation.skills (child 'Designation Skill', Link 'skill').
+
+	- Solo AGREGA Skills faltantes (comparación por nombre exacto); nunca duplica ni elimina filas
+	  existentes que no estén en el catálogo. Sin niveles ni evaluaciones.
+	- Sin HRMS, o si alguna Skill referenciada aún no existe, la relación (o esa parte) queda 'pending'.
+	"""
+	label = f"Designation '{designation}' skills"
+	desired = [s for s in skill_names if s]
+	if not desired:
+		return
+	if not hrms_ok:
+		report["pending"].append(f"{label}: HRMS no instalado — relación pendiente {sorted(desired)}")
+		return
+
+	missing = [s for s in desired if not frappe.db.exists("Skill", s)]
+	valid = [s for s in desired if frappe.db.exists("Skill", s)]
+	if missing:
+		report["pending"].append(f"{label}: Skills inexistentes {sorted(missing)} — relación pendiente")
+
+	if not frappe.db.exists("Designation", designation):
+		if valid and dry_run:  # dry-run: la Designation aún no existe pero se crearía
+			report["updated"].append(f"{label}: agregaría {sorted(valid)} (pendiente de creación)")
+		return
+
+	current = set(
+		frappe.get_all(
+			"Designation Skill",
+			filters={"parenttype": "Designation", "parentfield": "skills", "parent": designation},
+			pluck="skill",
+		)
+	)
+	to_add = [s for s in valid if s not in current]
+	if not to_add:
+		return  # relación ya presente — idempotente, sin ruido
+	if not dry_run:
+		doc = frappe.get_doc("Designation", designation)
+		for s in to_add:
+			doc.append("skills", {"skill": s})
+		doc.save(ignore_permissions=True)
+	report["updated"].append(f"{label}: +{sorted(to_add)}")
+
+
+def _require(record: dict, key: str):
+	"""Devuelve record[key] o detiene la carga (rollback) si falta la clave de identidad."""
+	value = record.get(key)
+	if not value:
+		frappe.throw(_("El catálogo tiene un registro sin '{0}' obligatorio: {1}").format(key, record))
+	return value
 
 
 # ─────────────────────────────────────────────────────────────────────────────
