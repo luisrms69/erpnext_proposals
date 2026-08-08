@@ -36,6 +36,25 @@ def _offset_value(raw):
 		return None
 
 
+def _copy_native_tags(src_dt: str, src_dn: str, dst_dt: str, dst_dn: str) -> int:
+	"""Copia los Tags NATIVOS de Frappe de un documento a otro con el mecanismo nativo (DocTags).
+
+	Genérico e idempotente: lee ``_user_tags`` del origen y agrega cada Tag al destino mediante
+	``DocTags.add`` (verifica pertenencia + ``unique``, así que un reintento no duplica) creando el
+	Tag master si falta. NO conoce nombres de Tags ni códigos de línea: copia exactamente lo que el
+	origen tenga. Devuelve cuántos Tags tenía el origen (aplicados al destino).
+	"""
+	from frappe.desk.doctype.tag.tag import DocTags
+
+	src_tags = [t for t in DocTags(src_dt).get_tags(src_dn).split(",") if t]
+	if not src_tags:
+		return 0
+	dst = DocTags(dst_dt)
+	for tag in src_tags:
+		dst.add(dst_dn, tag)
+	return len(src_tags)
+
+
 @frappe.whitelist()
 def create_project_from_quotation(quotation_name: str):
 	assert_can_manage_proposals()
@@ -101,11 +120,21 @@ def create_project_from_quotation(quotation_name: str):
 		)
 
 	# ── Tasks jerárquicas: Task-fase (padre, is_group) → Task-hija (Scope Item) ──
-	counters = {"parent_created": 0, "parent_reused": 0, "tasks_created": 0, "tasks_skipped": 0}
+	counters = {
+		"parent_created": 0,
+		"parent_reused": 0,
+		"tasks_created": 0,
+		"tasks_skipped": 0,
+		"parent_tags_applied": 0,
+	}
 	phase_task_by_code: dict = {}
 
 	def _phase_parent_task(phase_code: str) -> str:
-		"""Task-fase: una por (Project, Proposal Phase). Idempotente."""
+		"""Task-fase: una por (Project, Proposal Phase). Idempotente.
+
+		Tras crear/resolver la Task padre, materializa en ella los Tags NATIVOS de su Proposal Phase
+		(mecanismo nativo, idempotente). Solo la Task padre: nunca las Tasks hijas ni otros documentos.
+		"""
 		if phase_code in phase_task_by_code:
 			return phase_task_by_code[phase_code]
 		existing = frappe.db.get_value(
@@ -113,24 +142,27 @@ def create_project_from_quotation(quotation_name: str):
 		)
 		if existing:
 			counters["parent_reused"] += 1
-			phase_task_by_code[phase_code] = existing
-			return existing
-		parent = frappe.get_doc(
-			{
-				"doctype": "Task",
-				"subject": phase_label(phase_code),
-				"project": project.name,
-				"is_group": 1,
-				"expected_time": 0,
-				"status": "Open",
-				"proposal_phase": phase_code,
-				"source_quotation": quotation.name,
-			}
-		)
-		parent.insert(ignore_permissions=True)
-		counters["parent_created"] += 1
-		phase_task_by_code[phase_code] = parent.name
-		return parent.name
+			name = existing
+		else:
+			parent = frappe.get_doc(
+				{
+					"doctype": "Task",
+					"subject": phase_label(phase_code),
+					"project": project.name,
+					"is_group": 1,
+					"expected_time": 0,
+					"status": "Open",
+					"proposal_phase": phase_code,
+					"source_quotation": quotation.name,
+				}
+			)
+			parent.insert(ignore_permissions=True)
+			counters["parent_created"] += 1
+			name = parent.name
+		# Tags nativos Proposal Phase -> Task padre (idempotente; también sincroniza en reintentos).
+		counters["parent_tags_applied"] += _copy_native_tags("Proposal Phase", phase_code, "Task", name)
+		phase_task_by_code[phase_code] = name
+		return name
 
 	# Orden: fases por Proposal Phase.sequence, luego secuencia del scope, luego idx.
 	exec_rows.sort(key=lambda r: (phase_sequence(r.phase), r.sequence or 0, r.idx))
@@ -220,6 +252,7 @@ def create_project_from_quotation(quotation_name: str):
 		"project": project.name,
 		"parent_tasks_created": counters["parent_created"],
 		"parent_tasks_reused": counters["parent_reused"],
+		"parent_tags_applied": counters["parent_tags_applied"],
 		"tasks_created": counters["tasks_created"],
 		"tasks_skipped": counters["tasks_skipped"],
 		"dependencies_created": counters.get("deps_created", 0),
