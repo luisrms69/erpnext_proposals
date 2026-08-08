@@ -75,7 +75,10 @@ BASE_SECTIONS = frozenset(
 # v6: Designations (erpnext) y Skills (hrms) idempotentes por nombre + relación nativa
 #     Designation.skills (child Designation Skill), con gate HRMS: sin HRMS las Skills/relaciones
 #     quedan 'pending' y se completan al re-ejecutar. NO crea Activity Types/Costs/tarifas/empleados.
-LOADER_CAPS_VERSION = 6
+# v7: Tags nativos de Frappe declarados por línea en el catálogo (clave `tags` de cada Proposal
+#     Phase) → se materializan sobre la Proposal Phase con DocTags (add-only, no destructivo: nunca
+#     borra Tags ajenos). Fuente que la app propaga a la Task-fase padre al crear el Project.
+LOADER_CAPS_VERSION = 7
 
 
 def capabilities() -> dict:
@@ -100,6 +103,8 @@ def capabilities() -> dict:
 		# v6: Designations + Skills + relación nativa Designation.skills (gate HRMS con pending).
 		"designations_skills": callable(globals().get("_seed_designations"))
 		and callable(globals().get("_seed_skills")),
+		# v7: Tags nativos de catálogo → Proposal Phase (add-only, no destructivo).
+		"phase_tags": callable(globals().get("_apply_phase_tags")),
 		# El loader NO tiene capacidad de sembrar masters fiscales (UOM / Item Groups).
 		"no_fiscal_master_writes": not callable(globals().get("_seed_item_groups"))
 		and not callable(globals().get("_seed_uoms")),
@@ -338,14 +343,41 @@ def _seed_phases(phases: list, report: dict, dry_run: bool) -> None:
 					}
 				).insert(ignore_permissions=True)
 			report["created"].append(label)
-			continue
-
-		current = frappe.db.get_value("Proposal Phase", code, ["phase_name", "sequence"], as_dict=True)
-		diffs = _diff({"phase_name": p["phase_name"], "sequence": p["sequence"]}, current)
-		if diffs:
-			report["conflicts"].append(f"{label}: {diffs}")
 		else:
-			report["unchanged"].append(label)
+			current = frappe.db.get_value("Proposal Phase", code, ["phase_name", "sequence"], as_dict=True)
+			diffs = _diff({"phase_name": p["phase_name"], "sequence": p["sequence"]}, current)
+			if diffs:
+				report["conflicts"].append(f"{label}: {diffs}")
+			else:
+				report["unchanged"].append(label)
+		# Tags nativos del catálogo (clasificación de la línea) → Proposal Phase, add-only.
+		_apply_phase_tags(code, p.get("tags"), report, dry_run)
+
+
+def _apply_phase_tags(code: str, tags: list, report: dict, dry_run: bool) -> None:
+	"""Aplica los Tags NATIVOS de Frappe declarados en el catálogo a una Proposal Phase.
+
+	Capacidad estándar de Frappe (``DocTags``), genérica (no conoce nombres de Tags ni códigos de
+	línea) e idempotente. **No destructiva**: solo AGREGA los Tags del catálogo que falten; nunca
+	elimina Tags ajenos/no administrados de la Proposal Phase. Estos Tags son la fuente que la app
+	propaga a la Task-fase padre al crear el Project (ver utils/project._copy_native_tags).
+	"""
+	from frappe.desk.doctype.tag.tag import DocTags
+
+	wanted = [str(t).strip() for t in (tags or []) if t and str(t).strip()]
+	if not wanted:
+		return
+	dt = DocTags("Proposal Phase")
+	current = (
+		{t for t in dt.get_tags(code).split(",") if t} if frappe.db.exists("Proposal Phase", code) else set()
+	)
+	missing = [t for t in wanted if t not in current]
+	if not missing:
+		return
+	if not dry_run:
+		for t in missing:
+			dt.add(code, t)
+	report["updated"].append(f"Proposal Phase '{code}': +tags {missing}")
 
 
 def _seed_sections(sections: list, report: dict, dry_run: bool, update_content: bool, versioned: set) -> dict:
