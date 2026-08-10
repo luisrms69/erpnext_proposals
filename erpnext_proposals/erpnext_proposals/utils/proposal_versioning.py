@@ -173,6 +173,9 @@ def _copy_item(item) -> dict:
 		"proposal_methodology": item.get("proposal_methodology"),
 		"proposal_expected_result": item.get("proposal_expected_result"),
 		"proposal_scope_limit": item.get("proposal_scope_limit"),
+		# Alcance específico manual de la contratación: se hereda a la nueva versión (editable en el
+		# nuevo Borrador). No proviene del Item ni del catálogo.
+		"proposal_specific_scope": item.get("proposal_specific_scope"),
 	}
 
 
