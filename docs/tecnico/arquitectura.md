@@ -221,6 +221,31 @@ bench --site <site> execute \
 | ERPNext `Contact` | Resolución y persistencia del contacto dirigido de la Quotation | `utils/quotation_contact.py` — `set_proposal_contact` (hook `Quotation.before_insert`), `autocorrect_missing_contact` (hook `Quotation.validate`) | Reúso nativo `get_default_contact`/`get_contact_details`; ver abajo y **ADR-0009** |
 | Frappe CRM `CRM Deal` (opcional) | Contacto del Deal como autoritativo al crear la Quotation | `utils/quotation_contact.py` — `_deal_primary_contact` | Lectura **desacoplada** (guardada por `frappe.db.exists`); sin dependencia del app `crm` |
 
+### Materialización de dependencias en Tasks del Project
+
+Al crear el Project (`utils/project.py`), las filas `Task Depends On` de las Tasks resultantes provienen
+de **dos capas** — importante para conciliar el conteo, porque el total supera al número de
+dependencias fuente:
+
+1. **Dependencias de negocio (el app) — hija→hija:** `_resolve_native_dependencies` traduce los códigos
+   de dependencia **congelados** en cada `Quotation Scope Item` a relaciones `depends_on` **hija→hija**,
+   solo cuando **ambas** Tasks están contratadas (predecesor incluido), con dedup e idempotencia. Su
+   número es exactamente el de las aristas fuente **entre los scope items contratados** (un subconjunto
+   del total del catálogo: contratar menos Items reduce este número).
+2. **Enlace de grupo (ERPNext core) — grupo→hija:** cada Task de fase es `is_group=1` y cada Task hija
+   se crea con `parent_task` = su fase. El `on_update` nativo de ERPNext (`Task.populate_depends_on`)
+   agrega **cada hija** al `depends_on` de su Task de grupo, deduplicado. Resulta en **exactamente una**
+   relación grupo→hija por Task hija (cada hija tiene un solo `parent_task`). El app **no** crea estas
+   filas.
+
+Por eso `total Task Depends On = (aristas fuente entre contratados) + (1 por cada Task hija)`. No hay
+dependencias derivadas entre fases ni otras reglas automáticas del app; ambas capas son **idempotentes**
+(re-crear el Project no las duplica).
+
+**Ejemplo verificado (E2E, solo `ERPNEXT-BASE`):** 104 Tasks hijas en 16 fases; **135** relaciones
+hija→hija (las 135 aristas fuente entre esos 104 scope items — de las 197 del catálogo completo, el
+resto involucra líneas opcionales no contratadas) + **104** grupo→hija = **239** filas `Task Depends On`.
+
 ### Impuesto automático en Quotation (reúso read-only de `facturacion_mexico`)
 
 El adapter `utils/quotation_tax.py` (`apply_fiscal_taxes`, hook `Quotation.before_validate`) fija
