@@ -598,3 +598,44 @@ def _attach_pdf(doc, print_format: str, filename: str, is_private: int) -> None:
 			indicator="orange",
 			alert=True,
 		)
+
+
+@frappe.whitelist()
+def get_proposal_documents_status(quotation: str) -> dict:
+	"""Comprobación REAL de que los documentos oficiales de la propuesta ya fueron generados/adjuntados.
+
+	Los documentos oficiales los produce ``attach_proposal_pdfs`` al congelar (Borrador → En Revisión):
+	la propuesta comercial (pública, ``{formato efectivo} - {name}``) y la propuesta económica /
+	Rentabilidad Estimada (privada, ``Rentabilidad Estimada - {name}``). ``save_file`` puede añadir un
+	sufijo hash al nombre, por lo que la coincidencia es por PREFIJO. La generación es no-bloqueante
+	(puede fallar), así que ``docstatus`` no basta: se verifica la existencia real de cada adjunto.
+
+	Lo usa el botón ``Propuesta`` (JS) para ocultar las acciones de RE-GENERAR ("Imprimir …") de cada
+	documento oficial una vez que ese documento existe, sin quitar el acceso a los adjuntos ya generados.
+	"""
+	from erpnext_proposals.erpnext_proposals.utils.print_format import resolve_commercial_print_format
+
+	doc = frappe.get_doc("Quotation", quotation)
+	doc.check_permission("read")
+
+	def _attached(prefix: str, is_private: int) -> bool:
+		return bool(
+			frappe.db.exists(
+				"File",
+				{
+					"attached_to_doctype": "Quotation",
+					"attached_to_name": doc.name,
+					"is_private": is_private,
+					"file_name": ["like", f"{prefix}%"],
+				},
+			)
+		)
+
+	commercial_pf = resolve_commercial_print_format(doc)
+	commercial = _attached(f"{commercial_pf} - {doc.name}", 0)
+	rentabilidad = _attached(f"Rentabilidad Estimada - {doc.name}", 1)
+	return {
+		"commercial": commercial,
+		"rentabilidad": rentabilidad,
+		"official_present": commercial and rentabilidad,
+	}

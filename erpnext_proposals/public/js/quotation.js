@@ -126,35 +126,52 @@ frappe.ui.form.on("Quotation", {
 
 		// PDF buttons — available in all states (including Borrador for preview)
 		if (!frm.is_new()) {
-			frm.add_custom_button(
-				__("Imprimir Propuesta Comercial"),
-				() => {
-					frappe
-						.call({
-							method: "erpnext_proposals.erpnext_proposals.utils.print_format.get_effective_commercial_print_format",
-							args: { quotation: frm.doc.name },
-						})
-						.then((r) => {
-							const fmt = r.message || "Propuesta Comercial";
-							const url = `/printview?doctype=Quotation&name=${encodeURIComponent(
-								frm.doc.name
-							)}&format=${encodeURIComponent(fmt)}&no_letterhead=0`;
-							window.open(url, "_blank");
-						});
-				},
-				__("Propuesta")
-			);
+			// Acciones que RE-GENERAN una nueva representación desde el Print Format. Una vez que el
+			// sistema generó y adjuntó el documento oficial correspondiente (comprobación REAL de los
+			// adjuntos vía get_proposal_documents_status), se ocultan para evitar reimprimir/generar
+			// accidentalmente una versión distinta tras formalizar la propuesta. Los botones de
+			// descarga de abajo (acceso a lo YA generado) permanecen intactos.
+			frappe.call({
+				method: "erpnext_proposals.erpnext_proposals.utils.quotation.get_proposal_documents_status",
+				args: { quotation: frm.doc.name },
+				callback(r) {
+					const st = r.message || {};
 
-			frm.add_custom_button(
-				__("Imprimir Rentabilidad Estimada"),
-				() => {
-					const url = `/printview?doctype=Quotation&name=${encodeURIComponent(
-						frm.doc.name
-					)}&format=Rentabilidad%20Estimada&no_letterhead=0`;
-					window.open(url, "_blank");
+					if (!st.commercial) {
+						frm.add_custom_button(
+							__("Imprimir Propuesta Comercial"),
+							() => {
+								frappe
+									.call({
+										method: "erpnext_proposals.erpnext_proposals.utils.print_format.get_effective_commercial_print_format",
+										args: { quotation: frm.doc.name },
+									})
+									.then((r2) => {
+										const fmt = r2.message || "Propuesta Comercial";
+										const url = `/printview?doctype=Quotation&name=${encodeURIComponent(
+											frm.doc.name
+										)}&format=${encodeURIComponent(fmt)}&no_letterhead=0`;
+										window.open(url, "_blank");
+									});
+							},
+							__("Propuesta")
+						);
+					}
+
+					if (!st.rentabilidad) {
+						frm.add_custom_button(
+							__("Imprimir Rentabilidad Estimada"),
+							() => {
+								const url = `/printview?doctype=Quotation&name=${encodeURIComponent(
+									frm.doc.name
+								)}&format=Rentabilidad%20Estimada&no_letterhead=0`;
+								window.open(url, "_blank");
+							},
+							__("Propuesta")
+						);
+					}
 				},
-				__("Propuesta")
-			);
+			});
 
 			// Mostrar el Print Format comercial efectivo que se usará.
 			frappe
