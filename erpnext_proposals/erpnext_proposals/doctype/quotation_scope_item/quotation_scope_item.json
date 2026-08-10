@@ -26,6 +26,7 @@
   "project_task",
   "section_pmo_snapshot",
   "planned_start_offset_days",
+  "moment",
   "planned_duration_days",
   "is_milestone",
   "dependency_scope_item_codes",
@@ -172,6 +173,15 @@
    "allow_on_submit": 1,
    "print_hide": 1,
    "description": "Congelado del Scope Item (texto entero). Vacío/NULL = sin offset explícito; '0' = inicio en la fecha de inicio del proyecto; ± = días después/antes. La diferencia entre vacío y '0' se conserva."
+  },
+  {
+   "fieldname": "moment",
+   "fieldtype": "Data",
+   "label": "Moment",
+   "read_only": 1,
+   "allow_on_submit": 1,
+   "print_hide": 1,
+   "description": "Congelado del Scope Item: momento relativo de ejecución (texto libre del programa fuente, p. ej. 'Periodo 2-3', 'Día 0', 'Al finalizar'). Snapshot comercial para presentar el programa con su temporalidad; puede quedar vacío."
   },
   {
    "fieldname": "planned_duration_days",

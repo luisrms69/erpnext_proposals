@@ -728,6 +728,8 @@ def _seed_scope_items(items: list, report: dict, dry_run: bool, update_content: 
 		"deliverable",
 		# Planeación PMO (opcional): reglas reutilizables del catálogo.
 		"planned_start_offset_days",
+		# Momento relativo de ejecución del programa fuente (texto libre; opcional).
+		"moment",
 		"planned_duration_days",
 		"is_milestone",
 	]

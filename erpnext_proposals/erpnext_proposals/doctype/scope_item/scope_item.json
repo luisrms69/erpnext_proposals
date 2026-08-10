@@ -24,6 +24,7 @@
   "default_designation",
   "section_pmo",
   "planned_start_offset_days",
+  "moment",
   "planned_duration_days",
   "is_milestone",
   "depends_on_scope_items"
@@ -143,6 +144,12 @@
    "fieldtype": "Data",
    "label": "Planned Start Offset (days)",
    "description": "Offset en días calendario respecto de Project.expected_start_date, como texto entero. Vacío/NULL = SIN offset explícito (se programa por dependencias o queda sin fecha); '0' = inicio explícito en la fecha de inicio del proyecto; entero positivo = días después; negativo = días antes. Se rechaza cualquier valor no entero. Es una regla del catálogo, no una copia de Task.exp_start_date."
+  },
+  {
+   "fieldname": "moment",
+   "fieldtype": "Data",
+   "label": "Moment",
+   "description": "Momento relativo de ejecución tal como viene de la fuente autoritativa del programa (texto libre: 'Periodo 2-3', 'Día 0', 'Cierre del Periodo 3', 'Al finalizar', etc.). Se congela como snapshot comercial en la propuesta para presentar el programa con su temporalidad real y el paralelismo entre trabajos. No se deriva de sequence ni de fechas; puede quedar vacío."
   },
   {
    "fieldname": "planned_duration_days",

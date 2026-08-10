@@ -188,6 +188,7 @@ def _generate_scope_items(doc):
 				"visible_in_proposal",
 				"is_internal_cost_task",
 				"planned_start_offset_days",
+				"moment",
 				"planned_duration_days",
 				"is_milestone",
 			],
@@ -218,6 +219,8 @@ def _generate_scope_items(doc):
 					"is_internal_cost_task": si.is_internal_cost_task or 0,
 					# Planeación PMO congelada (opcional; puede venir vacía).
 					"planned_start_offset_days": si.planned_start_offset_days,
+					# Momento relativo de ejecución (snapshot comercial; puede venir vacío).
+					"moment": si.moment,
 					"planned_duration_days": si.planned_duration_days,
 					"is_milestone": si.is_milestone or 0,
 					"dependency_scope_item_codes": dep_codes.get(si.name, "[]"),
@@ -229,6 +232,9 @@ def _generate_scope_items(doc):
 
 # Contenido general del Item que se CONGELA en la línea nativa Quotation Item (bloque del servicio).
 _FROZEN_ITEM_FIELDS = (
+	# item_name incluido: el nombre comercial mostrado en la propuesta se congela desde el Item y el
+	# resync explícito lo refresca (p. ej. cuando el catálogo renombra el Item).
+	"item_name",
 	"description",
 	"proposal_methodology",
 	"proposal_expected_result",
@@ -274,6 +280,7 @@ _CATALOG_CONTROLLED_FIELDS = (
 	"is_internal_cost_task",
 	# Planeación PMO congelada — el resync explícito en Borrador la refresca desde el catálogo.
 	"planned_start_offset_days",
+	"moment",
 	"planned_duration_days",
 	"is_milestone",
 	"dependency_scope_item_codes",
@@ -305,6 +312,7 @@ def _catalog_rows_for_items(item_codes: list) -> dict:
 			"is_internal_cost_task",
 			"visible_in_proposal",
 			"planned_start_offset_days",
+			"moment",
 			"planned_duration_days",
 			"is_milestone",
 		],
@@ -325,6 +333,8 @@ def _catalog_rows_for_items(item_codes: list) -> dict:
 			"is_internal_cost_task": si.is_internal_cost_task or 0,
 			# Planeación PMO congelada — controlada por catálogo (refrescada en resync).
 			"planned_start_offset_days": si.planned_start_offset_days,
+			# Momento relativo de ejecución — snapshot comercial (refrescado en resync).
+			"moment": si.moment,
 			"planned_duration_days": si.planned_duration_days,
 			"is_milestone": si.is_milestone or 0,
 			"dependency_scope_item_codes": dep_codes.get(si.name, "[]"),
