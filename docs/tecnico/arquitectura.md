@@ -41,7 +41,7 @@ y de gestión.
 | Sincronizar alcance desde catálogo | Botón (solo Borrador) → `resync_scope_from_catalog` | **update + remove + add** sobre filas `auto_generated=1`: refresca campos controlados por catálogo, elimina las sin respaldo (Scope Item deshabilitado/borrado o Item quitado) y agrega nuevas; preserva `include_in_proposal` y filas manuales (`auto_generated=0`). También **regenera** el `proposal_sections_snapshot` desde los maestros vigentes — es la **única** vía de actualizar el snapshot, y solo mientras la propuesta siga en Borrador | Alcance y snapshot de secciones sincronizados con el catálogo vigente | `utils/quotation.py` |
 | Avance a En Revision | Workflow action "Enviar a Revision" | `validate_workflow`: valida campos, **conserva** el `proposal_sections_snapshot` ya capturado en Borrador (lo crea como fallback solo si viene un Borrador legacy sin snapshot), **congela las tarifas de costo** (idempotente por fila; también se aplica en el Submit de respaldo), genera y adjunta PDFs | Quotation submitted (docstatus=1), snapshot de secciones inmutable, tarifas congeladas, PDFs adjuntos | `utils/workflow_validations.py` |
 | Aprobación / Rechazo | Workflow action "Aprobar" o "Rechazar" | Registra `reviewed_by`, `reviewed_on`; si aprobada: registra `approved_by`, `approved_on` | Quotation en Aprobada o Rechazada con trazabilidad | `utils/workflow_validations.py` |
-| Versionado | Quotation Rechazada + acción "Crear nueva versión" | Copia campos a nueva Quotation (incluye el `proposal_sections_snapshot` **literal** y el contenido congelado de cada `Quotation Item`); marca original como `superseded_by_proposal`; bloquea si hay proyecto activo en la versión anterior. **Regenera** el payment schedule válido para la nueva `transaction_date` (`_resolve_new_version_payment` / `_is_automatic_single_row`), no copia fechas viejas | Nueva Quotation en Borrador vinculada | `utils/proposal_versioning.py` |
+| Versionado | Quotation Rechazada + acción "Crear nueva versión" | Copia campos a nueva Quotation (incluye el `proposal_sections_snapshot` **literal**, el contenido congelado de cada `Quotation Item` y el `proposal_specific_scope` manual de cada línea, editable de nuevo en el Borrador nuevo); marca original como `superseded_by_proposal`; bloquea si hay proyecto activo en la versión anterior. **Regenera** el payment schedule válido para la nueva `transaction_date` (`_resolve_new_version_payment` / `_is_automatic_single_row`), no copia fechas viejas | Nueva Quotation en Borrador vinculada | `utils/proposal_versioning.py` |
 | Marcar como Ganada | Workflow action "Marcar como Ganada" | Transición Enviada al Cliente → Ganada | Quotation en estado Ganada; habilita botón Crear Proyecto y Sales Order | `fixtures/workflow.json` |
 | Crear proyecto | Botón "Crear/Ver Proyecto" (estado Ganada) | Crea Project + Tasks desde scope items; idempotente: reutiliza proyecto si ya existe | Proyecto ERPNext con Tasks vinculadas a scope items | `utils/project.py` |
 | Propagación a Sales Order | Creación de SO desde Quotation Ganada | `validate` y `on_submit` propagan `proposal_project` y `proposal_cost_center` al SO | SO con proyecto y cost center heredados | `utils/sales_order.py` |
@@ -59,7 +59,7 @@ y de gestión.
 | `Scope Item` | Actividad del catálogo maestro | Link a `Item` de ERPNext (`erpnext_item`); `phase` **Link a `Proposal Phase`** | Sin precio; describe trabajo, perfil y horas estimadas. El **contenido editorial** del servicio (metodología, resultado esperado, límite del alcance) vive en el **Item**, no aquí |
 | `Quotation Scope Item` | Copia congelada de un Scope Item dentro de una Quotation | Parent: `Quotation`; link a `Scope Item`, `Task` y `phase`→`Proposal Phase` | Child table; `rate_locked` se fija en transición a En Revision. Flags: `include_in_proposal` (visible en PDF) y `is_internal_cost_task` (tarea interna: entra en costo/rentabilidad, se excluye del PDF comercial) |
 | `Item` (extendido) | Contenido comercial del servicio | Custom fields editoriales administrados por el catálogo | `proposal_content_section`, `proposal_methodology`, `proposal_expected_result`, `proposal_scope_limit` — descripción/metodología/resultado/límite del servicio |
-| `Quotation Item` (extendido) | Copia **congelada** del contenido editorial del Item dentro de la Quotation | Child de `Quotation` | `proposal_methodology`, `proposal_expected_result`, `proposal_scope_limit` copiados del Item al generar el alcance; el PDF usa esta copia y **no** relee el Item maestro |
+| `Quotation Item` (extendido) | Copia **congelada** del contenido editorial del Item dentro de la Quotation | Child de `Quotation` | `proposal_methodology`, `proposal_expected_result`, `proposal_scope_limit` copiados del Item al generar el alcance; el PDF usa esta copia y **no** relee el Item maestro. Además `proposal_specific_scope` (Text Editor): **alcance contratado manual** por línea — editable en Borrador, **no** viene del Item/catálogo (ver [ADR-0010](../adr/0010-alcance-especifico-contratado-quotation-item.md)) |
 | `Proposal Phase` | Catálogo de fases (`phase_code`, `phase_name`, `sequence`) | Referenciado por `phase` en Scope Item / Quotation Scope Item | El orden en propuesta/reportes/Tasks usa `sequence`; el display usa `phase_name`. Helpers en `utils/phase.py` (`phase_label`, `order_phases`, jinja methods) |
 | `Proposal Cost Matrix` | Costos por (Designation, Activity Type) | Alimenta freeze de costos en scope items | Rebuildeado diariamente; `is_general_rate=1` para filas de promedio por designación |
 | `Proposal Cost Matrix Log` | Historial de cambios de tasa | Parent: ninguno | Append-only; creado por `cost_matrix.py` en cada cambio de tasa |
@@ -100,6 +100,27 @@ copia esos cuatro campos del `Item` a cada línea nativa `Quotation Item`
 
 > Decisión relacionada: el contenido editorial vive en el `Item`, **no** en `Scope Item`
 > (los Scope Items solo describen actividad, perfil y horas). Ver ADR-0007.
+
+### Alcance específico contratado por línea: `proposal_specific_scope`
+
+A diferencia del contenido editorial (genérico, del catálogo), el **alcance concreto de la
+contratación** de cada servicio se captura a mano en `Quotation Item.proposal_specific_scope`
+(Text Editor). Propiedades y ciclo de vida:
+
+- **Editable en Borrador** (`hidden=0`, `read_only=0`, `allow_on_submit=0`, `print_hide=1`, `reqd=0`):
+  se escribe en la fila expandida de cada servicio.
+- **Fuera de los conjuntos gestionados:** no está en `_FROZEN_ITEM_FIELDS` (copia `Item → Quotation
+  Item`) ni en `_CATALOG_CONTROLLED_FIELDS` (refresco del resync). Por eso **un guardado, un
+  *Regenerar alcance* y un `_copy_item_proposal_fields(force=True)` lo conservan** sin tocarlo.
+- **Congelado al someter** con los mecanismos existentes (sin freeze paralelo): `allow_on_submit=0`
+  más el hook `on_quotation_before_update_after_submit`, que rechaza cualquier edición post-submit
+  fuera de las transiciones de workflow.
+- **Heredado al versionar:** `create_new_proposal_version` lo copia en `_copy_item(...)`; queda
+  editable de nuevo en el Borrador de la nueva versión, sin alterar la anterior.
+- **Independiente por línea:** el mismo `Item` repetido puede tener alcances distintos.
+- **Impresión:** el Print Format que lo consume (pack privado) lo lee **solo** desde `Quotation Item`
+  y **únicamente si tiene contenido**; nunca relee Item/catálogo/Scope Item. Ver
+  [ADR-0010](../adr/0010-alcance-especifico-contratado-quotation-item.md).
 
 ### Snapshot inmutable de Proposal Sections
 
@@ -199,6 +220,31 @@ bench --site <site> execute \
 | `facturacion_mexico` (impuestos) | Impuesto automático en Quotation reutilizando la resolución fiscal existente | `utils/quotation_tax.py` — `apply_fiscal_taxes` (hook `Quotation.before_validate`) | **Read-only sobre `facturacion_mexico`** (solo `import`); ver abajo y **ADR-0008** |
 | ERPNext `Contact` | Resolución y persistencia del contacto dirigido de la Quotation | `utils/quotation_contact.py` — `set_proposal_contact` (hook `Quotation.before_insert`), `autocorrect_missing_contact` (hook `Quotation.validate`) | Reúso nativo `get_default_contact`/`get_contact_details`; ver abajo y **ADR-0009** |
 | Frappe CRM `CRM Deal` (opcional) | Contacto del Deal como autoritativo al crear la Quotation | `utils/quotation_contact.py` — `_deal_primary_contact` | Lectura **desacoplada** (guardada por `frappe.db.exists`); sin dependencia del app `crm` |
+
+### Materialización de dependencias en Tasks del Project
+
+Al crear el Project (`utils/project.py`), las filas `Task Depends On` de las Tasks resultantes provienen
+de **dos capas** — importante para conciliar el conteo, porque el total supera al número de
+dependencias fuente:
+
+1. **Dependencias de negocio (el app) — hija→hija:** `_resolve_native_dependencies` traduce los códigos
+   de dependencia **congelados** en cada `Quotation Scope Item` a relaciones `depends_on` **hija→hija**,
+   solo cuando **ambas** Tasks están contratadas (predecesor incluido), con dedup e idempotencia. Su
+   número es exactamente el de las aristas fuente **entre los scope items contratados** (un subconjunto
+   del total del catálogo: contratar menos Items reduce este número).
+2. **Enlace de grupo (ERPNext core) — grupo→hija:** cada Task de fase es `is_group=1` y cada Task hija
+   se crea con `parent_task` = su fase. El `on_update` nativo de ERPNext (`Task.populate_depends_on`)
+   agrega **cada hija** al `depends_on` de su Task de grupo, deduplicado. Resulta en **exactamente una**
+   relación grupo→hija por Task hija (cada hija tiene un solo `parent_task`). El app **no** crea estas
+   filas.
+
+Por eso `total Task Depends On = (aristas fuente entre contratados) + (1 por cada Task hija)`. No hay
+dependencias derivadas entre fases ni otras reglas automáticas del app; ambas capas son **idempotentes**
+(re-crear el Project no las duplica).
+
+**Ejemplo verificado (E2E, solo `ERPNEXT-BASE`):** 104 Tasks hijas en 16 fases; **135** relaciones
+hija→hija (las 135 aristas fuente entre esos 104 scope items — de las 197 del catálogo completo, el
+resto involucra líneas opcionales no contratadas) + **104** grupo→hija = **239** filas `Task Depends On`.
 
 ### Impuesto automático en Quotation (reúso read-only de `facturacion_mexico`)
 

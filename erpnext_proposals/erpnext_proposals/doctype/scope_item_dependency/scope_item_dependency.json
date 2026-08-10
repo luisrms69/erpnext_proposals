@@ -1,0 +1,33 @@
+{
+ "actions": [],
+ "creation": "2026-08-04 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "depends_on"
+ ],
+ "fields": [
+  {
+   "columns": 6,
+   "fieldname": "depends_on",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Depends On",
+   "options": "Scope Item",
+   "reqd": 1,
+   "description": "Otro Scope Item que debe completarse antes de este. Es una regla del catálogo; las dependencias finales de ejecución viven en la tabla nativa Task.depends_on."
+  }
+ ],
+ "istable": 1,
+ "links": [],
+ "modified": "2026-08-04 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "ERPNext Proposals",
+ "name": "Scope Item Dependency",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

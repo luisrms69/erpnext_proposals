@@ -69,7 +69,16 @@ BASE_SECTIONS = frozenset(
 # externo puede requerir. El instalador de producción la usa para rechazar un app desactualizado.
 # v3: el loader NO crea/actualiza UOM ni Item Groups (masters fiscales) — solo los referencia.
 # v4: soporte de Payment Terms / Payment Terms Templates (condiciones de pago corporativas).
-LOADER_CAPS_VERSION = 4
+# v5: planeación PMO en Scope Item (planned_start_offset_days/planned_duration_days/is_milestone),
+#     dependencias de catálogo (depends_on, 2º paso idempotente) y erpnext_item pendiente
+#     (Scope Item sin Item comercial existente, vinculado al re-ejecutar).
+# v6: Designations (erpnext) y Skills (hrms) idempotentes por nombre + relación nativa
+#     Designation.skills (child Designation Skill), con gate HRMS: sin HRMS las Skills/relaciones
+#     quedan 'pending' y se completan al re-ejecutar. NO crea Activity Types/Costs/tarifas/empleados.
+# v7: Tags nativos de Frappe declarados por línea en el catálogo (clave `tags` de cada Proposal
+#     Phase) → se materializan sobre la Proposal Phase con DocTags (add-only, no destructivo: nunca
+#     borra Tags ajenos). Fuente que la app propaga a la Task-fase padre al crear el Project.
+LOADER_CAPS_VERSION = 7
 
 
 def capabilities() -> dict:
@@ -89,6 +98,13 @@ def capabilities() -> dict:
 		"get_logo_data_uri": callable(getattr(printing, "get_logo_data_uri", None)),
 		"payment_terms": callable(globals().get("_seed_payment_terms"))
 		and callable(globals().get("_seed_payment_terms_templates")),
+		# v5: planeación PMO + dependencias de catálogo + erpnext_item pendiente.
+		"scope_pmo_planning": callable(globals().get("_seed_scope_dependencies")),
+		# v6: Designations + Skills + relación nativa Designation.skills (gate HRMS con pending).
+		"designations_skills": callable(globals().get("_seed_designations"))
+		and callable(globals().get("_seed_skills")),
+		# v7: Tags nativos de catálogo → Proposal Phase (add-only, no destructivo).
+		"phase_tags": callable(globals().get("_apply_phase_tags")),
 		# El loader NO tiene capacidad de sembrar masters fiscales (UOM / Item Groups).
 		"no_fiscal_master_writes": not callable(globals().get("_seed_item_groups"))
 		and not callable(globals().get("_seed_uoms")),
@@ -117,9 +133,18 @@ def run(catalog_path: str | None = None, dry_run: bool = True, update_content: b
 		"updated": [],
 		"unchanged": [],
 		"conflicts": [],
+		# Scope Items cuyo erpnext_item apunta a un Item que aún no existe: se dejan sin vincular
+		# y se completan al re-ejecutar la sincronización cuando el Item exista.
+		"pending": [],
 	}
 
 	try:
+		# Perfiles/capacidades ANTES del resto: los Scope Items pueden referenciar default_designation
+		# (Link → Designation), así que las Designations deben existir primero. Orden con HRMS: Skills →
+		# Designations (+ relación) → resto. Sin HRMS: Designations sí; Skills/relaciones a 'pending'.
+		hrms_ok = _hrms_available()
+		_seed_skills(data.get("skills", []), report, dry_run, update_content, hrms_ok)
+		_seed_designations(data.get("designations", []), report, dry_run, update_content, hrms_ok)
 		_seed_phases(data["phases"], report, dry_run)
 		section_remap = _seed_sections(
 			data["sections"], report, dry_run, update_content, set(data.get("versioned", []))
@@ -153,6 +178,151 @@ def run(catalog_path: str | None = None, dry_run: bool = True, update_content: b
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Perfiles y capacidades: Designation (erpnext) + Skill (hrms) + relación nativa
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def _hrms_available() -> bool:
+	"""True si existe la estructura nativa de HRMS para Skills y su relación con Designation:
+	DocType 'Skill', DocType 'Designation Skill' y el campo child 'skills' en Designation (que HRMS
+	agrega por setup.py). Sin ella, las Skills y relaciones se posponen ('pending')."""
+	if not (frappe.db.exists("DocType", "Skill") and frappe.db.exists("DocType", "Designation Skill")):
+		return False
+	return bool(frappe.get_meta("Designation").has_field("skills"))
+
+
+def _seed_skills(skills: list, report: dict, dry_run: bool, update_content: bool, hrms_ok: bool) -> None:
+	"""Crea/conserva idempotentemente Skills (HRMS). Identidad: skill_name. No sobrescribe la
+	descripción existente salvo update_content; reporta diferencias como conflicto. Sin HRMS → pending."""
+	if not skills:
+		return
+	if not hrms_ok:
+		for s in skills:
+			report["pending"].append(
+				f"Skill '{_require(s, 'skill_name')}': HRMS no instalado — pendiente (se creará al re-ejecutar)"
+			)
+		return
+	for s in skills:
+		name = _require(s, "skill_name")
+		label = f"Skill '{name}'"
+		provided = {"description": s["description"]} if s.get("description") is not None else {}
+		if not frappe.db.exists("Skill", name):
+			if not dry_run:
+				doc = {"doctype": "Skill", "skill_name": name}
+				doc.update(provided)
+				frappe.get_doc(doc).insert(ignore_permissions=True)
+			report["created"].append(label)
+			continue
+		current = frappe.db.get_value("Skill", name, list(provided.keys()), as_dict=True) if provided else {}
+		diffs = _diff(provided, current)
+		if not diffs:
+			report["unchanged"].append(label)
+		elif update_content:
+			if not dry_run:
+				doc = frappe.get_doc("Skill", name)
+				for f, v in provided.items():
+					doc.set(f, v)
+				doc.save(ignore_permissions=True)
+			report["updated"].append(f"{label}: {diffs}")
+		else:
+			report["conflicts"].append(f"{label}: {diffs} (no se sobrescribe; usar update_content)")
+
+
+def _seed_designations(
+	designations: list, report: dict, dry_run: bool, update_content: bool, hrms_ok: bool
+) -> None:
+	"""Crea/conserva idempotentemente Designations (erpnext). Identidad: designation_name. No
+	sobrescribe la descripción existente salvo update_content; reporta diferencias. La lista opcional
+	`skills` (nombres exactos) se aplica como relación nativa Designation.skills (solo con HRMS)."""
+	if not designations:
+		return
+	for d in designations:
+		name = _require(d, "designation_name")
+		label = f"Designation '{name}'"
+		provided = {"description": d["description"]} if d.get("description") is not None else {}
+		if not frappe.db.exists("Designation", name):
+			if not dry_run:
+				doc = {"doctype": "Designation", "designation_name": name}
+				doc.update(provided)
+				frappe.get_doc(doc).insert(ignore_permissions=True)
+			report["created"].append(label)
+		else:
+			current = (
+				frappe.db.get_value("Designation", name, list(provided.keys()), as_dict=True)
+				if provided
+				else {}
+			)
+			diffs = _diff(provided, current)
+			if not diffs:
+				report["unchanged"].append(label)
+			elif update_content:
+				if not dry_run:
+					doc = frappe.get_doc("Designation", name)
+					for f, v in provided.items():
+						doc.set(f, v)
+					doc.save(ignore_permissions=True)
+				report["updated"].append(f"{label}: {diffs}")
+			else:
+				report["conflicts"].append(f"{label}: {diffs} (no se sobrescribe; usar update_content)")
+
+		if "skills" in d:
+			_apply_designation_skills(name, d.get("skills") or [], report, dry_run, hrms_ok)
+
+
+def _apply_designation_skills(
+	designation: str, skill_names: list, report: dict, dry_run: bool, hrms_ok: bool
+) -> None:
+	"""Aplica la relación nativa Designation.skills (child 'Designation Skill', Link 'skill').
+
+	- Solo AGREGA Skills faltantes (comparación por nombre exacto); nunca duplica ni elimina filas
+	  existentes que no estén en el catálogo. Sin niveles ni evaluaciones.
+	- Sin HRMS, o si alguna Skill referenciada aún no existe, la relación (o esa parte) queda 'pending'.
+	"""
+	label = f"Designation '{designation}' skills"
+	desired = [s for s in skill_names if s]
+	if not desired:
+		return
+	if not hrms_ok:
+		report["pending"].append(f"{label}: HRMS no instalado — relación pendiente {sorted(desired)}")
+		return
+
+	missing = [s for s in desired if not frappe.db.exists("Skill", s)]
+	valid = [s for s in desired if frappe.db.exists("Skill", s)]
+	if missing:
+		report["pending"].append(f"{label}: Skills inexistentes {sorted(missing)} — relación pendiente")
+
+	if not frappe.db.exists("Designation", designation):
+		if valid and dry_run:  # dry-run: la Designation aún no existe pero se crearía
+			report["updated"].append(f"{label}: agregaría {sorted(valid)} (pendiente de creación)")
+		return
+
+	current = set(
+		frappe.get_all(
+			"Designation Skill",
+			filters={"parenttype": "Designation", "parentfield": "skills", "parent": designation},
+			pluck="skill",
+		)
+	)
+	to_add = [s for s in valid if s not in current]
+	if not to_add:
+		return  # relación ya presente — idempotente, sin ruido
+	if not dry_run:
+		doc = frappe.get_doc("Designation", designation)
+		for s in to_add:
+			doc.append("skills", {"skill": s})
+		doc.save(ignore_permissions=True)
+	report["updated"].append(f"{label}: +{sorted(to_add)}")
+
+
+def _require(record: dict, key: str):
+	"""Devuelve record[key] o detiene la carga (rollback) si falta la clave de identidad."""
+	value = record.get(key)
+	if not value:
+		frappe.throw(_("El catálogo tiene un registro sin '{0}' obligatorio: {1}").format(key, record))
+	return value
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Seeders por DocType
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -173,14 +343,41 @@ def _seed_phases(phases: list, report: dict, dry_run: bool) -> None:
 					}
 				).insert(ignore_permissions=True)
 			report["created"].append(label)
-			continue
-
-		current = frappe.db.get_value("Proposal Phase", code, ["phase_name", "sequence"], as_dict=True)
-		diffs = _diff({"phase_name": p["phase_name"], "sequence": p["sequence"]}, current)
-		if diffs:
-			report["conflicts"].append(f"{label}: {diffs}")
 		else:
-			report["unchanged"].append(label)
+			current = frappe.db.get_value("Proposal Phase", code, ["phase_name", "sequence"], as_dict=True)
+			diffs = _diff({"phase_name": p["phase_name"], "sequence": p["sequence"]}, current)
+			if diffs:
+				report["conflicts"].append(f"{label}: {diffs}")
+			else:
+				report["unchanged"].append(label)
+		# Tags nativos del catálogo (clasificación de la línea) → Proposal Phase, add-only.
+		_apply_phase_tags(code, p.get("tags"), report, dry_run)
+
+
+def _apply_phase_tags(code: str, tags: list, report: dict, dry_run: bool) -> None:
+	"""Aplica los Tags NATIVOS de Frappe declarados en el catálogo a una Proposal Phase.
+
+	Capacidad estándar de Frappe (``DocTags``), genérica (no conoce nombres de Tags ni códigos de
+	línea) e idempotente. **No destructiva**: solo AGREGA los Tags del catálogo que falten; nunca
+	elimina Tags ajenos/no administrados de la Proposal Phase. Estos Tags son la fuente que la app
+	propaga a la Task-fase padre al crear el Project (ver utils/project._copy_native_tags).
+	"""
+	from frappe.desk.doctype.tag.tag import DocTags
+
+	wanted = [str(t).strip() for t in (tags or []) if t and str(t).strip()]
+	if not wanted:
+		return
+	dt = DocTags("Proposal Phase")
+	current = (
+		{t for t in dt.get_tags(code).split(",") if t} if frappe.db.exists("Proposal Phase", code) else set()
+	)
+	missing = [t for t in wanted if t not in current]
+	if not missing:
+		return
+	if not dry_run:
+		for t in missing:
+			dt.add(code, t)
+	report["updated"].append(f"Proposal Phase '{code}': +tags {missing}")
 
 
 def _seed_sections(sections: list, report: dict, dry_run: bool, update_content: bool, versioned: set) -> dict:
@@ -529,6 +726,12 @@ def _seed_scope_items(items: list, report: dict, dry_run: bool, update_content: 
 		"is_internal_cost_task",
 		"description",
 		"deliverable",
+		# Planeación PMO (opcional): reglas reutilizables del catálogo.
+		"planned_start_offset_days",
+		# Momento relativo de ejecución del programa fuente (texto libre; opcional).
+		"moment",
+		"planned_duration_days",
+		"is_milestone",
 	]
 	for it in items:
 		code = it["code"]
@@ -540,6 +743,15 @@ def _seed_scope_items(items: list, report: dict, dry_run: bool, update_content: 
 		# Un campo OMITIDO (clave ausente) no se administra: conserva su valor / default del modelo
 		# (así estimated_hours omitido no marca falso conflicto contra el 0.0 del modelo).
 		provided, cleared = _managed_fields(it, fields)
+		# erpnext_item PENDIENTE: el catálogo lo provee pero el Item comercial aún no existe. No se
+		# fuerza el Link (fallaría). Se deja sin vincular y se registra; al re-ejecutar la
+		# sincronización cuando el Item exista, el Link se completa (identidad por `code`, sin duplicar).
+		pending_item = provided.get("erpnext_item")
+		if pending_item and not frappe.db.exists("Item", pending_item):
+			provided.pop("erpnext_item")
+			report["pending"].append(
+				f"{label}: Item '{pending_item}' no existe aún — erpnext_item pendiente (se vinculará al re-ejecutar)"
+			)
 		keys = list(provided.keys()) + list(cleared)
 		if not frappe.db.exists("Scope Item", code):
 			if not dry_run:
@@ -566,6 +778,68 @@ def _seed_scope_items(items: list, report: dict, dry_run: bool, update_content: 
 			report["updated"].append(f"{label}: {diffs}")
 		else:
 			report["conflicts"].append(f"{label}: {diffs}")
+
+	# 2º paso idempotente: dependencias del catálogo (todos los Scope Items ya existen).
+	_seed_scope_dependencies(items, report, dry_run, update_content)
+
+
+def _seed_scope_dependencies(items: list, report: dict, dry_run: bool, update_content: bool = False) -> None:
+	"""Aplica `depends_on` (lista de códigos de Scope Items predecesores) como filas de la child table
+	`depends_on_scope_items`. Segundo paso: se ejecuta tras crear todos los Scope Items del catálogo.
+
+	- Idempotente: identidad por conjunto de códigos; si el conjunto ya coincide, no escribe.
+	- Clave `depends_on` AUSENTE → no administra dependencias (conserva lo existente).
+	- Predecesores que no existen (p. ej. de un Item no contratado) se OMITEN y se reportan; nunca
+	  se crea un Link roto. Auto-referencia/duplicados/ciclos los valida Scope Item.validate().
+	"""
+	for it in items:
+		if "depends_on" not in it:
+			continue
+		code = it["code"]
+		desired = [c for c in (it.get("depends_on") or []) if c]
+		if not frappe.db.exists("Scope Item", code):
+			# dry-run sobre un Scope Item aún no creado: se reportaría en la próxima corrida real.
+			if desired and dry_run:
+				report["updated"].append(
+					f"Scope Item '{code}': {len(desired)} dependencia(s) (pendiente de creación)"
+				)
+			continue
+
+		valid = [c for c in desired if frappe.db.exists("Scope Item", c)]
+		missing = [c for c in desired if not frappe.db.exists("Scope Item", c)]
+		if missing:
+			report["pending"].append(
+				f"Scope Item '{code}': dependencias omitidas (Scope Items inexistentes) {missing}"
+			)
+
+		current = set(
+			frappe.get_all(
+				"Scope Item Dependency",
+				filters={
+					"parenttype": "Scope Item",
+					"parentfield": "depends_on_scope_items",
+					"parent": code,
+				},
+				pluck="depends_on",
+			)
+		)
+		if set(valid) == current:
+			continue  # ya coincide — idempotente, sin escritura
+
+		if not (update_content or not current):
+			# Existe y difiere pero sin update_content: no sobrescribir, reportar conflicto.
+			report["conflicts"].append(
+				f"Scope Item '{code}': dependencias difieren del catálogo {sorted(valid)} vs {sorted(current)} (usar update_content)"
+			)
+			continue
+
+		if not dry_run:
+			doc = frappe.get_doc("Scope Item", code)
+			doc.set("depends_on_scope_items", [])
+			for dep in valid:
+				doc.append("depends_on_scope_items", {"depends_on": dep})
+			doc.save(ignore_permissions=True)
+		report["updated"].append(f"Scope Item '{code}': dependencias {sorted(valid)}")
 
 
 def _seed_templates(
@@ -777,15 +1051,17 @@ def _print_report(report: dict, dry_run: bool, data: dict) -> None:
 		f"  Sin cambios:  {len(report['unchanged'])}",
 		f"  Actualizados: {len(report['updated'])}",
 		f"  Reutilizados: {len(report['reused'])}",
+		f"  Pendientes:   {len(report.get('pending', []))}",
 		f"  Conflictos:   {len(report['conflicts'])}",
 		"-" * 70,
 	]
 	for bucket, title in (
 		("created", "CREADOS"),
 		("updated", "ACTUALIZADOS (contenido del catálogo)"),
+		("pending", "PENDIENTES (erpnext_item / dependencias sin resolver — se completan al re-ejecutar)"),
 		("conflicts", "CONFLICTOS (revisar — NO se modificaron)"),
 	):
-		if report[bucket]:
+		if report.get(bucket):
 			lines.append(f"  {title}:")
 			lines.extend(f"    · {x}" for x in report[bucket])
 			lines.append("-" * 70)

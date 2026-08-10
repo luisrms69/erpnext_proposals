@@ -77,6 +77,7 @@ fixtures = [
 					"proposal_methodology",
 					"proposal_expected_result",
 					"proposal_scope_limit",
+					"proposal_specific_scope",
 				],
 			],
 		],

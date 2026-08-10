@@ -64,6 +64,33 @@ Estos campos se llenan automáticamente al **Enviar (Submit)** la Cotización. R
 
 ---
 
+## Alcance específico por servicio contratado
+
+Cada **servicio cotizado** (fila de la tabla de ítems de la Cotización) tiene un campo
+**Alcance específico** para escribir a mano qué se contrató exactamente de ese servicio en esta
+propuesta (por ejemplo: número de compañías, usuarios, entregables acotados o meses de
+acompañamiento). Es distinto de la descripción, la metodología o el resultado esperado, que son
+genéricos y vienen del catálogo.
+
+| Campo | Nombre visible | Tipo | Descripción |
+|---|---|---|---|
+| Alcance específico | Alcance específico | Texto enriquecido | Alcance concreto de la contratación de ese servicio. Se escribe a mano en la fila expandida del ítem. Opcional. |
+
+### Cómo funciona
+
+- **Se edita en Borrador**, abriendo la fila del servicio en la tabla de ítems. Es opcional: si un
+  servicio no lo necesita, se deja vacío.
+- **No viene del catálogo** y **no se pierde al "Regenerar alcance"**: lo que se escribe se conserva.
+- **Se congela al Enviar (Submit)** la Cotización: a partir de ahí ya no se edita, igual que el resto
+  del contenido de la propuesta.
+- **Se hereda al crear una nueva versión** (desde una propuesta rechazada) y vuelve a ser editable en
+  el Borrador de la nueva versión, sin cambiar la anterior.
+- Si el mismo servicio aparece en dos filas, cada una puede tener su propio alcance específico.
+- **En el PDF** aparece como un bloque "Alcance específico" bajo cada servicio, **solo si tiene
+  contenido**; si se deja vacío, no aparece título ni espacio.
+
+---
+
 ## Sección de propuesta (Proposal Section)
 
 | Campo | Nombre visible | Descripción | Cuándo editar |
