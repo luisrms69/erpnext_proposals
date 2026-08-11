@@ -62,6 +62,15 @@ documento oficial no llegó a generarse, su acción de generar **permanece** dis
 Los botones de **descarga** de los documentos oficiales ya generados (**↓ …**) siguen disponibles, y el
 botón **Imprimir** genérico de la barra superior no se ve afectado.
 
+### Los documentos oficiales no pueden eliminarse por accidente
+
+Una vez generados y adjuntados, la **Propuesta Comercial** y la **Rentabilidad Estimada** oficiales
+quedan **protegidas contra eliminación**: son la evidencia formal de la propuesta emitida. Ni un
+usuario normal ni un System Manager pueden borrarlas desde los adjuntos; **solo un Administrator** puede
+hacerlo deliberadamente. La protección se mantiene aunque la propuesta se cancele. **No** afecta a los
+demás adjuntos de la cotización (esos se borran normalmente) ni a la **descarga/apertura** de los
+documentos oficiales.
+
 ### Qué contiene el PDF
 
 El PDF "Propuesta Comercial" incluye:
