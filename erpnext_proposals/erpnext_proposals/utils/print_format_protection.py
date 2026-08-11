@@ -52,7 +52,7 @@ _PRESENTATION_FIELDS = (
 	"disabled",
 )
 
-_EVOLVE_HINT = _(
+_EVOLVE_HINT = (
 	"Para evolucionar o corregir un formato, crea un Print Format NUEVO con otro nombre y asígnalo a "
 	"las propuestas futuras (por ejemplo, en el Proposal Template). Los formatos ya usados por "
 	"propuestas formalizadas son inmutables para preservar su reimpresión."
@@ -88,7 +88,7 @@ def protect_historical_print_format_on_save(doc, method=None):
 			"El Print Format '{0}' ya es histórico (usado por una o más propuestas formalizadas) y no "
 			"puede modificarse: cambiaría retrospectivamente la presentación de esas propuestas. "
 			"Campos bloqueados en este intento: {1}. {2}"
-		).format(doc.name, ", ".join(changed), _EVOLVE_HINT),
+		).format(doc.name, ", ".join(changed), _(_EVOLVE_HINT)),
 		title=_("Print Format histórico protegido"),
 	)
 
@@ -100,7 +100,7 @@ def protect_historical_print_format_on_trash(doc, method=None):
 			_(
 				"El Print Format '{0}' ya es histórico (usado por una o más propuestas formalizadas) y no "
 				"puede eliminarse: rompería la reimpresión de esas propuestas. {1}"
-			).format(doc.name, _EVOLVE_HINT),
+			).format(doc.name, _(_EVOLVE_HINT)),
 			title=_("Print Format histórico protegido"),
 		)
 
@@ -113,6 +113,6 @@ def protect_historical_print_format_on_rename(doc, method=None, old=None, new=No
 				"El Print Format '{0}' ya es histórico (usado por una o más propuestas formalizadas) y no "
 				"puede renombrarse: las propuestas lo referencian por nombre y su reimpresión fallaría. "
 				"{1}"
-			).format(old, _EVOLVE_HINT),
+			).format(old, _(_EVOLVE_HINT)),
 			title=_("Print Format histórico protegido"),
 		)

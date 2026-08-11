@@ -12,6 +12,10 @@ import unittest
 
 import frappe
 
+from erpnext_proposals.erpnext_proposals.tests.fiscal_year import (
+	cleanup_fiscal_year,
+	ensure_current_fiscal_year,
+)
 from erpnext_proposals.erpnext_proposals.utils.print_format_protection import (
 	is_print_format_historical,
 )
@@ -58,6 +62,7 @@ class TestPrintFormatProtection(unittest.TestCase):
 		cls.company = get_test_company()
 		if not cls.company:
 			raise unittest.SkipTest("No Company on test site.")
+		cls._fy = ensure_current_fiscal_year()
 		cls._quotations = []
 
 		from erpnext_proposals.erpnext_proposals.tests.company import get_test_item_group
@@ -84,6 +89,11 @@ class TestPrintFormatProtection(unittest.TestCase):
 					"is_sales_item": 1,
 				}
 			).insert(ignore_permissions=True)
+
+	@classmethod
+	def tearDownClass(cls):
+		cleanup_fiscal_year(getattr(cls, "_fy", None))
+		super().tearDownClass()
 
 	def setUp(self):
 		_purge()
