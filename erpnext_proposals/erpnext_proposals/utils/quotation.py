@@ -565,29 +565,46 @@ def _attach_pdf(doc, print_format: str, filename: str, is_private: int) -> None:
 		from frappe.utils.file_manager import save_file
 		from frappe.utils.pdf import get_pdf
 
+		from erpnext_proposals.erpnext_proposals.utils.official_document_protection import (
+			INTERNAL_REPLACE_FLAG,
+			OFFICIAL_FLAG_FIELD,
+		)
+
 		html = frappe.get_print(doc.doctype, doc.name, print_format=print_format)
 		pdf_bytes = get_pdf(html)
 
-		# Remove previous version of this attachment if it exists
-		existing = frappe.db.get_value(
+		# Remove previous version(s) of this attachment if they exist. `save_file` añade un sufijo hash
+		# al nombre, por lo que la coincidencia es por PREFIJO (`{filename}%`) + `attached_to` +
+		# `is_private`, NO por nombre exacto (que nunca casa por el hash → duplicaba en cada
+		# regeneración). La versión previa puede estar marcada como documento oficial y protegida contra
+		# borrado; el reemplazo por el propio flujo de generación se exime de forma explícita mediante
+		# INTERNAL_REPLACE_FLAG (única vía además de Administrator). El flag se limpia inmediatamente.
+		previous = frappe.get_all(
 			"File",
-			{
+			filters={
 				"attached_to_doctype": doc.doctype,
 				"attached_to_name": doc.name,
-				"file_name": f"{filename}.pdf",
+				"is_private": is_private,
+				"file_name": ["like", f"{filename}%"],
 			},
-			"name",
+			pluck="name",
 		)
-		if existing:
-			frappe.delete_doc("File", existing, ignore_permissions=True)
+		for _prev in previous:
+			frappe.flags[INTERNAL_REPLACE_FLAG] = True
+			try:
+				frappe.delete_doc("File", _prev, ignore_permissions=True)
+			finally:
+				frappe.flags[INTERNAL_REPLACE_FLAG] = False
 
-		save_file(
+		_official = save_file(
 			fname=f"{filename}.pdf",
 			content=pdf_bytes,
 			dt=doc.doctype,
 			dn=doc.name,
 			is_private=is_private,
 		)
+		# Marcar inequívocamente el archivo como documento oficial de la propuesta (protegido).
+		frappe.db.set_value("File", _official.name, OFFICIAL_FLAG_FIELD, 1, update_modified=False)
 
 	except Exception as e:
 		frappe.log_error(f"Error generating PDF '{print_format}' for {doc.name}: {e}")

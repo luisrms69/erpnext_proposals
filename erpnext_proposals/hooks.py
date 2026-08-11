@@ -35,7 +35,7 @@ fixtures = [
 	{
 		"doctype": "Custom Field",
 		"filters": [
-			["dt", "in", ["Quotation", "Task", "Item", "Quotation Item"]],
+			["dt", "in", ["Quotation", "Task", "Item", "Quotation Item", "File"]],
 			[
 				"fieldname",
 				"in",
@@ -78,6 +78,7 @@ fixtures = [
 					"proposal_expected_result",
 					"proposal_scope_limit",
 					"proposal_specific_scope",
+					"is_proposal_official_document",
 				],
 			],
 		],
@@ -263,6 +264,14 @@ doc_events = {
 		"validate": "erpnext_proposals.erpnext_proposals.utils.print_format_protection.protect_historical_print_format_on_save",
 		"on_trash": "erpnext_proposals.erpnext_proposals.utils.print_format_protection.protect_historical_print_format_on_trash",
 		"before_rename": "erpnext_proposals.erpnext_proposals.utils.print_format_protection.protect_historical_print_format_on_rename",
+	},
+	# Protección contra eliminación accidental de los PDFs oficiales de la propuesta. Un File marcado
+	# con `is_proposal_official_document=1` (solo lo fija el flujo interno de generación) no puede
+	# borrarse por el flujo normal (ni usuario ordinario ni System Manager); solo Administrator, y el
+	# propio flujo interno de reemplazo (flag explícito). No afecta otros adjuntos.
+	# Ver utils/official_document_protection.py.
+	"File": {
+		"on_trash": "erpnext_proposals.erpnext_proposals.utils.official_document_protection.protect_official_document_on_trash",
 	},
 }
 
