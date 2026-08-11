@@ -471,6 +471,12 @@ def _build_sections_snapshot(doc) -> list:
 		snapshot = []
 		now = now_datetime().isoformat()
 
+		# Secciones opcionales activadas explícitamente en esta Quotation (Table MultiSelect).
+		# Solo aplican a filas del Template marcadas como opcionales (include_by_default=0).
+		selected_optional = {
+			r.proposal_section for r in (doc.get("proposal_optional_sections") or []) if r.proposal_section
+		}
+
 		for row in sorted(tmpl.sections, key=lambda r: r.sequence or 0):
 			try:
 				ps = frappe.get_doc("Proposal Section", row.proposal_section)
@@ -481,6 +487,11 @@ def _build_sections_snapshot(doc) -> list:
 				)
 
 			if not ps.enabled:
+				continue
+
+			# Sección opcional (include_by_default apagado): solo entra si la propuesta la activó.
+			# Las filas con include_by_default=1 (default histórico) conservan el comportamiento previo.
+			if not row.include_by_default and row.proposal_section not in selected_optional:
 				continue
 
 			content = row.custom_content if row.use_custom_content else ps.content
@@ -508,6 +519,41 @@ def _build_sections_snapshot(doc) -> list:
 			_("No se pudo congelar el contenido de la propuesta: {0}").format(str(e)),
 			title=_("Error al congelar propuesta"),
 		)
+
+
+@frappe.whitelist()
+def get_template_optional_sections(template: str) -> list:
+	"""Secciones OPCIONALES de un Proposal Template para el selector `proposal_optional_sections`.
+
+	Fuente única de verdad: el Template. Devuelve solo las filas con ``include_by_default = 0`` cuya
+	Proposal Section esté habilitada. Las filas ``include_by_default = 1`` entran automáticamente y no
+	se listan aquí. Ordenadas por ``sequence``. Cada entrada: ``{name, title}``.
+	"""
+	if not template:
+		return []
+	rows = frappe.get_all(
+		"Proposal Template Section",
+		filters={
+			"parent": template,
+			"parenttype": "Proposal Template",
+			"include_by_default": 0,
+		},
+		fields=["proposal_section"],
+		order_by="sequence asc",
+	)
+	out = []
+	for r in rows:
+		if not r.proposal_section:
+			continue
+		ps = frappe.db.get_value(
+			"Proposal Section",
+			r.proposal_section,
+			["name", "title", "section_name", "enabled"],
+			as_dict=True,
+		)
+		if ps and ps.enabled:
+			out.append({"name": ps.name, "title": ps.title or ps.section_name})
+	return out
 
 
 def _freeze_costing_rates(doc) -> None:
@@ -565,29 +611,46 @@ def _attach_pdf(doc, print_format: str, filename: str, is_private: int) -> None:
 		from frappe.utils.file_manager import save_file
 		from frappe.utils.pdf import get_pdf
 
+		from erpnext_proposals.erpnext_proposals.utils.official_document_protection import (
+			INTERNAL_REPLACE_FLAG,
+			OFFICIAL_FLAG_FIELD,
+		)
+
 		html = frappe.get_print(doc.doctype, doc.name, print_format=print_format)
 		pdf_bytes = get_pdf(html)
 
-		# Remove previous version of this attachment if it exists
-		existing = frappe.db.get_value(
+		# Remove previous version(s) of this attachment if they exist. `save_file` añade un sufijo hash
+		# al nombre, por lo que la coincidencia es por PREFIJO (`{filename}%`) + `attached_to` +
+		# `is_private`, NO por nombre exacto (que nunca casa por el hash → duplicaba en cada
+		# regeneración). La versión previa puede estar marcada como documento oficial y protegida contra
+		# borrado; el reemplazo por el propio flujo de generación se exime de forma explícita mediante
+		# INTERNAL_REPLACE_FLAG (única vía además de Administrator). El flag se limpia inmediatamente.
+		previous = frappe.get_all(
 			"File",
-			{
+			filters={
 				"attached_to_doctype": doc.doctype,
 				"attached_to_name": doc.name,
-				"file_name": f"{filename}.pdf",
+				"is_private": is_private,
+				"file_name": ["like", f"{filename}%"],
 			},
-			"name",
+			pluck="name",
 		)
-		if existing:
-			frappe.delete_doc("File", existing, ignore_permissions=True)
+		for _prev in previous:
+			frappe.flags[INTERNAL_REPLACE_FLAG] = True
+			try:
+				frappe.delete_doc("File", _prev, ignore_permissions=True)
+			finally:
+				frappe.flags[INTERNAL_REPLACE_FLAG] = False
 
-		save_file(
+		_official = save_file(
 			fname=f"{filename}.pdf",
 			content=pdf_bytes,
 			dt=doc.doctype,
 			dn=doc.name,
 			is_private=is_private,
 		)
+		# Marcar inequívocamente el archivo como documento oficial de la propuesta (protegido).
+		frappe.db.set_value("File", _official.name, OFFICIAL_FLAG_FIELD, 1, update_modified=False)
 
 	except Exception as e:
 		frappe.log_error(f"Error generating PDF '{print_format}' for {doc.name}: {e}")
@@ -598,3 +661,44 @@ def _attach_pdf(doc, print_format: str, filename: str, is_private: int) -> None:
 			indicator="orange",
 			alert=True,
 		)
+
+
+@frappe.whitelist()
+def get_proposal_documents_status(quotation: str) -> dict:
+	"""Comprobación REAL de que los documentos oficiales de la propuesta ya fueron generados/adjuntados.
+
+	Los documentos oficiales los produce ``attach_proposal_pdfs`` al congelar (Borrador → En Revisión):
+	la propuesta comercial (pública, ``{formato efectivo} - {name}``) y la propuesta económica /
+	Rentabilidad Estimada (privada, ``Rentabilidad Estimada - {name}``). ``save_file`` puede añadir un
+	sufijo hash al nombre, por lo que la coincidencia es por PREFIJO. La generación es no-bloqueante
+	(puede fallar), así que ``docstatus`` no basta: se verifica la existencia real de cada adjunto.
+
+	Lo usa el botón ``Propuesta`` (JS) para ocultar las acciones de RE-GENERAR ("Imprimir …") de cada
+	documento oficial una vez que ese documento existe, sin quitar el acceso a los adjuntos ya generados.
+	"""
+	from erpnext_proposals.erpnext_proposals.utils.print_format import resolve_commercial_print_format
+
+	doc = frappe.get_doc("Quotation", quotation)
+	doc.check_permission("read")
+
+	def _attached(prefix: str, is_private: int) -> bool:
+		return bool(
+			frappe.db.exists(
+				"File",
+				{
+					"attached_to_doctype": "Quotation",
+					"attached_to_name": doc.name,
+					"is_private": is_private,
+					"file_name": ["like", f"{prefix}%"],
+				},
+			)
+		)
+
+	commercial_pf = resolve_commercial_print_format(doc)
+	commercial = _attached(f"{commercial_pf} - {doc.name}", 0)
+	rentabilidad = _attached(f"Rentabilidad Estimada - {doc.name}", 1)
+	return {
+		"commercial": commercial,
+		"rentabilidad": rentabilidad,
+		"official_present": commercial and rentabilidad,
+	}

@@ -55,7 +55,8 @@ y de gestión.
 |---|---|---|---|
 | `Proposal Section` | Bloque de texto narrativo reutilizable | Referenciado por `Proposal Template Section` | Tiene flag `is_executive_summary` para resaltar en portada |
 | `Proposal Template` | Agrupa secciones en orden para un tipo de proyecto | Tiene child table `Proposal Template Section` | Se cargan desde el **catálogo** (loader), **no** por `install.py` (ADR-0006) |
-| `Proposal Template Section` | Fila de sección en un template | Link a `Proposal Section`; soporte para `custom_title` y `custom_content`; **`hide_title`** (Check, oculta el heading por Template) | Child table de `Proposal Template` |
+| `Proposal Template Section` | Fila de sección en un template | Link a `Proposal Section`; soporte para `custom_title` y `custom_content`; **`hide_title`** (Check, oculta el heading por Template); **`include_by_default`** (Check, default `1`; en `0` la sección es opcional por propuesta) | Child table de `Proposal Template` |
+| `Proposal Optional Section` | Fila del selector de secciones opcionales activadas en una Quotation | Child de `Quotation` (custom field `proposal_optional_sections`, Table MultiSelect → `Proposal Section`) | Solo activa filas del Template marcadas `include_by_default=0`; se congela vía `proposal_sections_snapshot` (ver ADR-0013) |
 | `Scope Item` | Actividad del catálogo maestro | Link a `Item` de ERPNext (`erpnext_item`); `phase` **Link a `Proposal Phase`** | Sin precio; describe trabajo, perfil y horas estimadas. El **contenido editorial** del servicio (metodología, resultado esperado, límite del alcance) vive en el **Item**, no aquí |
 | `Quotation Scope Item` | Copia congelada de un Scope Item dentro de una Quotation | Parent: `Quotation`; link a `Scope Item`, `Task` y `phase`→`Proposal Phase` | Child table; `rate_locked` se fija en transición a En Revision. Flags: `include_in_proposal` (visible en PDF) y `is_internal_cost_task` (tarea interna: entra en costo/rentabilidad, se excluye del PDF comercial) |
 | `Item` (extendido) | Contenido comercial del servicio | Custom fields editoriales administrados por el catálogo | `proposal_content_section`, `proposal_methodology`, `proposal_expected_result`, `proposal_scope_limit` — descripción/metodología/resultado/límite del servicio |
@@ -159,6 +160,26 @@ Se **congela** en cada entrada del snapshot. En el Print Format (`render_section
 no se renderiza el `block-title` (el body sí); `0` o ausente → se muestra el heading. Ver
 `tecnico/print-formats.md`.
 
+### Secciones opcionales por propuesta (`include_by_default` + selector)
+
+Una Section del Template puede declararse **opcional** apagando **`include_by_default`** (Check en
+`Proposal Template Section`, default `1`). Las filas opcionales **solo entran al snapshot** si esa
+Quotation las activó en el custom field **`proposal_optional_sections`** (Table MultiSelect →
+`Proposal Optional Section`, editable solo en Borrador). El resto de filas (`include_by_default = 1`,
+el default histórico) mantiene el comportamiento previo: siempre entran.
+
+- `_build_sections_snapshot` construye el conjunto de Sections activadas desde `proposal_optional_sections`
+  y descarta cualquier fila opcional no seleccionada. Una selección que no corresponda a una fila
+  opcional del Template asignado se **ignora** (no puede inyectar secciones ajenas).
+- La activación es **per-Quotation**, sin duplicar el Template ni tocar el Print Format: la sección
+  hereda su `sequence` de la fila del Template (p. ej. `~640` para una cláusula legal de cierre, antes
+  del bloque de aceptación) y se **congela** en el snapshot como cualquier otra.
+- Como el snapshot se captura una sola vez en Borrador (o se regenera con *resync*, solo Borrador),
+  activar/desactivar la sección **después de congelar no tiene efecto**. Para reflejar un cambio del
+  selector en un Borrador ya poblado se usa *Sincronizar alcance desde catálogo*.
+
+Ver **ADR-0013**.
+
 ---
 
 ## Loader de catálogos
@@ -215,7 +236,7 @@ bench --site <site> execute \
 | ERPNext `Activity Type` | Costing rate de fallback en ausencia de Activity Cost | `utils/cost_matrix.py` — `get_designation_cost()` | Tercer nivel de fallback en jerarquía de costos |
 | HRMS `Salary Structure Assignment` | Proxy salarial de costo por hora (base/160h) | `utils/cost_matrix.py` — `_fetch_salary_data()` | Última fuente en jerarquía; solo si HRMS instalado |
 | `Employee` + `Activity Cost` | Fuente primaria de costos por designación | `utils/cost_matrix.py` — `_fetch_activity_cost_data()` | Primera fuente en jerarquía de costos |
-| Frappe `File` | Almacenamiento de PDFs generados | `utils/quotation.py` — `attach_proposal_pdfs()` | PDF público: Propuesta Comercial; privado: Rentabilidad Estimada |
+| Frappe `File` | Almacenamiento de PDFs generados | `utils/quotation.py` — `attach_proposal_pdfs()` | PDF público: Propuesta Comercial; privado: Rentabilidad Estimada. `get_proposal_documents_status()` (whitelisted) comprueba su existencia real (por prefijo de nombre, por el hash de `save_file`) para que el botón `Propuesta` (JS) oculte la acción de **re-generar** cada documento oficial una vez adjunto, sin quitar el acceso a los ya generados. Cada PDF oficial se marca con el Custom Field **`File.is_proposal_official_document`** (read-only, solo lo fija `_attach_pdf`) y su **borrado queda protegido** por `doc_events[File].on_trash` (`utils/official_document_protection.py`): ni usuarios ordinarios ni System Manager pueden eliminarlo, solo `Administrator` y el propio flujo de regeneración (flag `INTERNAL_REPLACE_FLAG`); persiste tras cancelar; no afecta otros adjuntos ni la descarga. Ver **ADR-0012** |
 | Frappe Realtime | Notificación al cliente JS cuando PDFs están listos | `utils/quotation.py` — `frappe.publish_realtime()` | Evento: `erpnext_proposals_pdfs_attached` |
 | `facturacion_mexico` (impuestos) | Impuesto automático en Quotation reutilizando la resolución fiscal existente | `utils/quotation_tax.py` — `apply_fiscal_taxes` (hook `Quotation.before_validate`) | **Read-only sobre `facturacion_mexico`** (solo `import`); ver abajo y **ADR-0008** |
 | ERPNext `Contact` | Resolución y persistencia del contacto dirigido de la Quotation | `utils/quotation_contact.py` — `set_proposal_contact` (hook `Quotation.before_insert`), `autocorrect_missing_contact` (hook `Quotation.validate`) | Reúso nativo `get_default_contact`/`get_contact_details`; ver abajo y **ADR-0009** |
@@ -340,3 +361,4 @@ El submit automático ocurre en la transición Borrador → En Revision porque e
 | [ADR-0006](../adr/0006-separacion-app-generica-personalizacion-privada.md) | Separación app genérica vs personalización privada por cliente |
 | [ADR-0007](../adr/0007-contenido-editorial-item-y-congelamiento.md) | Contenido editorial del servicio en `Item` y congelamiento inmutable (snapshot) |
 | [ADR-0008](../adr/0008-integracion-fiscal-quotation-reuso-facturacion-mexico.md) | Impuesto automático en Quotation por reutilización read-only de `facturacion_mexico` |
+| [ADR-0013](../adr/0013-secciones-opcionales-por-propuesta.md) | Secciones narrativas opcionales activables por propuesta (selector + `include_by_default`) |

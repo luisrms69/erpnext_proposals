@@ -179,11 +179,26 @@ rentabilidad-estimada-baseline-2026-05-21.pdf  ← baseline con tabla Alcance Co
 
 ---
 
+## Candado de Print Formats históricos
+
+Una vez que una propuesta se congela, `proposal_effective_print_format` guarda el **nombre** del
+formato usado, pero **no** su HTML. La reimpresión usa el HTML **actual** de ese formato. Para que
+modificar un formato no altere retrospectivamente propuestas ya emitidas, un candado
+(`utils/print_format_protection.py`, vía `doc_events` sobre `Print Format`) bloquea sobre un formato ya
+**histórico** —referenciado por `proposal_effective_print_format` de alguna propuesta formalizada— las
+operaciones que alterarían su reimpresión: **modificación** de campos de presentación, **`disabled`**,
+**rename** y **delete**. Es **idempotente** (re-guardar contenido idéntico —p. ej. el loader del pack—
+no se bloquea) y **sin excepción administrativa**. La evolución se hace **creando un formato nuevo con
+otro nombre** y asignándolo a las propuestas futuras (`Proposal Template.print_format`). Ver **ADR-0011**.
+
+---
+
 ## Archivos relevantes
 
 | Archivo | Propósito |
 |---|---|
 | `propuesta_comercial.json` | Fuente de verdad del Print Format comercial genérico (default) |
+| `utils/print_format_protection.py` | Candado de Print Formats históricos (ADR-0011) |
 | `rentabilidad_estimada.json` | Fuente de verdad del Print Format de rentabilidad |
 | `utils/print_format.py` | Resolución y congelamiento del formato comercial efectivo |
 | `utils/printing.py` | Helpers Jinja: `render_section_content`, `parse_json`, `get_sections_snapshot` (lectura fail-closed del snapshot), `get_logo_url`, `get_logo_data_uri` |

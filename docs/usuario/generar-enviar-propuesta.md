@@ -46,6 +46,31 @@ formato como override editable.
 > El botón **Imprimir** genérico de la barra superior te deja elegir cualquier formato manualmente;
 > el botón **Imprimir Propuesta Comercial** aplica la resolución automática descrita arriba.
 
+### Cuándo dejan de estar disponibles "Imprimir Propuesta Comercial" / "Imprimir Rentabilidad Estimada"
+
+Cuando la propuesta pasa a **En Revisión**, el sistema **genera y adjunta automáticamente** los
+documentos oficiales: la **Propuesta Comercial** (para el cliente) y la **Rentabilidad Estimada**
+(interna). Una vez que un documento oficial ya está generado y adjunto, su acción de **volver a
+generarlo** desaparece del botón **Propuesta**:
+
+- Si ya existe la Propuesta Comercial oficial → deja de mostrarse **Imprimir Propuesta Comercial**.
+- Si ya existe la Rentabilidad Estimada oficial → deja de mostrarse **Imprimir Rentabilidad Estimada**.
+
+Esto evita reimprimir/generar por accidente una versión distinta después de formalizar la propuesta.
+La comprobación es **real** sobre los adjuntos (no depende solo del estado): si por algún motivo un
+documento oficial no llegó a generarse, su acción de generar **permanece** disponible para completarlo.
+Los botones de **descarga** de los documentos oficiales ya generados (**↓ …**) siguen disponibles, y el
+botón **Imprimir** genérico de la barra superior no se ve afectado.
+
+### Los documentos oficiales no pueden eliminarse por accidente
+
+Una vez generados y adjuntados, la **Propuesta Comercial** y la **Rentabilidad Estimada** oficiales
+quedan **protegidas contra eliminación**: son la evidencia formal de la propuesta emitida. Ni un
+usuario normal ni un System Manager pueden borrarlas desde los adjuntos; **solo un Administrator** puede
+hacerlo deliberadamente. La protección se mantiene aunque la propuesta se cancele. **No** afecta a los
+demás adjuntos de la cotización (esos se borran normalmente) ni a la **descarga/apertura** de los
+documentos oficiales.
+
 ### Qué contiene el PDF
 
 El PDF "Propuesta Comercial" incluye:

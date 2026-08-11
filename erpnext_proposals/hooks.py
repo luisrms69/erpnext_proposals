@@ -35,7 +35,7 @@ fixtures = [
 	{
 		"doctype": "Custom Field",
 		"filters": [
-			["dt", "in", ["Quotation", "Task", "Item", "Quotation Item"]],
+			["dt", "in", ["Quotation", "Task", "Item", "Quotation Item", "File"]],
 			[
 				"fieldname",
 				"in",
@@ -47,6 +47,7 @@ fixtures = [
 					"proposal_template",
 					"proposal_title",
 					"quotation_scope_items",
+					"proposal_optional_sections",
 					"proposal_project",
 					"proposal_cost_center",
 					"proposal_reviewed_by",
@@ -78,6 +79,7 @@ fixtures = [
 					"proposal_expected_result",
 					"proposal_scope_limit",
 					"proposal_specific_scope",
+					"is_proposal_official_document",
 				],
 			],
 		],
@@ -254,6 +256,23 @@ doc_events = {
 	"Sales Order": {
 		"validate": "erpnext_proposals.erpnext_proposals.utils.sales_order.on_sales_order_validate",
 		"on_submit": "erpnext_proposals.erpnext_proposals.utils.sales_order.on_sales_order_submit",
+	},
+	# Candado de Print Formats históricos: una vez que un formato quedó guardado en
+	# `proposal_effective_print_format` de una propuesta congelada, se protege contra cambios de
+	# presentación / disabled / rename / delete (preserva la reimpresión histórica). Genérico e
+	# idempotente con el loader del pack. Ver utils/print_format_protection.py.
+	"Print Format": {
+		"validate": "erpnext_proposals.erpnext_proposals.utils.print_format_protection.protect_historical_print_format_on_save",
+		"on_trash": "erpnext_proposals.erpnext_proposals.utils.print_format_protection.protect_historical_print_format_on_trash",
+		"before_rename": "erpnext_proposals.erpnext_proposals.utils.print_format_protection.protect_historical_print_format_on_rename",
+	},
+	# Protección contra eliminación accidental de los PDFs oficiales de la propuesta. Un File marcado
+	# con `is_proposal_official_document=1` (solo lo fija el flujo interno de generación) no puede
+	# borrarse por el flujo normal (ni usuario ordinario ni System Manager); solo Administrator, y el
+	# propio flujo interno de reemplazo (flag explícito). No afecta otros adjuntos.
+	# Ver utils/official_document_protection.py.
+	"File": {
+		"on_trash": "erpnext_proposals.erpnext_proposals.utils.official_document_protection.protect_official_document_on_trash",
 	},
 }
 
