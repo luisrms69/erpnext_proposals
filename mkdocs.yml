@@ -39,6 +39,7 @@ nav:
     - ADR-0008 Impuesto automático en Quotation (reúso facturacion_mexico): adr/0008-integracion-fiscal-quotation-reuso-facturacion-mexico.md
     - ADR-0009 Resolución del contacto dirigido de la Quotation: adr/0009-resolucion-contacto-dirigido-quotation.md
     - ADR-0010 Alcance específico contratado por línea: adr/0010-alcance-especifico-contratado-quotation-item.md
+    - ADR-0011 Candado de Print Formats históricos: adr/0011-candado-print-formats-historicos.md
 
 theme:
   name: material

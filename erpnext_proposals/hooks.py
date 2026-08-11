@@ -255,6 +255,15 @@ doc_events = {
 		"validate": "erpnext_proposals.erpnext_proposals.utils.sales_order.on_sales_order_validate",
 		"on_submit": "erpnext_proposals.erpnext_proposals.utils.sales_order.on_sales_order_submit",
 	},
+	# Candado de Print Formats históricos: una vez que un formato quedó guardado en
+	# `proposal_effective_print_format` de una propuesta congelada, se protege contra cambios de
+	# presentación / disabled / rename / delete (preserva la reimpresión histórica). Genérico e
+	# idempotente con el loader del pack. Ver utils/print_format_protection.py.
+	"Print Format": {
+		"validate": "erpnext_proposals.erpnext_proposals.utils.print_format_protection.protect_historical_print_format_on_save",
+		"on_trash": "erpnext_proposals.erpnext_proposals.utils.print_format_protection.protect_historical_print_format_on_trash",
+		"before_rename": "erpnext_proposals.erpnext_proposals.utils.print_format_protection.protect_historical_print_format_on_rename",
+	},
 }
 
 # Scheduled Tasks
