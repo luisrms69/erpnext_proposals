@@ -471,6 +471,12 @@ def _build_sections_snapshot(doc) -> list:
 		snapshot = []
 		now = now_datetime().isoformat()
 
+		# Secciones opcionales activadas explícitamente en esta Quotation (Table MultiSelect).
+		# Solo aplican a filas del Template marcadas como opcionales (include_by_default=0).
+		selected_optional = {
+			r.proposal_section for r in (doc.get("proposal_optional_sections") or []) if r.proposal_section
+		}
+
 		for row in sorted(tmpl.sections, key=lambda r: r.sequence or 0):
 			try:
 				ps = frappe.get_doc("Proposal Section", row.proposal_section)
@@ -481,6 +487,11 @@ def _build_sections_snapshot(doc) -> list:
 				)
 
 			if not ps.enabled:
+				continue
+
+			# Sección opcional (include_by_default apagado): solo entra si la propuesta la activó.
+			# Las filas con include_by_default=1 (default histórico) conservan el comportamiento previo.
+			if not row.include_by_default and row.proposal_section not in selected_optional:
 				continue
 
 			content = row.custom_content if row.use_custom_content else ps.content
@@ -508,6 +519,41 @@ def _build_sections_snapshot(doc) -> list:
 			_("No se pudo congelar el contenido de la propuesta: {0}").format(str(e)),
 			title=_("Error al congelar propuesta"),
 		)
+
+
+@frappe.whitelist()
+def get_template_optional_sections(template: str) -> list:
+	"""Secciones OPCIONALES de un Proposal Template para el selector `proposal_optional_sections`.
+
+	Fuente única de verdad: el Template. Devuelve solo las filas con ``include_by_default = 0`` cuya
+	Proposal Section esté habilitada. Las filas ``include_by_default = 1`` entran automáticamente y no
+	se listan aquí. Ordenadas por ``sequence``. Cada entrada: ``{name, title}``.
+	"""
+	if not template:
+		return []
+	rows = frappe.get_all(
+		"Proposal Template Section",
+		filters={
+			"parent": template,
+			"parenttype": "Proposal Template",
+			"include_by_default": 0,
+		},
+		fields=["proposal_section"],
+		order_by="sequence asc",
+	)
+	out = []
+	for r in rows:
+		if not r.proposal_section:
+			continue
+		ps = frappe.db.get_value(
+			"Proposal Section",
+			r.proposal_section,
+			["name", "title", "section_name", "enabled"],
+			as_dict=True,
+		)
+		if ps and ps.enabled:
+			out.append({"name": ps.name, "title": ps.title or ps.section_name})
+	return out
 
 
 def _freeze_costing_rates(doc) -> None:

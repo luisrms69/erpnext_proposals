@@ -325,3 +325,87 @@ class TestSectionsSnapshot(unittest.TestCase):
 			)
 		finally:
 			self._set_template_hide_title(0)
+
+	# ── secciones opcionales por propuesta (include_by_default=0 + selector) ────
+
+	OPT_SECTION = "_Test Snap Optional Section"
+	OPT_TEMPLATE = "_Test Snap Optional Template"
+	OPT_MARK = "CLAUSULA OPCIONAL DE PRUEBA"
+
+	def _ensure_optional_fixtures(self):
+		"""Template con una fila base (include_by_default=1) y una opcional (include_by_default=0)."""
+		if not frappe.db.exists("Proposal Section", self.OPT_SECTION):
+			frappe.get_doc(
+				{
+					"doctype": "Proposal Section",
+					"section_name": self.OPT_SECTION,
+					"title": "Sección Opcional",
+					"content": f"<p>{self.OPT_MARK}</p>",
+					"enabled": 1,
+				}
+			).insert(ignore_permissions=True)
+		if not frappe.db.exists("Proposal Template", self.OPT_TEMPLATE):
+			t = frappe.get_doc({"doctype": "Proposal Template", "template_name": self.OPT_TEMPLATE})
+			t.append("sections", {"proposal_section": SECTION, "sequence": 10, "include_by_default": 1})
+			t.append(
+				"sections", {"proposal_section": self.OPT_SECTION, "sequence": 640, "include_by_default": 0}
+			)
+			t.insert(ignore_permissions=True)
+
+	def _make_draft_opt(self, select_optional=False):
+		self._ensure_optional_fixtures()
+		doc = frappe.get_doc(
+			{
+				"doctype": "Quotation",
+				"quotation_to": "Customer",
+				"party_name": CUSTOMER,
+				"company": self.company,
+				"currency": "MXN",
+				"transaction_date": frappe.utils.today(),
+				"proposal_group": f"SNAP-{frappe.generate_hash(length=8)}",
+				"proposal_template": self.OPT_TEMPLATE,
+				"proposal_title": "Opt",
+				"proposal_cost_center": self.cost_center,
+				"selling_price_list": get_test_price_list(),
+				"items": [{"item_code": ITEM, "item_name": ITEM, "qty": 1, "rate": 1000, "uom": "Nos"}],
+			}
+		)
+		if select_optional:
+			doc.append("proposal_optional_sections", {"proposal_section": self.OPT_SECTION})
+		doc.insert(ignore_permissions=True, ignore_mandatory=True)
+		self._quotations.append(doc.name)
+		return doc
+
+	def test_14_optional_section_excluded_by_default(self):
+		q = self._make_draft_opt(select_optional=False)
+		sources = [s["source_section"] for s in self._snap(q.name)]
+		self.assertIn(SECTION, sources, "La fila base (include_by_default=1) siempre entra")
+		self.assertNotIn(self.OPT_SECTION, sources, "La opcional NO seleccionada no entra al snapshot")
+
+	def test_15_optional_section_included_when_selected(self):
+		q = self._make_draft_opt(select_optional=True)
+		snap = self._snap(q.name)
+		sources = [s["source_section"] for s in snap]
+		self.assertIn(self.OPT_SECTION, sources, "La opcional seleccionada entra al snapshot")
+		opt = next(s for s in snap if s["source_section"] == self.OPT_SECTION)
+		self.assertIn(self.OPT_MARK, opt["content"], "Congela el contenido del maestro opcional")
+		self.assertEqual(opt["sequence"], 640, "Conserva la sequence de la fila del Template")
+		# orden por sequence: base (10) antes que opcional (640)
+		self.assertEqual([s["sequence"] for s in snap], sorted(s["sequence"] for s in snap))
+
+	def test_16_default_rows_behavior_unchanged(self):
+		"""Un Template solo con filas include_by_default=1 produce el mismo resultado que antes."""
+		q = self._make_draft()  # usa TEMPLATE clásico (una fila, include_by_default=1)
+		sources = [s["source_section"] for s in self._snap(q.name)]
+		self.assertEqual(sources, [SECTION], "Sin filas opcionales, el snapshot no cambia")
+
+	def test_17_optional_frozen_after_submit(self):
+		"""Tras congelar, deseleccionar la opcional no altera el snapshot ya congelado."""
+		q = self._make_draft_opt(select_optional=True)
+		before = self._raw(q.name)
+		doc = frappe.get_doc("Quotation", q.name)
+		doc.set("proposal_optional_sections", [])  # el usuario "quita" la opcional
+		doc.flags.ignore_mandatory = True
+		doc.flags.ignore_links = True
+		doc.submit()
+		self.assertEqual(self._raw(q.name), before, "El snapshot congelado no depende del selector")

@@ -29,6 +29,46 @@ function autofill_proposal_group_from_crm_deal(frm) {
 	}
 }
 
+// Secciones opcionales: la ÚNICA fuente es el Proposal Template. El selector
+// `proposal_optional_sections` solo ofrece las Sections opcionales (include_by_default=0) de ese
+// Template; se oculta si el Template no tiene opcionales; y al cambiar de Template se podan las
+// selecciones que dejaron de ser válidas (evita estados inconsistentes).
+function refresh_optional_sections(frm) {
+	const field = "proposal_optional_sections";
+	if (!frm.doc.proposal_template) {
+		frm._optional_sections = [];
+		frm.set_df_property(field, "hidden", 1);
+		if (frm.doc.docstatus === 0 && (frm.doc[field] || []).length) {
+			frm.clear_table(field);
+			frm.refresh_field(field);
+		}
+		return;
+	}
+	frappe.call({
+		method: "erpnext_proposals.erpnext_proposals.utils.quotation.get_template_optional_sections",
+		args: { template: frm.doc.proposal_template },
+		callback: (r) => {
+			const opts = r.message || [];
+			const names = opts.map((o) => o.name);
+			frm._optional_sections = names;
+			// Ocultar el campo si el Template no define ninguna Section opcional.
+			frm.set_df_property(field, "hidden", names.length ? 0 : 1);
+			// Podar selecciones que ya no pertenecen al Template o dejaron de ser opcionales.
+			if (frm.doc.docstatus === 0) {
+				const rows = frm.doc[field] || [];
+				const keep = rows.filter((row) => names.includes(row.proposal_section));
+				if (keep.length !== rows.length) {
+					frm.clear_table(field);
+					keep.forEach((row) => {
+						frm.add_child(field, { proposal_section: row.proposal_section });
+					});
+					frm.refresh_field(field);
+				}
+			}
+		},
+	});
+}
+
 frappe.ui.form.on("Quotation", {
 	onload(frm) {
 		// Reload attachments when server signals PDFs are ready (after_commit)
@@ -50,6 +90,11 @@ frappe.ui.form.on("Quotation", {
 	// Issue #17: al cambiar el Frappe CRM Deal, autocompletar proposal_group en la Quotation nueva.
 	crm_deal(frm) {
 		autofill_proposal_group_from_crm_deal(frm);
+	},
+
+	// Al cambiar el Proposal Template, recalcular las opciones del selector de Sections opcionales.
+	proposal_template(frm) {
+		refresh_optional_sections(frm);
 	},
 
 	refresh(frm) {
@@ -311,6 +356,19 @@ frappe.ui.form.on("Quotation", {
 				},
 				__("Propuesta")
 			);
+		}
+
+		// Selector de secciones opcionales (Table MultiSelect). Va AL FINAL y PROTEGIDO: un fallo aquí
+		// nunca debe impedir construir el grupo `Propuesta`. (Regresión previa: set_query con forma de
+		// child table lanzaba TypeError en un Table MultiSelect y abortaba todo el refresh.)
+		try {
+			// Table MultiSelect (ControlLink) → forma 2-arg de set_query, NO la de child table (.grid).
+			frm.set_query("proposal_optional_sections", () => ({
+				filters: [["name", "in", frm._optional_sections || []]],
+			}));
+			refresh_optional_sections(frm);
+		} catch (e) {
+			console.error("proposal_optional_sections selector error:", e);
 		}
 	},
 });

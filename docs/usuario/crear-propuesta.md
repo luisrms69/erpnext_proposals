@@ -41,6 +41,20 @@ Seleccionar el template que corresponde al tipo de proyecto. Determina qué secc
 - Bolsa de Horas Soporte — para contratos de soporte o asesoría
 - O cualquier template personalizado que se haya creado
 
+**Secciones opcionales** *(opcional)*
+
+Algunos templates incluyen **secciones opcionales** que **no** aparecen por defecto y se activan solo
+cuando corresponde a esa propuesta (por ejemplo, una cláusula que indica que la nueva propuesta
+sustituye acuerdos o contratos anteriores). El campo **Secciones opcionales** deja elegir cuáles de
+esas secciones incluir en **esta** cotización:
+
+- Solo tienen efecto las secciones que el template define como opcionales; elegir otra no la agrega.
+- Las secciones normales del template siempre aparecen — este selector **no** las quita.
+- Se puede ajustar solo en **Borrador**. Al pasar la propuesta a **En Revisión**, la selección queda
+  **congelada** dentro de la cotización: cambiarla después ya no afecta el PDF emitido.
+- Si ya iniciaste el Borrador y cambias la selección, usa **"Sincronizar alcance desde catálogo"** para
+  que se refleje en el contenido congelado.
+
 **Título de la propuesta** *(recomendado)*
 
 Texto que aparece en la portada del PDF como título principal de la propuesta. Ejemplos:

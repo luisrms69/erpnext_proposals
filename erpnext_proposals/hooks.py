@@ -47,6 +47,7 @@ fixtures = [
 					"proposal_template",
 					"proposal_title",
 					"quotation_scope_items",
+					"proposal_optional_sections",
 					"proposal_project",
 					"proposal_cost_center",
 					"proposal_reviewed_by",
