@@ -46,6 +46,22 @@ formato como override editable.
 > El botón **Imprimir** genérico de la barra superior te deja elegir cualquier formato manualmente;
 > el botón **Imprimir Propuesta Comercial** aplica la resolución automática descrita arriba.
 
+### Sincronización con el catálogo al generar el PDF (en Borrador)
+
+Mientras la propuesta está en **Borrador**, al pulsar **Imprimir Propuesta Comercial** o **Imprimir
+Rentabilidad Estimada** aparece primero un **aviso de sincronización con el catálogo**:
+
+- Si **Confirmas**, el sistema **sincroniza el alcance con el catálogo vigente** (mismo efecto que
+  **Propuesta → Sincronizar alcance con catálogo**) y **después** genera el PDF, de modo que cada PDF de
+  revisión refleja el catálogo actual. Cada nueva generación en Borrador vuelve a mostrar el aviso y a
+  sincronizar.
+- Si **Cancelas**, **no** se sincroniza y **no** se genera el PDF.
+
+Al pasar la propuesta a **En Revisión** (freeze), el sistema **NO** vuelve a sincronizar: congela y
+adjunta los PDFs oficiales con el contenido **exactamente como quedó tras tu última revisión**; los
+cambios que ocurran en el catálogo después de esa revisión **no** se incorporan a la propuesta ya
+formalizada.
+
 ### Cuándo dejan de estar disponibles "Imprimir Propuesta Comercial" / "Imprimir Rentabilidad Estimada"
 
 Cuando la propuesta pasa a **En Revisión**, el sistema **genera y adjunta automáticamente** los

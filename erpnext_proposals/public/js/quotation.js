@@ -69,6 +69,84 @@ function refresh_optional_sections(frm) {
 	});
 }
 
+// ── Sincronización de alcance con catálogo (aviso + resync) ────────────────────
+// Texto ÚNICO del aviso (centralizado): lo usan tanto la acción manual como la
+// sincronización que antecede a una generación/preview de PDF en Borrador.
+function proposal_resync_message() {
+	return `
+<div style="line-height:1.5">
+  <p><b>¿Sincronizar la propuesta con el catálogo vigente?</b></p>
+  <p>Esta acción actualizará el contenido de la propuesta con la información actualmente registrada en el catálogo.</p>
+  <p style="margin:8px 0 2px"><b>Se actualizará</b></p>
+  <ul style="margin:0 0 8px">
+    <li>Título, descripción, entregable, horas, fase, perfil y demás datos de las actividades generadas desde catálogo.</li>
+    <li>Descripción, metodología, resultado esperado y límites de alcance de los servicios cotizados.</li>
+    <li>Secciones de la propuesta conforme al Template y a las secciones opcionales seleccionadas.</li>
+    <li>Se agregarán nuevas actividades disponibles para los servicios cotizados.</li>
+    <li>Se eliminarán actividades generadas desde catálogo deshabilitadas, eliminadas o que ya no correspondan a los servicios cotizados.</li>
+  </ul>
+  <p style="margin:8px 0 2px"><b>Se conservará</b></p>
+  <ul style="margin:0 0 8px">
+    <li>Actividades agregadas manualmente.</li>
+    <li>Alcance específico capturado para esta propuesta.</li>
+    <li>Selección de actividades incluidas en la propuesta.</li>
+    <li>Tarifas y costos propios de la cotización.</li>
+  </ul>
+  <div style="border:1px solid var(--border-color,#d1d8dd);border-radius:4px;padding:6px 10px;margin:8px 0">
+    <b>Importante:</b> si modificaste manualmente una actividad generada desde catálogo, sus campos
+    controlados por catálogo serán reemplazados por los valores vigentes.
+  </div>
+  <p><b>Después de sincronizar, revisa nuevamente la propuesta antes de enviarla a revisión.</b></p>
+</div>`;
+}
+
+// Muestra el aviso; si el usuario confirma: guarda pendientes → ejecuta el MISMO resync real
+// (resync_scope_from_catalog) → recarga → ejecuta on_done (p. ej. abrir el PDF). Si cancela: nada.
+function confirm_and_resync(frm, on_done) {
+	frappe.confirm(proposal_resync_message(), () => {
+		const _resync = () =>
+			frappe.call({
+				method: "erpnext_proposals.erpnext_proposals.utils.quotation.resync_scope_from_catalog",
+				args: { quotation_name: frm.doc.name },
+				freeze: true,
+				freeze_message: __("Sincronizando alcance…"),
+				callback(r) {
+					if (!r.message) return;
+					const { updated, added, removed } = r.message;
+					frappe.show_alert({
+						message: __(
+							"Alcance sincronizado — {0} actualizadas, {1} agregadas, {2} eliminadas",
+							[updated, added, removed]
+						),
+						indicator: "green",
+					});
+					frm.reload_doc().then(() => {
+						if (on_done) on_done();
+					});
+				},
+			});
+		if (frm.is_dirty()) frm.save().then(_resync);
+		else _resync();
+	});
+	// Cancelar (No / cerrar): no sincroniza y no ejecuta on_done → no se genera el PDF.
+}
+
+// Solo un Borrador con template puede sincronizarse. En otros estados el contenido ya está congelado.
+function is_proposal_borrador(frm) {
+	return (
+		frm.doc.docstatus === 0 &&
+		frm.doc.workflow_state === "Borrador" &&
+		!!frm.doc.proposal_template
+	);
+}
+
+// Generación de PDF solicitada por el usuario: en Borrador antecede el aviso+resync; fuera de Borrador
+// (contenido ya congelado) genera directo. NUNCA se usa en el freeze (ese es server-side, sin JS).
+function generate_pdf_with_resync(frm, generate_fn) {
+	if (is_proposal_borrador(frm)) confirm_and_resync(frm, generate_fn);
+	else generate_fn();
+}
+
 frappe.ui.form.on("Quotation", {
 	onload(frm) {
 		// Reload attachments when server signals PDFs are ready (after_commit)
@@ -128,43 +206,10 @@ frappe.ui.form.on("Quotation", {
 			frm.doc.docstatus === 0 &&
 			frm.doc.workflow_state === "Borrador"
 		) {
+			// Acción manual: mismo aviso y misma lógica real de resync (centralizados).
 			frm.add_custom_button(
 				__("Sincronizar alcance desde catálogo"),
-				() => {
-					frappe.confirm(
-						__(
-							"¿Sincronizar el alcance con el catálogo? Las filas generadas desde catálogo se actualizarán a sus valores vigentes (horas, título, fase, perfil), se eliminarán las de alcances deshabilitados o de ítems ya no cotizados, y se agregarán las nuevas. Las filas agregadas manualmente no se modifican — para personalizaciones permanentes, usa filas manuales."
-						),
-						() => {
-							const _resync = () =>
-								frappe.call({
-									method: "erpnext_proposals.erpnext_proposals.utils.quotation.resync_scope_from_catalog",
-									args: { quotation_name: frm.doc.name },
-									freeze: true,
-									freeze_message: __("Sincronizando alcance…"),
-									callback(r) {
-										if (r.message) {
-											const { updated, added, removed } = r.message;
-											frappe.show_alert({
-												message: __(
-													"Alcance sincronizado — {0} actualizadas, {1} agregadas, {2} eliminadas",
-													[updated, added, removed]
-												),
-												indicator: "green",
-											});
-											frm.reload_doc();
-										}
-									},
-								});
-							// Guardar primero si hay cambios pendientes, para sincronizar sobre los Items ya guardados
-							if (frm.is_dirty()) {
-								frm.save().then(_resync);
-							} else {
-								_resync();
-							}
-						}
-					);
-				},
+				() => confirm_and_resync(frm),
 				__("Propuesta")
 			);
 		}
@@ -185,20 +230,22 @@ frappe.ui.form.on("Quotation", {
 					if (!st.commercial) {
 						frm.add_custom_button(
 							__("Imprimir Propuesta Comercial"),
-							() => {
-								frappe
-									.call({
-										method: "erpnext_proposals.erpnext_proposals.utils.print_format.get_effective_commercial_print_format",
-										args: { quotation: frm.doc.name },
-									})
-									.then((r2) => {
-										const fmt = r2.message || "Propuesta Comercial";
-										const url = `/printview?doctype=Quotation&name=${encodeURIComponent(
-											frm.doc.name
-										)}&format=${encodeURIComponent(fmt)}&no_letterhead=0`;
-										window.open(url, "_blank");
-									});
-							},
+							() =>
+								// En Borrador: aviso + resync antes de abrir el PDF (cada preview refleja el catálogo vigente).
+								generate_pdf_with_resync(frm, () => {
+									frappe
+										.call({
+											method: "erpnext_proposals.erpnext_proposals.utils.print_format.get_effective_commercial_print_format",
+											args: { quotation: frm.doc.name },
+										})
+										.then((r2) => {
+											const fmt = r2.message || "Propuesta Comercial";
+											const url = `/printview?doctype=Quotation&name=${encodeURIComponent(
+												frm.doc.name
+											)}&format=${encodeURIComponent(fmt)}&no_letterhead=0`;
+											window.open(url, "_blank");
+										});
+								}),
 							__("Propuesta")
 						);
 					}
@@ -206,12 +253,13 @@ frappe.ui.form.on("Quotation", {
 					if (!st.rentabilidad) {
 						frm.add_custom_button(
 							__("Imprimir Rentabilidad Estimada"),
-							() => {
-								const url = `/printview?doctype=Quotation&name=${encodeURIComponent(
-									frm.doc.name
-								)}&format=Rentabilidad%20Estimada&no_letterhead=0`;
-								window.open(url, "_blank");
-							},
+							() =>
+								generate_pdf_with_resync(frm, () => {
+									const url = `/printview?doctype=Quotation&name=${encodeURIComponent(
+										frm.doc.name
+									)}&format=Rentabilidad%20Estimada&no_letterhead=0`;
+									window.open(url, "_blank");
+								}),
 							__("Propuesta")
 						);
 					}

@@ -604,3 +604,61 @@ class TestScopeCatalogResync(unittest.TestCase):
 			si2.save(ignore_permissions=True)
 			if frappe.db.exists("Scope Item", "_RESYNC_A5"):
 				frappe.delete_doc("Scope Item", "_RESYNC_A5", force=True, ignore_permissions=True)
+
+	# ── H. Freeze NUNCA resincroniza (regla absoluta) ───────────────────────────
+
+	def test_15_freeze_does_not_resync(self):
+		"""El freeze (Borrador → En Revisión, vía submit → freeze_proposal) NUNCA resincroniza contra
+		catálogo. Cambiar los maestros DESPUÉS de crear el Borrador y luego congelar NO debe alterar el
+		contenido ya materializado (campos de scope controlados por catálogo ni editorial del Item). El
+		freeze congela lo que el usuario ya revisó; no vuelve a materializar el catálogo vigente.
+
+		(La transición real Borrador → En Revisión usa el MISMO `freeze_proposal` + `attach_proposal_pdfs`;
+		ninguno resincroniza. `attach_proposal_pdfs` solo renderiza el contenido congelado con get_print.)
+		"""
+		# Editorial del Item congelable en la línea Quotation Item.
+		frappe.db.set_value("Item", ITEM_A, "proposal_methodology", "METODO ORIGINAL", update_modified=False)
+		frappe.clear_document_cache("Item", ITEM_A)
+		q = self._make_quotation([ITEM_A])
+		row = self._row_by_scope(q.name, "_RESYNC_A1")
+		orig_title, orig_hours = row.title, row.estimated_hours
+		item_line = next(i for i in frappe.get_doc("Quotation", q.name).items if i.item_code == ITEM_A)
+		self.assertEqual(item_line.proposal_methodology, "METODO ORIGINAL")
+
+		# Cambiar los MAESTROS del catálogo DESPUÉS de crear el Borrador.
+		frappe.db.set_value(
+			"Scope Item",
+			"_RESYNC_A1",
+			{"title": "CAMBIADO FREEZE", "estimated_hours": 99},
+			update_modified=False,
+		)
+		frappe.clear_document_cache("Scope Item", "_RESYNC_A1")
+		frappe.db.set_value("Item", ITEM_A, "proposal_methodology", "METODO CAMBIADO", update_modified=False)
+		frappe.clear_document_cache("Item", ITEM_A)
+		try:
+			# FREEZE (submit dispara freeze_proposal en before_submit).
+			doc = frappe.get_doc("Quotation", q.name)
+			doc.flags.ignore_mandatory = True
+			doc.flags.ignore_links = True
+			doc.submit()
+
+			# El contenido congelado NO cambió: el freeze no refrescó nada desde el catálogo.
+			row2 = self._row_by_scope(q.name, "_RESYNC_A1")
+			self.assertEqual(row2.title, orig_title, "freeze NO debe refrescar el título del scope")
+			self.assertEqual(row2.estimated_hours, orig_hours, "freeze NO debe refrescar las horas del scope")
+			item2 = next(i for i in frappe.get_doc("Quotation", q.name).items if i.item_code == ITEM_A)
+			self.assertEqual(
+				item2.proposal_methodology,
+				"METODO ORIGINAL",
+				"freeze NO debe recopiar el editorial del Item desde el maestro",
+			)
+		finally:
+			frappe.db.set_value(
+				"Scope Item",
+				"_RESYNC_A1",
+				{"title": orig_title, "estimated_hours": orig_hours},
+				update_modified=False,
+			)
+			frappe.db.set_value("Item", ITEM_A, "proposal_methodology", None, update_modified=False)
+			frappe.clear_document_cache("Scope Item", "_RESYNC_A1")
+			frappe.clear_document_cache("Item", ITEM_A)
