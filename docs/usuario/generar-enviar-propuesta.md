@@ -87,6 +87,15 @@ hacerlo deliberadamente. La protección se mantiene aunque la propuesta se cance
 demás adjuntos de la cotización (esos se borran normalmente) ni a la **descarga/apertura** de los
 documentos oficiales.
 
+### Los documentos oficiales se adjuntan como archivos privados
+
+Al congelar la propuesta, **ambos** documentos oficiales —la **Propuesta Comercial** y la
+**Rentabilidad Estimada**— se adjuntan como **archivos privados**: no quedan accesibles mediante una
+URL pública. Los usuarios con permiso sobre la Cotización los **abren y descargan normalmente** desde
+los adjuntos (por ejemplo, para enviar la Propuesta Comercial al cliente por correo); Frappe valida el
+permiso al servir el archivo. Así se evita que el PDF de la propuesta quede expuesto por un enlace
+público.
+
 ### Qué contiene el PDF
 
 El PDF "Propuesta Comercial" incluye:

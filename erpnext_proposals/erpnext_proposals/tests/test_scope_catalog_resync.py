@@ -662,3 +662,54 @@ class TestScopeCatalogResync(unittest.TestCase):
 			frappe.db.set_value("Item", ITEM_A, "proposal_methodology", None, update_modified=False)
 			frappe.clear_document_cache("Scope Item", "_RESYNC_A1")
 			frappe.clear_document_cache("Item", ITEM_A)
+
+	def test_16_official_pdfs_are_private(self):
+		"""Ambos PDFs oficiales adjuntos durante el freeze deben quedar como ``File`` PRIVADO
+		(``is_private=1``): Propuesta Comercial y Rentabilidad Estimada. Ninguno debe adjuntarse como
+		público (accesible por URL sin control de permiso).
+
+		Se verifica el CONTRATO de ``attach_proposal_pdfs`` (el paso de PDFs del freeze) sin depender del
+		render real (wkhtmltopdf / print formats / hrms en el site de tests): se interceptan
+		``get_print``/``get_pdf``/``save_file`` y se captura el ``is_private`` con que se guarda cada PDF.
+		"""
+		from unittest.mock import patch
+
+		from erpnext_proposals.erpnext_proposals.utils import quotation as qmod
+
+		q = self._make_quotation([ITEM_A])
+		doc = frappe.get_doc("Quotation", q.name)
+
+		captured = {}
+
+		class _FakeFile:
+			def __init__(self, name):
+				self.name = name
+
+		def _fake_save_file(fname, content, dt, dn, is_private):
+			captured[fname] = is_private
+			return _FakeFile(f"FAKE-{fname}")
+
+		with (
+			patch.object(qmod.frappe, "get_print", return_value="<html></html>"),
+			patch("frappe.utils.pdf.get_pdf", return_value=b"%PDF-1.4"),
+			patch("frappe.utils.file_manager.save_file", side_effect=_fake_save_file),
+			patch.object(qmod.frappe.db, "set_value"),
+			patch.object(qmod.frappe, "publish_realtime"),
+		):
+			qmod.attach_proposal_pdfs(doc)
+
+		# Se intentaron guardar exactamente los dos documentos oficiales.
+		self.assertEqual(
+			len(captured), 2, f"Deben adjuntarse los dos PDFs oficiales, se vio: {list(captured)}"
+		)
+		self.assertTrue(
+			any(k.startswith("Rentabilidad Estimada - ") for k in captured),
+			"Debe adjuntarse la Rentabilidad Estimada",
+		)
+		# Ambos, sin excepción, PRIVADOS.
+		for fname, is_private in captured.items():
+			self.assertEqual(
+				is_private,
+				1,
+				f"El PDF oficial '{fname}' debe adjuntarse como PRIVADO (is_private=1), no público",
+			)

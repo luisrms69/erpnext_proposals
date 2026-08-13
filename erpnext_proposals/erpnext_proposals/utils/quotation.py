@@ -577,7 +577,10 @@ def _freeze_costing_rates(doc) -> None:
 def attach_proposal_pdfs(doc) -> None:
 	"""Generate and attach PDF snapshots when proposal enters formal review.
 
-	Generates Propuesta Comercial (public) and Rentabilidad Estimada (private).
+	Genera Propuesta Comercial y Rentabilidad Estimada, ambas como ``File`` PRIVADO
+	(``is_private=1``): son la evidencia formal de la propuesta y no deben quedar accesibles por URL
+	pública. Los usuarios autorizados las abren/descargan normalmente desde los adjuntos de la
+	Quotation (Frappe valida el permiso sobre el documento adjunto).
 	PDF generation failure is non-blocking but logged with a visible warning.
 	The snapshot JSON is the hard protection; the PDF is the evidence artifact.
 	"""
@@ -588,7 +591,7 @@ def attach_proposal_pdfs(doc) -> None:
 		doc,
 		print_format=commercial_pf,
 		filename=f"{commercial_pf} - {doc.name}",
-		is_private=0,
+		is_private=1,
 	)
 	_attach_pdf(
 		doc,
@@ -620,17 +623,20 @@ def _attach_pdf(doc, print_format: str, filename: str, is_private: int) -> None:
 		pdf_bytes = get_pdf(html)
 
 		# Remove previous version(s) of this attachment if they exist. `save_file` añade un sufijo hash
-		# al nombre, por lo que la coincidencia es por PREFIJO (`{filename}%`) + `attached_to` +
-		# `is_private`, NO por nombre exacto (que nunca casa por el hash → duplicaba en cada
-		# regeneración). La versión previa puede estar marcada como documento oficial y protegida contra
-		# borrado; el reemplazo por el propio flujo de generación se exime de forma explícita mediante
-		# INTERNAL_REPLACE_FLAG (única vía además de Administrator). El flag se limpia inmediatamente.
+		# al nombre, por lo que la coincidencia es por PREFIJO (`{filename}%`) + `attached_to`, NO por
+		# nombre exacto (que nunca casa por el hash → duplicaba en cada regeneración). La coincidencia
+		# NO filtra por `is_private`: cada documento (comercial / rentabilidad) tiene un prefijo de
+		# nombre distinto, así que basta el prefijo para identificar sus versiones previas, y así un
+		# re-freeze reemplaza también cualquier copia heredada guardada con otra privacidad (p. ej. un
+		# comercial público de antes de que ambos pasaran a privados). La versión previa puede estar
+		# marcada como documento oficial y protegida contra borrado; el reemplazo por el propio flujo de
+		# generación se exime de forma explícita mediante INTERNAL_REPLACE_FLAG (única vía además de
+		# Administrator). El flag se limpia inmediatamente.
 		previous = frappe.get_all(
 			"File",
 			filters={
 				"attached_to_doctype": doc.doctype,
 				"attached_to_name": doc.name,
-				"is_private": is_private,
 				"file_name": ["like", f"{filename}%"],
 			},
 			pluck="name",
@@ -668,7 +674,7 @@ def get_proposal_documents_status(quotation: str) -> dict:
 	"""Comprobación REAL de que los documentos oficiales de la propuesta ya fueron generados/adjuntados.
 
 	Los documentos oficiales los produce ``attach_proposal_pdfs`` al congelar (Borrador → En Revisión):
-	la propuesta comercial (pública, ``{formato efectivo} - {name}``) y la propuesta económica /
+	la propuesta comercial (privada, ``{formato efectivo} - {name}``) y la propuesta económica /
 	Rentabilidad Estimada (privada, ``Rentabilidad Estimada - {name}``). ``save_file`` puede añadir un
 	sufijo hash al nombre, por lo que la coincidencia es por PREFIJO. La generación es no-bloqueante
 	(puede fallar), así que ``docstatus`` no basta: se verifica la existencia real de cada adjunto.
@@ -695,7 +701,7 @@ def get_proposal_documents_status(quotation: str) -> dict:
 		)
 
 	commercial_pf = resolve_commercial_print_format(doc)
-	commercial = _attached(f"{commercial_pf} - {doc.name}", 0)
+	commercial = _attached(f"{commercial_pf} - {doc.name}", 1)
 	rentabilidad = _attached(f"Rentabilidad Estimada - {doc.name}", 1)
 	return {
 		"commercial": commercial,
