@@ -1,8 +1,31 @@
 # ADR-0011: Candado de Print Formats históricos
 
-**Fecha:** 2026-08-10
-**Status:** Cerrado — vigente
-**Rama:** feat/protect-historical-print-formats → version-16
+**Fecha:** 2026-08-10 · **Actualizado:** 2026-08-12 (premisa de `disabled` revisada — ver *Actualización*)
+**Status:** Cerrado — vigente (con actualización 2026-08-12)
+**Rama:** feat/protect-historical-print-formats → version-16 · actualización en feat/print-format-versioning-selector
+
+---
+
+## Actualización 2026-08-12 — `disabled` deja de ser campo protegido
+
+**Premisa que cambió:** originalmente se asumía que un Print Format histórico debía **permanecer
+utilizable para reimpresión**, y por eso el candado incluía `disabled` entre los campos protegidos
+(deshabilitarlo "rompería la reimpresión").
+
+Esa premisa ya **no** es válida. Modelo definitivo:
+
+- El **histórico oficial** de una propuesta congelada son los **PDFs oficiales adjuntos** generados en
+  el freeze (protegidos contra borrado, ver `official_document_protection.py`). Una propuesta congelada
+  **no se reimprime** normalmente; se consulta por esos PDFs.
+- `proposal_effective_print_format` queda como **referencia/auditoría** del formato usado, **no** como
+  mecanismo para re-renderizar el histórico.
+- Por tanto `disabled` **no** forma parte de la representación histórica y **debe** poder pasar de
+  `0 → 1` (por la vía normal `doc.save()`) al sustituir un formato por una versión nueva.
+
+**Cambio concreto:** se **retira `disabled`** de `_PRESENTATION_FIELDS`. Siguen protegidos (inmutables
+en históricos): `html`, `css` y demás campos de presentación, **rename** y **delete**. Sin bypass ni
+escritura directa a BD: la corrección es en el propio guard. Recuperar un PDF oficial perdido pese a
+las protecciones sería un procedimiento **extraordinario separado**, fuera del flujo normal.
 
 ---
 
@@ -34,9 +57,11 @@ Se agrega un **candado técnico** dentro de `erpnext_proposals` (sin modificar F
   - **modificación** de campos que alteran la presentación/reimpresión (`html`, `css`, `format_data`,
     `print_format_type`, `custom_format`, `raw_printing`, `raw_commands`, márgenes, fuente,
     `page_number`, `pdf_generator`, `doc_type`, etc.) — hook `validate`;
-  - **`disabled`** (deshabilitar rompe la reimpresión) — hook `validate`;
   - **rename** — hook `before_rename`;
   - **delete** — hook `on_trash`.
+- **Permitido explícitamente** (actualización 2026-08-12): cambiar **`disabled`** (típicamente
+  `0 → 1`) aunque el formato sea histórico — no altera la representación histórica (los PDFs oficiales
+  adjuntos son el histórico). Es la operación normal al versionar/sustituir un formato.
 - **Idempotente:** el bloqueo de modificación solo dispara si algún campo protegido **realmente
   cambió** (`has_value_changed`). Re-guardar contenido idéntico (p. ej. el loader del pack
   re-aplicando el mismo formato) **no** se bloquea.

@@ -78,7 +78,11 @@ BASE_SECTIONS = frozenset(
 # v7: Tags nativos de Frappe declarados por línea en el catálogo (clave `tags` de cada Proposal
 #     Phase) → se materializan sobre la Proposal Phase con DocTags (add-only, no destructivo: nunca
 #     borra Tags ajenos). Fuente que la app propaga a la Task-fase padre al crear el Project.
-LOADER_CAPS_VERSION = 7
+# v8: Versionamiento declarativo de Print Formats (clave `print_format_versions`): al sustituir un
+#     formato por una versión nueva, deshabilita el anterior (disabled=1; ADR-0011 permite `disabled`
+#     en históricos, nunca su contenido), adjunta un changelog como File al nuevo formato y repunta
+#     los Proposal Templates del pack al nuevo. Genérico e idempotente; no borra nada.
+LOADER_CAPS_VERSION = 8
 
 
 def capabilities() -> dict:
@@ -105,6 +109,8 @@ def capabilities() -> dict:
 		and callable(globals().get("_seed_skills")),
 		# v7: Tags nativos de catálogo → Proposal Phase (add-only, no destructivo).
 		"phase_tags": callable(globals().get("_apply_phase_tags")),
+		# v8: Versionamiento declarativo de Print Formats (deshabilitar anterior + changelog + repunte).
+		"print_format_versions": callable(globals().get("_seed_print_format_versions")),
 		# El loader NO tiene capacidad de sembrar masters fiscales (UOM / Item Groups).
 		"no_fiscal_master_writes": not callable(globals().get("_seed_item_groups"))
 		and not callable(globals().get("_seed_uoms")),
@@ -164,6 +170,15 @@ def run(catalog_path: str | None = None, dry_run: bool = True, update_content: b
 		# requiere que el Print Format exista al guardar el template.
 		_seed_print_formats(data.get("print_formats", []), catalog_dir, report, dry_run, update_content)
 		_seed_templates(data["templates"], section_remap, report, dry_run, update_content)
+		# Versionamiento de Print Formats: DESPUÉS de crear el formato nuevo (print_formats) y de
+		# sembrar templates. Deshabilita el anterior, adjunta changelog y repunta templates.
+		_seed_print_format_versions(
+			data.get("print_format_versions", []),
+			catalog_dir,
+			report,
+			dry_run,
+			declared={pf.get("name") for pf in data.get("print_formats", [])},
+		)
 	except Exception:
 		frappe.db.rollback()
 		raise
@@ -711,6 +726,94 @@ def _read_asset(path: str) -> str:
 		frappe.throw(_("No se encontró el asset referenciado por el catálogo: {0}").format(path))
 	with open(path, encoding="utf-8") as fh:  # nosemgrep — lectura local del asset del catálogo
 		return fh.read()
+
+
+def _seed_print_format_versions(
+	versions: list, catalog_dir: str, report: dict, dry_run: bool, declared: set | None = None
+) -> None:
+	"""Versionamiento genérico y declarativo de Print Formats (idempotente; no destructivo).
+
+	Cada entrada declara un formato vigente `current` (que DEBE haber creado ``_seed_print_formats``)
+	que SUSTITUYE a `supersedes`. Para cada una, de forma idempotente:
+
+	1. **Deshabilita** `supersedes` (``disabled=1``) si `disable_superseded` — por la vía normal
+	   ``doc.save()``. ADR-0011 permite `disabled` en un formato histórico (no forma parte de la
+	   representación histórica); su HTML/CSS/nombre NUNCA se tocan. No deshabilita PROTEGIDOS.
+	2. **Adjunta** el `changelog_file` como ``File`` PRIVADO al `current` (mecanismo estándar de Frappe,
+	   sin Custom Fields), solo si no está ya adjunto.
+	3. **Repunta** cada `template` de `supersedes` → `current` (solo si aún apunta al anterior/vacío).
+
+	No crea el Print Format nuevo (eso es `print_formats`) ni borra nada.
+	"""
+	declared = declared or set()
+	for v in versions:
+		current = v["current"]
+		supersedes = v.get("supersedes")
+		label = f"Print Format version '{current}'"
+
+		# En dry-run el formato vigente aún no está creado (print_formats no persiste); si está declarado
+		# en 'print_formats' se dará por existente para reportar el plan real, no un falso conflicto.
+		current_exists = bool(frappe.db.exists("Print Format", current)) or (dry_run and current in declared)
+		if not current_exists:
+			report["conflicts"].append(
+				f"{label}: el formato vigente no existe (debe declararse en 'print_formats')"
+			)
+			continue
+
+		# 1) Deshabilitar el formato sustituido (vía normal; ADR-0011 permite `disabled` en históricos).
+		if supersedes and v.get("disable_superseded"):
+			if supersedes in PROTECTED_PRINT_FORMATS:
+				report["conflicts"].append(f"{label}: '{supersedes}' es PROTEGIDO — no se deshabilita")
+			elif not frappe.db.exists("Print Format", supersedes):
+				report["conflicts"].append(f"{label}: el formato sustituido '{supersedes}' no existe")
+			elif frappe.db.get_value("Print Format", supersedes, "disabled"):
+				report["unchanged"].append(f"{label}: '{supersedes}' ya está disabled")
+			else:
+				if not dry_run:
+					sup = frappe.get_doc("Print Format", supersedes)
+					sup.disabled = 1
+					sup.save(ignore_permissions=True)
+				report["updated"].append(f"{label}: '{supersedes}' → disabled=1")
+
+		# 2) Adjuntar el changelog como File privado al formato vigente (idempotente por prefijo).
+		changelog = v.get("changelog_file")
+		if changelog:
+			fname = os.path.basename(changelog)
+			stem = os.path.splitext(fname)[0]
+			already = frappe.db.exists(
+				"File",
+				{
+					"attached_to_doctype": "Print Format",
+					"attached_to_name": current,
+					"file_name": ["like", f"{stem}%"],
+				},
+			)
+			if already:
+				report["unchanged"].append(f"{label}: changelog ya adjunto")
+			else:
+				if not dry_run:
+					from frappe.utils.file_manager import save_file
+
+					content = _read_asset(os.path.join(catalog_dir, changelog))
+					save_file(fname, content, "Print Format", current, is_private=1)
+				report["created"].append(f"{label}: changelog adjunto ({fname})")
+
+		# 3) Repuntar los Proposal Templates administrados por el pack.
+		for tname in v.get("templates", []):
+			if not frappe.db.exists("Proposal Template", tname):
+				report["conflicts"].append(f"{label}: Proposal Template '{tname}' no existe")
+				continue
+			cur_pf = frappe.db.get_value("Proposal Template", tname, "print_format")
+			if cur_pf == current:
+				report["unchanged"].append(f"{label}: template '{tname}' ya apunta al vigente")
+			elif not cur_pf or cur_pf == supersedes:
+				if not dry_run:
+					frappe.db.set_value("Proposal Template", tname, "print_format", current)
+				report["updated"].append(f"{label}: template '{tname}' → '{current}'")
+			else:
+				report["conflicts"].append(
+					f"{label}: template '{tname}' apunta a '{cur_pf}' (ni vigente ni sustituido) — no se repunta"
+				)
 
 
 def _seed_scope_items(items: list, report: dict, dry_run: bool, update_content: bool = False) -> None:
