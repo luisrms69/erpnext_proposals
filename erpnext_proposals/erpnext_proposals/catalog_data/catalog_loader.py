@@ -168,7 +168,18 @@ def run(catalog_path: str | None = None, dry_run: bool = True, update_content: b
 		)
 		# Print Formats antes que Templates: Proposal Template.print_format es un Link que
 		# requiere que el Print Format exista al guardar el template.
-		_seed_print_formats(data.get("print_formats", []), catalog_dir, report, dry_run, update_content)
+		# Formatos sustituidos: el versionador es dueño de su `disabled`; _seed_print_formats no lo gestiona.
+		superseded_pf = {
+			v.get("supersedes") for v in data.get("print_format_versions", []) if v.get("supersedes")
+		}
+		_seed_print_formats(
+			data.get("print_formats", []),
+			catalog_dir,
+			report,
+			dry_run,
+			update_content,
+			superseded=superseded_pf,
+		)
 		_seed_templates(data["templates"], section_remap, report, dry_run, update_content)
 		# Versionamiento de Print Formats: DESPUÉS de crear el formato nuevo (print_formats) y de
 		# sembrar templates. Deshabilita el anterior, adjunta changelog y repunta templates.
@@ -635,7 +646,12 @@ def _seed_payment_terms_templates(
 
 
 def _seed_print_formats(
-	pfs: list, catalog_dir: str, report: dict, dry_run: bool, update_content: bool = False
+	pfs: list,
+	catalog_dir: str,
+	report: dict,
+	dry_run: bool,
+	update_content: bool = False,
+	superseded: set | None = None,
 ) -> None:
 	"""Crea/actualiza idempotentemente Print Formats como assets administrados por el catálogo
 	(capacidad genérica). Identidad: name.
@@ -646,7 +662,19 @@ def _seed_print_formats(
 	- Nunca toca los Print Formats PROTEGIDOS (assets del repo público); si el catálogo intenta
 	  administrar uno, se reporta como conflicto y se omite.
 	- Solo administra los campos provistos por el spec; el resto usa el default del DocType.
+	- **A.2:** para un formato listado como `supersedes` en `print_format_versions` (conjunto
+	  ``superseded``), NO gestiona ``disabled``: su dueño exclusivo es ``_seed_print_format_versions``.
+	  Evita el flip-flop del flag entre ambos seeders (idempotencia).
+	- **B:** nunca cambia el CONTENIDO/presentación de un formato ya **histórico**; si el catálogo lo
+	  intentara, se reporta como **conflict** desde el dry-run (antes de que ADR-0011 lo bloquee en el
+	  ``save`` del apply). ``disabled`` no es presentación → sí se permite.
 	"""
+	from erpnext_proposals.erpnext_proposals.utils.print_format_protection import (
+		_PRESENTATION_FIELDS,
+		is_print_format_historical,
+	)
+
+	superseded = superseded or set()
 	fields = [
 		"doc_type",
 		"print_format_type",
@@ -671,7 +699,9 @@ def _seed_print_formats(
 			continue
 
 		spec = _resolve_print_format_spec(pf, catalog_dir)
-		provided = {f: spec.get(f) for f in fields if spec.get(f) is not None}
+		# A.2: para un formato sustituido, el versionador es el ÚNICO dueño de `disabled`.
+		managed = [f for f in fields if not (f == "disabled" and name in superseded)]
+		provided = {f: spec.get(f) for f in managed if spec.get(f) is not None}
 		if not frappe.db.exists("Print Format", name):
 			if not dry_run:
 				doc = {"doctype": "Print Format", "name": name}
@@ -686,7 +716,22 @@ def _seed_print_formats(
 		diffs = _diff(provided, current)
 		if not diffs:
 			report["unchanged"].append(label)
-		elif update_content:
+			continue
+		# B: un formato ya HISTÓRICO no puede cambiar su presentación/contenido (ADR-0011). Se detecta
+		# aquí como CONFLICT (visible en --dry-run) en vez de reventar en `doc.save()` durante el --apply.
+		# `disabled` NO es presentación (no está en _PRESENTATION_FIELDS) → no cae en este guard.
+		if is_print_format_historical(name):
+			presentation = sorted(
+				{k for k in provided if _norm(provided.get(k)) != _norm((current or {}).get(k))}
+				& set(_PRESENTATION_FIELDS)
+			)
+			if presentation:
+				report["conflicts"].append(
+					f"{label}: cambiaría la presentación de un formato HISTÓRICO ({', '.join(presentation)}) — "
+					"prohibido por ADR-0011; crea una versión nueva del formato"
+				)
+				continue
+		if update_content:
 			if not dry_run:
 				doc = frappe.get_doc("Print Format", name)
 				for f, v in provided.items():

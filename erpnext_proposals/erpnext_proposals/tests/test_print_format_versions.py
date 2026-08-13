@@ -131,5 +131,73 @@ class TestPrintFormatVersions(unittest.TestCase):
 		# el anterior NO se deshabilita si el vigente no existe
 		self.assertEqual(frappe.db.get_value("Print Format", OLD, "disabled"), 0)
 
+	# A.2 — el versionador es dueño exclusivo de `disabled` de un formato sustituido: `_seed_print_formats`
+	#        NO lo gestiona (aunque el catálogo lo declare distinto) → sin flip-flop → idempotente.
+	def test_a2_versioner_owns_disabled_of_superseded(self):
+		from erpnext_proposals.erpnext_proposals.catalog_data.catalog_loader import _seed_print_formats
+
+		# OLD ya deshabilitado en el site (estado tras versionar); el catálogo lo declara disabled=0.
+		frappe.db.set_value("Print Format", OLD, "disabled", 1)
+		spec = {
+			"name": OLD,
+			"doc_type": "Quotation",
+			"print_format_type": "Jinja",
+			"standard": "No",
+			"custom_format": 1,
+			"disabled": 0,
+			"html": "<p>x</p>",
+		}
+
+		def _run_seed(superseded):
+			rep = {
+				"created": [],
+				"reused": [],
+				"updated": [],
+				"unchanged": [],
+				"conflicts": [],
+				"pending": [],
+			}
+			_seed_print_formats(
+				[spec], self._tmp, rep, dry_run=True, update_content=True, superseded=superseded
+			)
+			return rep
+
+		# CONTROL: sin `superseded`, `disabled` (1 vs 0) sí saldría como actualización.
+		ctrl = _run_seed(set())
+		self.assertTrue(
+			any("disabled" in u for u in ctrl["updated"]), "control: sin superseded debería tocar disabled"
+		)
+
+		# Con OLD en `superseded`: `disabled` NO se gestiona → sin cambios.
+		rep = _run_seed({OLD})
+		self.assertNotIn("disabled", " ".join(rep["updated"]))
+		self.assertIn(f"Print Format '{OLD}'", " ".join(rep["unchanged"]))
+		self.assertEqual(rep["conflicts"], [])
+
+	# B — cambiar la presentación (html/css/…) de un formato HISTÓRICO se reporta como CONFLICT desde el
+	#     dry-run (antes de que ADR-0011 reviente en el save del apply). `disabled` NO cae en este guard.
+	def test_b_historical_content_change_is_conflict(self):
+		from unittest.mock import patch
+
+		from erpnext_proposals.erpnext_proposals.catalog_data import catalog_loader as L
+
+		spec = {
+			"name": OLD,  # en el site tiene html "<p>x</p>"
+			"doc_type": "Quotation",
+			"print_format_type": "Jinja",
+			"standard": "No",
+			"custom_format": 1,
+			"disabled": 0,
+			"html": "<p>CONTENIDO CAMBIADO</p>",
+		}
+		rep = {"created": [], "reused": [], "updated": [], "unchanged": [], "conflicts": [], "pending": []}
+		with patch(
+			"erpnext_proposals.erpnext_proposals.utils.print_format_protection.is_print_format_historical",
+			return_value=True,
+		):
+			L._seed_print_formats([spec], self._tmp, rep, dry_run=True, update_content=True)
+		self.assertTrue(any("HISTÓRICO" in c for c in rep["conflicts"]), rep["conflicts"])
+		self.assertEqual(rep["updated"], [], "no debe contarse como actualización")
+
 	def assertNoConflicts(self, report):
 		self.assertEqual(report["conflicts"], [], f"no debe haber conflictos: {report['conflicts']}")

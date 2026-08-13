@@ -1,83 +1,77 @@
 # CONTINUITY.md — erpnext_proposals
 
 **Fecha:** 2026-08-13
-**Rama activa:** `feat/print-format-versioning-selector` (base `upstream/version-16` = **v0.8.0**).
-**Tarea actual:** **Versionamiento operativo de Print Formats** — mecanismo genérico para operar Print Formats versionados sin modificar históricos (ADR-0011 intacto). (1) **Selector central** `get_proposal_print_formats` (whitelisted + `validate_and_sanitize_search_inputs`): criterio ÚNICO de elegibilidad `doc_type=Quotation` + `disabled=0`, reutilizado por `Quotation.proposal_print_format` y `Proposal Template.print_format` vía helper JS central (`public/js/proposal_print_format.js`, `app_include_js`). (2) **Validación de servidor change-aware** `assert_assignable_print_format(doc, fieldname)` en `validate` de Quotation y Proposal Template: bloquea ADOPTAR un formato no elegible pero **no** invalida referencias históricas no modificadas. (3) **Warning** en Proposal Template (`get_print_format_status`) si el `print_format` está disabled/inexistente/otro DocType — no reemplaza el valor. Sin renombrar formatos, sin formato paralelo, sin Custom Fields nuevos, sin tocar el selector estándar de impresión, sin resolución automática por familia. Convención de nombres documentada: `<Familia> — YYYY-MM-DD — Vn`. Tests **10/10**; suite **320 OK / 1 skip**; ruff + prettier@2.7.1 + `mkdocs --strict` limpios; `bench build` hecho.
-
-**Ajuste ADR-0011 (mismo 0.9.0):** el modelo definitivo de históricos ya **no** exige reimpresión — el histórico oficial son los PDFs oficiales adjuntos del freeze. Se **retiró `disabled`** de `_PRESENTATION_FIELDS` del guard (`print_format_protection.py`): un Print Format histórico ahora puede pasar `disabled 0→1` por `doc.save()` (sin bypass); HTML/CSS/rename/delete siguen protegidos. ADR actualizado (Actualización 2026-08-12). **Loader v8** (`catalog_loader.py`): capacidad `print_format_versions` — deshabilita el anterior + adjunta changelog como `File` + repunta Proposal Templates, genérico e idempotente. Suite **325 OK / 1 skip**.
-
-Versión: **0.9.0** ya en la rama (commits deff8d0 selector + 43e9166 bump). Este ajuste ADR-0011 va en el mismo 0.9.0 (no re-bump).
+**Rama activa:** `fix/pf-version-disabled-owner-and-historical-guard` (base `upstream/version-16` = **v0.9.0**).
+**Tarea actual:** **App 0.9.1** — endurecer el ciclo de versionamiento de Print Formats del loader (fix de idempotencia estructural + guard histórico en dry-run). Complementa el fix declarativo ya desplegado del pack 1.24.0.
 
 ---
 
 ## Recuperación rápida
 
 Estoy trabajando en:
-`/ship commit` del ajuste ADR-0011 + loader v8 en `feat/print-format-versioning-selector`. Archivos: `utils/print_format_protection.py` (guard sin `disabled`), `docs/adr/0011-*.md`, `catalog_data/catalog_loader.py` (v8 `_seed_print_format_versions`), `tests/test_print_format_protection.py` (actualizado), `tests/test_print_format_versions.py` (nuevo).
-
-Commit documental (mismo 0.9.0): nueva página de usuario `docs/usuario/versionar-print-formats.md`
-(procedimiento operativo de versionamiento de Print Formats) + genericación de este `CONTINUITY.md`
-(sin identificadores concretos de sitio/entorno).
+`/ship commit` de **v0.9.1** en `fix/pf-version-disabled-owner-and-historical-guard`. Dos cambios en `catalog_data/catalog_loader.py`:
+- **A.2:** `_seed_print_formats(..., superseded=set)` — para un Print Format listado en `supersedes` (de `print_format_versions`), el seeder **no gestiona `disabled`**; el versionador (`_seed_print_format_versions`) es su único dueño → elimina el flip-flop que rompía la idempotencia (residual `disabled` en el `--apply` de 1.23.0).
+- **B:** si el plan cambiaría html/css/presentación de un Print Format **histórico** (`is_print_format_historical`), el loader lo reporta como **`conflict`** desde `--dry-run`, antes de que ADR-0011 lo bloquee en el `--apply`. `disabled` queda fuera del guard.
 
 Próximo paso concreto:
-`/ship push` → `/ship pr` (base `version-16`) del app 0.9.0. Tras el merge: cierre post-merge + tag/Release `v0.9.0` (`/ship release`) + `/sync-check`. **Después** publicar el pack privado 1.23.0 (working ya listo: nuevo PF `Propuesta de Servicios Profesionales — 2026-08-12 — V1`, changelog, repunte de templates; `releases/1.22.0` intacta; MANIFEST 1.23.0 sin sellar). No desplegar prod sin mostrar `--check`/`--dry-run`.
+Tras autorización: `/ship push` → `/ship pr` (base `version-16`). Tras merge del usuario: `/sync-check` + tag/Release **v0.9.1** (`/ship release`). **No** mezclar con un nuevo despliegue del pack a prod.
 
 Criterio de avance:
-Cada paso con autorización explícita; nunca escritura en BD/servidores sin aviso. Git solo vía `/ship`.
-[[feedback_git_solo_via_ship]] · nunca merge (lo hace el usuario) [[feedback_nunca_merge]].
+Cada paso con autorización explícita separada; git solo vía `/ship` [[feedback_git_solo_via_ship]]; nunca merge (lo hace el usuario) [[feedback_nunca_merge]]. Sin escritura en BD/servidores sin aviso.
 
 ---
 
 ## Estado actual
 
-### Cerrado y publicado
-- **PR #44** (`feat/resync-before-pdf-preview`) mergeado a `version-16` (squash `96f2abf`), **v0.8.0** tag+Release.
-  Commits de la rama: `c915fe8` (resync antes de PDF), `c434741` (PDFs oficiales privados), `816d29a` (bump 0.8.0).
-- **PR #43** (hardening + secciones opcionales, ADR-0011/0012/0013) — mergeado, v0.7.0.
+### Ya cerrado
+- **App v0.9.0** (PR #45, squash `ecec974`) — versionamiento de Print Formats: selector central, ADR-0011 (retiró `disabled` del guard), loader v8 `print_format_versions`. Tag+Release publicados.
+- **Pack privado 1.24.0** — sellado (`releases/1.24.0/`) y transferido a prod (`~/private-kits/releases/1.24.0/`). Fix declarativo A.1 (formato anterior con `disabled: 1` en `print_formats`) + reporte detallado en instalador + `RUNBOOK-despliegue.md`. Corrige el residual de idempotencia del 1.23.0.
 
-### Pack privado de Consultoría (fuera del repo, file-based)
-Sellado en **1.22.0** (`releases/1.22.0/`, MANIFEST regenerado, releases históricas intactas). Delta 1.21.0→1.22.0:
-+29 Scope Items, +9 Phases, introducción reescrita (#3), "Quiénes somos" `integrando análisis` (#4),
-y **#2 paginación**: `.service` sin `page-break-inside: avoid` en `propuesta_servicios_profesionales.css`
-(quita el hueco antes de un servicio que no cabe). Aplicado y validado en el sitio de desarrollo (idempotente 0/0/0).
-`Propuesta de Servicios Profesionales` es formato del pack (module Selling, no protegido); `Propuesta Comercial`
-/ `Rentabilidad Estimada` son estándar de la app y PROTEGIDOS por el loader. Ver [[reference_clientes_packs_sites]].
+### En progreso (esta rama, 0.9.1)
+- A.2 + B implementados en `catalog_loader.py`; `superseded_pf` cableado en `run()`.
+- Tests nuevos: `test_a2_versioner_owns_disabled_of_superseded`, `test_b_historical_content_change_is_conflict`.
+- Doc: `docs/tecnico/print-formats.md` — sección "Aplicación por el loader del pack".
+- Bump `0.9.0 → 0.9.1` (PATCH). `caps_version` sigue **8** (cambios internos, no capacidad nueva).
+- Validado: suite **327 OK / 1 skip**; ruff check+format limpios; `mkdocs --strict` limpio.
 
-### Diagnósticos entregados sin cambio de código (#5)
-- Bloqueo transitorio "This form is not editable due to a Workflow." = estado cliente stale durante
-  `frm.save()→reload_doc()` del resync; no es bug de datos. Sin corrección aplicada (no autorizada).
+### Pendiente inmediato
+1. `/ship commit` (autorizado) → reportar hash + working tree limpio.
+2. `/ship push`.
+3. `/ship pr` a `version-16`. **No** hacer merge ni release hasta reportar el PR.
+
+### Verificación de prod (tarea del usuario, cierre separado — no bloquea este commit)
+- En `erp.buzola.mx` correr solo `--check` + `--dry-run` de 1.24.0. Esperado **0/0/0**. **No** `--apply`, ni backup, ni `bench migrate`. Si el dry-run muestra algo ≠ 0/0/0 → detenerse y reportar.
+
+### No repetir
+- No versionar contenido de cliente (branding, catálogos reales, assets, PDFs, one_offs). Gate de datos de cliente.
+- No `git` manual — solo vía `/ship` [[feedback_git_solo_via_ship]]. **NUNCA** merge — lo hace el usuario [[feedback_nunca_merge]].
+- No re-desplegar el pack a prod como parte de 0.9.1.
+- En prod: `git`/`bench` como usuario **`erpnext`** (no `luisrms69` → dubious ownership).
 
 ---
 
 ## Decisiones vigentes
-- **Resync antes de PDF (solo en Borrador)** vive en el handler JS del botón; el **freeze (server) no resincroniza** —
-  los PDFs oficiales conservan el contenido revisado. Test `test_15` lo blinda.
-- **PDFs oficiales privados** (Comercial + Rentabilidad); lookup de reemplazo por prefijo + `attached_to` (privacy-agnóstico).
-- **ADR-0011:** un Print Format usado por propuestas formalizadas (`proposal_effective_print_format`) es histórico e
-  inmutable; para corregirlo en dev se limpió ese campo en 4 Quotations de prueba (opción B). En prod: no aplica sin decisión.
-- **Snapshots de secciones:** cambiar el master `Proposal Section` no altera propuestas existentes hasta re-sync del
-  snapshot (`_sync_sections_snapshot(force=True)` en Borrador). [[design_scope_resync_borrador]]
-- App genérica en el repo; catálogos/branding/assets reales en el pack privado por ruta externa (ADR-0006).
-- `facturacion_mexico` es `required_app`; el loader solo referencia masters fiscales, no los crea ni borra.
-
-### No repetir
-- No versionar contenido de cliente (branding, catálogos reales, assets, one_offs, PDFs). Gate de datos de cliente.
-- No `git` manual — solo vía `/ship`. [[feedback_git_solo_via_ship]]
-- **NUNCA** merge — lo hace el usuario. [[feedback_nunca_merge]]
-- No confundir sitios/packs: cada cliente (p. ej. Consultoría, Acti) tiene su propio sitio de desarrollo y su pack privado; cuidado con la colisión de la serie `SAL-QTN` entre sitios. [[reference_clientes_packs_sites]]
+- **Dueño único de `disabled`:** en el ciclo de versionamiento, solo `_seed_print_format_versions` cambia `disabled` del formato sustituido. `_seed_print_formats` lo excluye vía el set `superseded`. Declarar el anterior con `disabled: 1` en `print_formats` es además lo consistente (evita el flip-flop aun sin A.2).
+- **Guard histórico en el loader (B):** cambiar presentación de un Print Format histórico es `conflict` en dry-run; `disabled` no es presentación (permitido por el modelo, ADR-0011 "Actualización 2026-08-12").
+- **ADR-0011:** históricos (`proposal_effective_print_format`) protegidos en html/css/rename/delete; el registro oficial son los PDFs adjuntos del freeze, no la reimpresión.
+- App genérica en el repo; catálogos/branding/assets reales en packs privados por ruta externa (ADR-0006). Cada cliente tiene su propio sitio y pack [[reference_clientes_packs_sites]].
 
 ---
 
-## Pendientes (no implementados / no autorizados en repo público)
-- #5 (flicker workflow) — solo diagnóstico; una corrección al flujo resync→reload sería un follow-up puntual si se autoriza.
-- Pendientes funcionales previos aún abiertos (impuestos automáticos en Quotation, centro de costos obligatorio,
-  reorganización Sections/Scope tipificados). No asumir resueltos.
-- Versionamiento/registro formal del pack en su propio flujo file-based (ya sellado 1.22.0; despliegue a prod no hecho).
+## Archivos relevantes ahora
+
+### Leer primero
+- `erpnext_proposals/erpnext_proposals/catalog_data/catalog_loader.py` — `_seed_print_formats` (A.2/B), `run()` (`superseded_pf`), `_seed_print_format_versions`.
+- `erpnext_proposals/erpnext_proposals/utils/print_format_protection.py` — `is_print_format_historical`, `_PRESENTATION_FIELDS`.
+
+### Probablemente editar
+- Solo si CI pide ajustes de lint/formato.
+
+### No tocar
+- `releases/*` del pack privado (inmutables). `docs/adr/0011-*.md` (ya cerrado).
 
 ---
 
 ## Riesgos / cuidados
-- Despliegue toca BD y servidores → autorización explícita en cada paso; servidores dev solo vía `frappe-multisite`.
-- Transición de privacidad: propuestas ya congeladas con un comercial público existente conservan ese `File` hasta
-  regenerarse; las nuevas quedan privadas desde el freeze.
-- Requiere `bench build` (cambio de JS); no requiere `bench migrate` (sin esquema/fixtures).
+- 0.9.1 no requiere `bench migrate` (sin esquema/fixtures) ni `bench build` (sin JS). Solo código Python del loader.
+- El comportamiento nuevo del loader solo se observa al aplicar packs; los tests lo cubren con datos ficticios.

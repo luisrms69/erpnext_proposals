@@ -225,6 +225,20 @@ Otra revisión el mismo día:  … — 2026-08-12 — V2
 6. Las propuestas **congeladas** conservan su formato efectivo histórico (por el PDF oficial adjunto +
    `proposal_effective_print_format`).
 
+### Aplicación por el loader del pack (`catalog_data/catalog_loader.py`)
+
+Cuando el catálogo declara el versionamiento (clave `print_format_versions`), el loader garantiza dos
+propiedades para que el ciclo sea **idempotente** y **seguro**:
+
+- **Dueño único de `disabled`:** para un formato listado como `supersedes`, `_seed_print_formats` **no**
+  gestiona su campo `disabled`; el único que lo cambia es `_seed_print_format_versions`
+  (`disable_superseded`). Así ambos seeders no se pelean el flag (evita el flip-flop que rompería la
+  idempotencia). *(Declarar el anterior con `disabled: 1` en `print_formats` es además lo consistente.)*
+- **Guard histórico:** si el catálogo intentara cambiar la **presentación** (`html`/`css`/…) de un
+  Print Format ya **histórico**, el loader lo reporta como **`conflict`** en `--dry-run` (no como
+  "actualizado"), antes de que ADR-0011 lo bloquee en el `save` del `--apply`. `disabled` no es
+  presentación → sí se permite. La vía correcta sigue siendo **crear una versión nueva**.
+
 ### Selector central + validación (elegibilidad única)
 
 Un Print Format es **elegible** para propuestas si `doc_type = "Quotation"` **y** `disabled = 0`. Ese
