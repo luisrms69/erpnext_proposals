@@ -36,6 +36,9 @@ sin volver a resolver. Una **nueva versión** hereda ese formato como override e
 | `sync_proposal_print_format_from_template(doc)` | al aplicar/cambiar el Template (o si el override está vacío), **puebla** `proposal_print_format` con el formato del Template; corre en `validate` de la Quotation |
 | `freeze_effective_print_format(doc)` | persiste el efectivo al congelar (idempotente) |
 | `validate_print_format(name)` | valida que el formato sea usable para Quotation (existe, doc_type, no disabled) |
+| `assert_assignable_print_format(doc, fieldname)` | validación **change-aware** de servidor compartida (Quotation `proposal_print_format` + Proposal Template `print_format`): bloquea ADOPTAR un formato no elegible; no re-valida referencias no modificadas (protege históricos) |
+| `get_proposal_print_formats(...)` | whitelisted; **query central** del campo Link (elegibilidad única: `doc_type=Quotation`, `disabled=0`) |
+| `get_print_format_status(name)` | whitelisted; estado (`ok`/`missing`/`disabled`/`wrong_doctype`) para el warning de referencia obsoleta |
 | `get_effective_commercial_print_format(quotation)` | whitelisted; lo usa el botón *Imprimir Propuesta Comercial* (JS) |
 
 El mismo resolver se usa en el snapshot de impresión y al adjuntar el PDF comercial, de modo que
@@ -193,6 +196,57 @@ otro nombre** y asignándolo a las propuestas futuras (`Proposal Template.print_
 
 ---
 
+## Versionamiento operativo de Print Formats
+
+En operación cotidiana los `Proposal Template` los mantienen **usuarios** (no solo el pack). Cada
+cambio de presentación se hace **creando un Print Format nuevo** (no se modifica el histórico), en
+línea con ADR-0011 (que **no** se relaja).
+
+**Convención de nombres** (la fecha es la entrada en vigor):
+
+```
+<Familia> — YYYY-MM-DD — Vn
+Ejemplo:  Propuesta de Servicios Profesionales — 2026-08-12 — V1
+Otra revisión el mismo día:  … — 2026-08-12 — V2
+```
+
+> No hay (todavía) resolución automática por familia: cada `Proposal Template` apunta **explícitamente**
+> a un Print Format concreto.
+
+**Flujo operativo:**
+
+1. Crear el nuevo Print Format con nombre versionado (`disabled = 0`, `doc_type = Quotation`).
+2. Dejar **intacto** el formato anterior.
+3. Marcar el anterior `disabled = 1`.
+4. Los selectores de `Quotation.proposal_print_format` y `Proposal Template.print_format` dejan de
+   ofrecer el anterior (query central).
+5. Los `Proposal Template` que aún apunten al anterior muestran un **warning** (no se reemplaza el
+   valor automáticamente) hasta que un usuario elija la versión vigente.
+6. Las propuestas **congeladas** conservan su formato efectivo histórico (por el PDF oficial adjunto +
+   `proposal_effective_print_format`).
+
+### Selector central + validación (elegibilidad única)
+
+Un Print Format es **elegible** para propuestas si `doc_type = "Quotation"` **y** `disabled = 0`. Ese
+criterio vive en **un solo lugar** (`utils/print_format.py`) y lo comparten:
+
+- **Query del campo Link** `get_proposal_print_formats` → conectada por `set_query` a **ambos** campos
+  (`Quotation.proposal_print_format` y `Proposal Template.print_format`) desde el helper JS central
+  `public/js/proposal_print_format.js` (incluido vía `app_include_js`).
+- **Validación de servidor** `assert_assignable_print_format(doc, fieldname)` → corre en `validate` de
+  Quotation y de Proposal Template. Es **change-aware**: bloquea que un documento nuevo/editable
+  *adopte* un formato no elegible (API, import, script), pero **no** invalida una referencia previa no
+  modificada — así un documento histórico/congelado que ya apuntaba a un formato luego deshabilitado
+  **conserva** su referencia efectiva sin romperse.
+- **Warning de referencia obsoleta** (`get_print_format_status`) → en `Proposal Template`, al cargar, si
+  el `print_format` está `disabled` (obsoleto) o ya no existe / es de otro DocType, avisa junto al campo.
+
+> Si mañana se agrega otra regla de elegibilidad, se cambia en `_proposal_print_format_filters` /
+> `validate_print_format` y la heredan por igual la query, la validación y el warning. No se toca el
+> selector estándar de impresión de Frappe.
+
+---
+
 ## Archivos relevantes
 
 | Archivo | Propósito |
@@ -200,7 +254,8 @@ otro nombre** y asignándolo a las propuestas futuras (`Proposal Template.print_
 | `propuesta_comercial.json` | Fuente de verdad del Print Format comercial genérico (default) |
 | `utils/print_format_protection.py` | Candado de Print Formats históricos (ADR-0011) |
 | `rentabilidad_estimada.json` | Fuente de verdad del Print Format de rentabilidad |
-| `utils/print_format.py` | Resolución y congelamiento del formato comercial efectivo |
+| `utils/print_format.py` | Resolución/congelamiento + selector central (`get_proposal_print_formats`), validación (`assert_assignable_print_format`) y status (`get_print_format_status`) |
+| `public/js/proposal_print_format.js` | Helper JS central: `set_query` + warning de obsoleto para ambos campos (`app_include_js`) |
 | `utils/printing.py` | Helpers Jinja: `render_section_content`, `parse_json`, `get_sections_snapshot` (lectura fail-closed del snapshot), `get_logo_url`, `get_logo_data_uri` |
 | `report/profitability_estimate/` | Fuente de datos para Rentabilidad Estimada |
 | `working_docs/archive/visual-regression/` | PDFs de evidencia histórica por formato |

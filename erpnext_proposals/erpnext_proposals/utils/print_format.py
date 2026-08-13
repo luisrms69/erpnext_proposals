@@ -14,6 +14,16 @@ from frappe import _
 
 DEFAULT_COMMERCIAL_PRINT_FORMAT = "Propuesta Comercial"
 
+# Criterio ÚNICO de elegibilidad de un Print Format para propuestas. Si mañana se agrega otra regla,
+# se cambia AQUÍ y lo heredan por igual: la query del campo Link, la validación de servidor y el
+# `status` que consume el warning del cliente. NO duplicar el criterio en otro sitio.
+PROPOSAL_PRINT_FORMAT_DOCTYPE = "Quotation"
+
+
+def _proposal_print_format_filters() -> dict:
+	"""Filtros de elegibilidad (fuente única): solo Quotation y no deshabilitado."""
+	return {"doc_type": PROPOSAL_PRINT_FORMAT_DOCTYPE, "disabled": 0}
+
 
 def resolve_commercial_print_format(doc) -> str:
 	"""Formato comercial efectivo. Congelada → el congelado; Borrador → resolución dinámica."""
@@ -50,18 +60,77 @@ def sync_proposal_print_format_from_template(doc) -> None:
 
 
 def validate_print_format(pf_name: str | None) -> None:
-	"""Valida que un Print Format sea usable para Quotation. Error claro si no (Caso F)."""
+	"""Valida que un Print Format sea usable para Quotation (elegibilidad única). Error claro si no."""
 	if not pf_name:
 		return
 	pf = frappe.db.get_value("Print Format", pf_name, ["doc_type", "disabled"], as_dict=True)
 	if not pf:
 		frappe.throw(_("El Print Format '{0}' no existe.").format(pf_name))
-	if pf.doc_type != "Quotation":
+	if pf.doc_type != PROPOSAL_PRINT_FORMAT_DOCTYPE:
 		frappe.throw(
 			_("El Print Format '{0}' pertenece a '{1}', no a Quotation.").format(pf_name, pf.doc_type)
 		)
 	if pf.disabled:
 		frappe.throw(_("El Print Format '{0}' está deshabilitado.").format(pf_name))
+
+
+def assert_assignable_print_format(doc, fieldname: str) -> None:
+	"""Validación de servidor COMPARTIDA (Quotation.proposal_print_format y Proposal Template.print_format).
+
+	Impide que un documento **nuevo o editable** *adopte* (asigne/cambie a) un Print Format no elegible
+	(inexistente / de otro DocType / deshabilitado). Protege lo histórico: si el valor NO cambió respecto
+	a lo ya guardado, no se re-valida — así un documento congelado o una plantilla existente que ya
+	referencian un formato **posteriormente deshabilitado** conservan su referencia sin invalidarse
+	retroactivamente. No relaja ADR-0011 (candado de formatos históricos): es una capa distinta.
+	"""
+	value = doc.get(fieldname)
+	if not value:
+		return
+	# Solo validar cuando el valor se ADOPTA: documento nuevo, o el campo cambió respecto a BD.
+	if not doc.is_new() and not doc.has_value_changed(fieldname):
+		return
+	validate_print_format(value)
+
+
+@frappe.whitelist()
+@frappe.validate_and_sanitize_search_inputs
+def get_proposal_print_formats(
+	doctype: str, txt: str, searchfield: str, start: int, page_len: int, filters: dict
+) -> list:
+	"""Query central del campo Link para elegir el Print Format de una propuesta.
+
+	Fuente ÚNICA de elegibilidad (``_proposal_print_format_filters``): solo ``doc_type='Quotation'`` y
+	``disabled=0``. La usan por igual ``Quotation.proposal_print_format`` y ``Proposal Template.print_format``
+	(vía ``set_query`` en el cliente). Soporta la búsqueda estándar de Frappe sobre el nombre.
+	"""
+	return frappe.get_all(
+		"Print Format",
+		filters={**_proposal_print_format_filters(), "name": ["like", f"%{txt}%"]},
+		fields=["name"],
+		limit_start=start,
+		limit=page_len,
+		order_by="modified desc",
+		as_list=True,
+	)
+
+
+@frappe.whitelist()
+def get_print_format_status(pf_name: str | None) -> dict:
+	"""Estado de elegibilidad de un Print Format referenciado (para el warning del cliente).
+
+	Devuelve ``{"status": ok|missing|disabled|wrong_doctype}`` usando el MISMO criterio que la query y
+	la validación. Lectura ligera (un solo ``get_value``); el cliente la invoca una vez al cargar.
+	"""
+	if not pf_name:
+		return {"status": "ok"}
+	pf = frappe.db.get_value("Print Format", pf_name, ["doc_type", "disabled"], as_dict=True)
+	if not pf:
+		return {"status": "missing"}
+	if pf.doc_type != PROPOSAL_PRINT_FORMAT_DOCTYPE:
+		return {"status": "wrong_doctype", "doc_type": pf.doc_type}
+	if pf.disabled:
+		return {"status": "disabled"}
+	return {"status": "ok"}
 
 
 def freeze_effective_print_format(doc) -> None:

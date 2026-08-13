@@ -120,7 +120,9 @@ fixtures = [
 
 # include js, css files in header of desk.html
 # app_include_css = "/assets/erpnext_proposals/css/erpnext_proposals.css"
-# app_include_js = "/assets/erpnext_proposals/js/erpnext_proposals.js"
+# Helper central de selección de Print Format de propuestas (compartido por Quotation y Proposal
+# Template). Se incluye globalmente en desk para que ambos formularios usen la MISMA query/warning.
+app_include_js = ["/assets/erpnext_proposals/js/proposal_print_format.js"]
 
 # include js, css files in header of web template
 # web_include_css = "/assets/erpnext_proposals/css/erpnext_proposals.css"

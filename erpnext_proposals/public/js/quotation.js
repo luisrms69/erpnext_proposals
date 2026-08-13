@@ -418,6 +418,10 @@ frappe.ui.form.on("Quotation", {
 		} catch (e) {
 			console.error("proposal_optional_sections selector error:", e);
 		}
+
+		// Campo Link `proposal_print_format`: MISMA query central de elegibilidad que Proposal Template
+		// (solo Print Formats de Quotation, no deshabilitados). No se toca el selector estándar de impresión.
+		erpnext_proposals.print_format.set_query(frm, "proposal_print_format");
 	},
 });
 
