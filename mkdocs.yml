@@ -12,6 +12,7 @@ nav:
     - Campos principales: usuario/campos-principales.md
     - Cómo crear una propuesta: usuario/crear-propuesta.md
     - Generar y enviar al cliente: usuario/generar-enviar-propuesta.md
+    - Versionar formatos de propuesta: usuario/versionar-print-formats.md
     - Propuesta ganada: usuario/propuesta-ganada.md
     - Proyecto generado: usuario/proyecto-generado.md
     - Limitaciones del RC: usuario/limitaciones-rc.md
