@@ -604,3 +604,112 @@ class TestScopeCatalogResync(unittest.TestCase):
 			si2.save(ignore_permissions=True)
 			if frappe.db.exists("Scope Item", "_RESYNC_A5"):
 				frappe.delete_doc("Scope Item", "_RESYNC_A5", force=True, ignore_permissions=True)
+
+	# ── H. Freeze NUNCA resincroniza (regla absoluta) ───────────────────────────
+
+	def test_15_freeze_does_not_resync(self):
+		"""El freeze (Borrador → En Revisión, vía submit → freeze_proposal) NUNCA resincroniza contra
+		catálogo. Cambiar los maestros DESPUÉS de crear el Borrador y luego congelar NO debe alterar el
+		contenido ya materializado (campos de scope controlados por catálogo ni editorial del Item). El
+		freeze congela lo que el usuario ya revisó; no vuelve a materializar el catálogo vigente.
+
+		(La transición real Borrador → En Revisión usa el MISMO `freeze_proposal` + `attach_proposal_pdfs`;
+		ninguno resincroniza. `attach_proposal_pdfs` solo renderiza el contenido congelado con get_print.)
+		"""
+		# Editorial del Item congelable en la línea Quotation Item.
+		frappe.db.set_value("Item", ITEM_A, "proposal_methodology", "METODO ORIGINAL", update_modified=False)
+		frappe.clear_document_cache("Item", ITEM_A)
+		q = self._make_quotation([ITEM_A])
+		row = self._row_by_scope(q.name, "_RESYNC_A1")
+		orig_title, orig_hours = row.title, row.estimated_hours
+		item_line = next(i for i in frappe.get_doc("Quotation", q.name).items if i.item_code == ITEM_A)
+		self.assertEqual(item_line.proposal_methodology, "METODO ORIGINAL")
+
+		# Cambiar los MAESTROS del catálogo DESPUÉS de crear el Borrador.
+		frappe.db.set_value(
+			"Scope Item",
+			"_RESYNC_A1",
+			{"title": "CAMBIADO FREEZE", "estimated_hours": 99},
+			update_modified=False,
+		)
+		frappe.clear_document_cache("Scope Item", "_RESYNC_A1")
+		frappe.db.set_value("Item", ITEM_A, "proposal_methodology", "METODO CAMBIADO", update_modified=False)
+		frappe.clear_document_cache("Item", ITEM_A)
+		try:
+			# FREEZE (submit dispara freeze_proposal en before_submit).
+			doc = frappe.get_doc("Quotation", q.name)
+			doc.flags.ignore_mandatory = True
+			doc.flags.ignore_links = True
+			doc.submit()
+
+			# El contenido congelado NO cambió: el freeze no refrescó nada desde el catálogo.
+			row2 = self._row_by_scope(q.name, "_RESYNC_A1")
+			self.assertEqual(row2.title, orig_title, "freeze NO debe refrescar el título del scope")
+			self.assertEqual(row2.estimated_hours, orig_hours, "freeze NO debe refrescar las horas del scope")
+			item2 = next(i for i in frappe.get_doc("Quotation", q.name).items if i.item_code == ITEM_A)
+			self.assertEqual(
+				item2.proposal_methodology,
+				"METODO ORIGINAL",
+				"freeze NO debe recopiar el editorial del Item desde el maestro",
+			)
+		finally:
+			frappe.db.set_value(
+				"Scope Item",
+				"_RESYNC_A1",
+				{"title": orig_title, "estimated_hours": orig_hours},
+				update_modified=False,
+			)
+			frappe.db.set_value("Item", ITEM_A, "proposal_methodology", None, update_modified=False)
+			frappe.clear_document_cache("Scope Item", "_RESYNC_A1")
+			frappe.clear_document_cache("Item", ITEM_A)
+
+	def test_16_official_pdfs_are_private(self):
+		"""Ambos PDFs oficiales adjuntos durante el freeze deben quedar como ``File`` PRIVADO
+		(``is_private=1``): Propuesta Comercial y Rentabilidad Estimada. Ninguno debe adjuntarse como
+		público (accesible por URL sin control de permiso).
+
+		Se verifica el CONTRATO de ``attach_proposal_pdfs`` (el paso de PDFs del freeze) sin depender del
+		render real (wkhtmltopdf / print formats / hrms en el site de tests): se interceptan
+		``get_print``/``get_pdf``/``save_file`` y se captura el ``is_private`` con que se guarda cada PDF.
+		"""
+		from unittest.mock import patch
+
+		from erpnext_proposals.erpnext_proposals.utils import quotation as qmod
+
+		q = self._make_quotation([ITEM_A])
+		doc = frappe.get_doc("Quotation", q.name)
+
+		captured = {}
+
+		class _FakeFile:
+			def __init__(self, name):
+				self.name = name
+
+		def _fake_save_file(fname, content, dt, dn, is_private):
+			captured[fname] = is_private
+			return _FakeFile(f"FAKE-{fname}")
+
+		with (
+			patch.object(qmod.frappe, "get_print", return_value="<html></html>"),
+			patch("frappe.utils.pdf.get_pdf", return_value=b"%PDF-1.4"),
+			patch("frappe.utils.file_manager.save_file", side_effect=_fake_save_file),
+			patch.object(qmod.frappe.db, "set_value"),
+			patch.object(qmod.frappe, "publish_realtime"),
+		):
+			qmod.attach_proposal_pdfs(doc)
+
+		# Se intentaron guardar exactamente los dos documentos oficiales.
+		self.assertEqual(
+			len(captured), 2, f"Deben adjuntarse los dos PDFs oficiales, se vio: {list(captured)}"
+		)
+		self.assertTrue(
+			any(k.startswith("Rentabilidad Estimada - ") for k in captured),
+			"Debe adjuntarse la Rentabilidad Estimada",
+		)
+		# Ambos, sin excepción, PRIVADOS.
+		for fname, is_private in captured.items():
+			self.assertEqual(
+				is_private,
+				1,
+				f"El PDF oficial '{fname}' debe adjuntarse como PRIVADO (is_private=1), no público",
+			)
