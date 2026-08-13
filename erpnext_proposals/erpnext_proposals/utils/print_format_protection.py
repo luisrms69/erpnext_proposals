@@ -2,14 +2,22 @@
 
 Un Print Format se vuelve **histórico** en cuanto una propuesta ya congelada/formalizada lo dejó
 guardado en `proposal_effective_print_format` (campo que el app persiste **solo** al congelar
-Borrador → En Revisión; nunca en Borrador). A partir de ese momento, reimprimir una propuesta
-histórica usa el HTML **actual** de ese Print Format, así que modificarlo/renombrarlo/eliminarlo
-cambiaría retrospectivamente la presentación de propuestas ya emitidas.
+Borrador → En Revisión; nunca en Borrador). Ese campo queda como **referencia/auditoría** de qué
+formato se usó.
+
+Modelo definitivo: el histórico oficial de una propuesta congelada son los **PDFs oficiales adjuntos**
+generados durante el freeze (protegidos contra borrado, ver `official_document_protection.py`); una
+propuesta congelada **no se reimprime** normalmente. Por eso este candado protege el **contenido /
+representación** de un Print Format histórico (para que un PDF que sí se regenerara por alguna vía no
+saliera distinto) pero **NO** su campo `disabled`: `disabled` no forma parte de la representación
+histórica, y deshabilitar un formato sustituido es parte del versionamiento normal (deja de ofrecerse
+para nuevas selecciones sin alterar nada del histórico).
 
 Este módulo bloquea, mediante `doc_events` estándar de Frappe (sin tocar core), las operaciones que
-alterarían esa reimpresión histórica: cambio real de campos de presentación, `disabled`, rename y
-delete. La forma soportada de evolucionar un formato es **crear uno nuevo con otro nombre** y usarlo
-solo en propuestas futuras. No hay excepción administrativa (ni System Manager ni Administrator).
+alterarían la representación histórica: cambio real de campos de presentación (HTML/CSS/etc.), rename y
+delete. **Permite** cambiar `disabled` (típicamente `0 → 1`) aunque el formato sea histórico. La forma
+soportada de evolucionar un formato es **crear uno nuevo con otro nombre** y deshabilitar el anterior.
+No hay excepción administrativa para lo que sí se bloquea (ni System Manager ni Administrator).
 
 Genérico: no hardcodea nombres de Print Formats. Idempotente con el loader del pack: si se re-guarda
 exactamente el mismo contenido de un formato histórico, ningún campo protegido cambia → no se bloquea.
@@ -18,9 +26,13 @@ exactamente el mismo contenido de un formato histórico, ningún campo protegido
 import frappe
 from frappe import _
 
-# Campos cuyo cambio altera la representación reimpresa de un Print Format (o rompe la reimpresión).
-# NO se incluyen metadatos sin efecto sobre la presentación histórica (p. ej. `module`, ayudas HTML,
-# breaks de layout del formulario).
+# Campos cuyo cambio altera la REPRESENTACIÓN de un Print Format histórico. Se protegen para que la
+# evidencia histórica no pueda mutarse. NO se incluyen metadatos sin efecto sobre la presentación
+# (p. ej. `module`, breaks de layout del formulario) ni `disabled`.
+#
+# `disabled` NO está aquí a propósito (modelo definitivo): no forma parte de la representación
+# histórica —el histórico se consulta por los PDFs oficiales adjuntos, no reimprimiendo— y debe poder
+# pasar de 0 → 1 al sustituir un formato por una versión nueva, por la vía normal de `doc.save()`.
 _PRESENTATION_FIELDS = (
 	"html",
 	"css",
@@ -47,15 +59,13 @@ _PRESENTATION_FIELDS = (
 	"doc_type",
 	"print_format_for",
 	"report",
-	# `disabled`: deshabilitar un formato histórico rompe su reimpresión (el resolver rechaza formatos
-	# deshabilitados). Se bloquea cualquier cambio de este campo en un formato histórico.
-	"disabled",
 )
 
 _EVOLVE_HINT = (
-	"Para evolucionar o corregir un formato, crea un Print Format NUEVO con otro nombre y asígnalo a "
-	"las propuestas futuras (por ejemplo, en el Proposal Template). Los formatos ya usados por "
-	"propuestas formalizadas son inmutables para preservar su reimpresión."
+	"Para evolucionar o corregir un formato, crea un Print Format NUEVO con otro nombre, asígnalo a las "
+	"propuestas futuras (por ejemplo, en el Proposal Template) y deshabilita el anterior. El CONTENIDO "
+	"de un formato ya usado por propuestas formalizadas es inmutable (su histórico se conserva por los "
+	"PDFs oficiales adjuntos); sí puede deshabilitarse."
 )
 
 
