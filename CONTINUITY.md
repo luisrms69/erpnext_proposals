@@ -32,8 +32,10 @@ vía `/ship` [[feedback_git_solo_via_ship]]; nunca merge — lo hace el usuario 
 ### Ya cerrado
 - **Commit de la feature** en la rama de trabajo (bump 0.10.0 incluido). 9 archivos de código + 6 de docs.
 - **Fix `hooks.py`:** agregados los 3 fieldnames de servicio de Item al allowlist del filtro de fixtures
-  (`test_fixture_hooks_consistency` lo exigía; patrón `fixture-patterns`). Suite completa verde tras migrar
-  el site de tests. Ver [[feedback_fixture_filter_hooks]].
+  (`test_fixture_hooks_consistency` lo exigía; patrón `fixture-patterns`). Ver [[feedback_fixture_filter_hooks]].
+- **Fix test `SNAP_KEYS`:** agregado `page_break_before` al set de estructura exacta del snapshot
+  (`_build_sections_snapshot` ya lo congela; `test_sections_snapshot.test_01` lo exigía). **Suite completa
+  327 tests: 0 failures / 0 errors** tras migrar el site de tests. Ver [[feedback_correr_suite_completa_migrada]].
 - Documentación: ADR-0014 (render portada separada + merge), `tecnico/print-formats.md`, `tecnico/arquitectura.md`,
   `usuario/campos-principales.md`, `CHANGELOG 0.10.0`, `mkdocs.yml`. `mkdocs build --strict` limpio.
 - Validación visual del candidato en `proposals-acti.dev` (18 págs): portada full-bleed 1 pág sin header,
