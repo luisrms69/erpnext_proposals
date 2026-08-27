@@ -34,8 +34,12 @@ vía `/ship` [[feedback_git_solo_via_ship]]; nunca merge — lo hace el usuario 
 - **Fix `hooks.py`:** agregados los 3 fieldnames de servicio de Item al allowlist del filtro de fixtures
   (`test_fixture_hooks_consistency` lo exigía; patrón `fixture-patterns`). Ver [[feedback_fixture_filter_hooks]].
 - **Fix test `SNAP_KEYS`:** agregado `page_break_before` al set de estructura exacta del snapshot
-  (`_build_sections_snapshot` ya lo congela; `test_sections_snapshot.test_01` lo exigía). **Suite completa
-  327 tests: 0 failures / 0 errors** tras migrar el site de tests. Ver [[feedback_correr_suite_completa_migrada]].
+  (`_build_sections_snapshot` ya lo congela; `test_sections_snapshot.test_01` lo exigía).
+- **Fix hermeticidad CI (PR #47):** `test_proposal_specific_scope` y `test_scope_moment_snapshot` creaban
+  Quotations sin `selling_price_list` y dependían del default de Selling Settings (presente en local, ausente
+  en el site fresco de CI `--lightmode`) → `save/submit` fallaba con MandatoryError. Fix: reutilizar
+  `get_test_price_list()` (patrón hermético ya vigente). **Suite completa 327 tests: 0 failures / 0 errors.**
+  Ver [[feedback_test_hermeticidad_price_list]].
 - Documentación: ADR-0014 (render portada separada + merge), `tecnico/print-formats.md`, `tecnico/arquitectura.md`,
   `usuario/campos-principales.md`, `CHANGELOG 0.10.0`, `mkdocs.yml`. `mkdocs build --strict` limpio.
 - Validación visual del candidato en un site de desarrollo (18 págs): portada full-bleed 1 pág sin header,
