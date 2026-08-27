@@ -54,12 +54,12 @@ y de gestión.
 | DocType | Propósito | Relaciones | Notas |
 |---|---|---|---|
 | `Proposal Section` | Bloque de texto narrativo reutilizable | Referenciado por `Proposal Template Section` | Tiene flag `is_executive_summary` para resaltar en portada |
-| `Proposal Template` | Agrupa secciones en orden para un tipo de proyecto | Tiene child table `Proposal Template Section` | Se cargan desde el **catálogo** (loader), **no** por `install.py` (ADR-0006) |
-| `Proposal Template Section` | Fila de sección en un template | Link a `Proposal Section`; soporte para `custom_title` y `custom_content`; **`hide_title`** (Check, oculta el heading por Template); **`include_by_default`** (Check, default `1`; en `0` la sección es opcional por propuesta) | Child table de `Proposal Template` |
+| `Proposal Template` | Agrupa secciones en orden para un tipo de proyecto | Tiene child table `Proposal Template Section` | Se cargan desde el **catálogo** (loader), **no** por `install.py` (ADR-0006). Campos de render: **`letter_head`** (Link → `Letter Head`, opcional; encabezado de marca de la familia, explícito por nombre) y **`separate_cover_page`** (Check, default `0`; PDF con portada separada + merge — ADR-0014) |
+| `Proposal Template Section` | Fila de sección en un template | Link a `Proposal Section`; soporte para `custom_title` y `custom_content`; **`hide_title`** (Check, oculta el heading por Template); **`include_by_default`** (Check, default `1`; en `0` la sección es opcional por propuesta); **`page_break_before`** (Check, default `0`; `1` = la sección inicia página nueva; independiente de `is_executive_summary`) | Child table de `Proposal Template` |
 | `Proposal Optional Section` | Fila del selector de secciones opcionales activadas en una Quotation | Child de `Quotation` (custom field `proposal_optional_sections`, Table MultiSelect → `Proposal Section`) | Solo activa filas del Template marcadas `include_by_default=0`; se congela vía `proposal_sections_snapshot` (ver ADR-0013) |
 | `Scope Item` | Actividad del catálogo maestro | Link a `Item` de ERPNext (`erpnext_item`); `phase` **Link a `Proposal Phase`** | Sin precio; describe trabajo, perfil y horas estimadas. El **contenido editorial** del servicio (metodología, resultado esperado, límite del alcance) vive en el **Item**, no aquí |
 | `Quotation Scope Item` | Copia congelada de un Scope Item dentro de una Quotation | Parent: `Quotation`; link a `Scope Item`, `Task` y `phase`→`Proposal Phase` | Child table; `rate_locked` se fija en transición a En Revision. Flags: `include_in_proposal` (visible en PDF) y `is_internal_cost_task` (tarea interna: entra en costo/rentabilidad, se excluye del PDF comercial) |
-| `Item` (extendido) | Contenido comercial del servicio | Custom fields editoriales administrados por el catálogo | `proposal_content_section`, `proposal_methodology`, `proposal_expected_result`, `proposal_scope_limit` — descripción/metodología/resultado/límite del servicio |
+| `Item` (extendido) | Contenido comercial del servicio | Custom fields editoriales y de metadata administrados por el catálogo | Editoriales: `proposal_content_section`, `proposal_methodology`, `proposal_expected_result`, `proposal_scope_limit` — descripción/metodología/resultado/límite del servicio. Metadata de servicio (Data, opcionales, genéricos, SSOT): `proposal_service_validity` (Vigencia del servicio), `proposal_min_unit` (Unidad mínima), `proposal_service_hours` (Horario de servicio) — consumidos por binding en las Sections |
 | `Quotation Item` (extendido) | Copia **congelada** del contenido editorial del Item dentro de la Quotation | Child de `Quotation` | `proposal_methodology`, `proposal_expected_result`, `proposal_scope_limit` copiados del Item al generar el alcance; el PDF usa esta copia y **no** relee el Item maestro. Además `proposal_specific_scope` (Text Editor): **alcance contratado manual** por línea — editable en Borrador, **no** viene del Item/catálogo (ver [ADR-0010](../adr/0010-alcance-especifico-contratado-quotation-item.md)) |
 | `Proposal Phase` | Catálogo de fases (`phase_code`, `phase_name`, `sequence`) | Referenciado por `phase` en Scope Item / Quotation Scope Item | El orden en propuesta/reportes/Tasks usa `sequence`; el display usa `phase_name`. Helpers en `utils/phase.py` (`phase_label`, `order_phases`, jinja methods) |
 | `Proposal Cost Matrix` | Costos por (Designation, Activity Type) | Alimenta freeze de costos en scope items | Rebuildeado diariamente; `is_general_rate=1` para filas de promedio por designación |
@@ -86,6 +86,9 @@ alcance) vive en **custom fields del `Item`**, administrados por el catálogo:
 | `proposal_methodology` | `Item` | Metodología del servicio (Text Editor) |
 | `proposal_expected_result` | `Item` | Resultado esperado (Text Editor) |
 | `proposal_scope_limit` | `Item` | Límite del alcance / servicios no incluidos (Text Editor) |
+| `proposal_service_validity` | `Item` | **Metadata de servicio** — Vigencia del servicio (Data) |
+| `proposal_min_unit` | `Item` | **Metadata de servicio** — Unidad mínima (Data) |
+| `proposal_service_hours` | `Item` | **Metadata de servicio** — Horario de servicio (Data) |
 | `description`, `proposal_methodology`, `proposal_expected_result`, `proposal_scope_limit` | `Quotation Item` | **Copia congelada** del contenido del Item dentro de la Quotation |
 
 Al generar el alcance de una Quotation, `_copy_item_proposal_fields(doc)` (en `utils/quotation.py`)
@@ -193,9 +196,10 @@ repo (privado por cliente).
 
 | Clave JSON | DocType destino | Identidad | Función |
 |---|---|---|---|
+| `letter_heads` | `Letter Head` | `letter_head_name` | `_seed_letter_heads` |
 | `phases` | `Proposal Phase` | `phase_code` | `_seed_phases` |
 | `sections` | `Proposal Section` | `section_name` | `_seed_sections` |
-| `items` | `Item` (+ campos editoriales de propuesta) | `item_code` | `_seed_items` |
+| `items` | `Item` (+ campos editoriales y de metadata de servicio) | `item_code` | `_seed_items` |
 | `scope_items` | `Scope Item` | `code` / nombre | `_seed_scope_items` |
 | `payment_terms` | `Payment Term` | `payment_term_name` | `_seed_payment_terms` |
 | `payment_terms_templates` | `Payment Terms Template` | `template_name` | `_seed_payment_terms_templates` |
@@ -213,8 +217,15 @@ repo (privado por cliente).
 - **Print Formats protegidos:** `Propuesta Comercial` y `Rentabilidad Estimada` (assets del repo
   público) están en `PROTECTED_PRINT_FORMATS`; el loader los reporta como conflicto y **nunca** los
   escribe (ADR-0005/0006).
-- **`capabilities()`:** declara la versión de capacidades del loader; el instalador del kit la verifica
-  para exigir que el código del app en el bench destino soporte lo que el catálogo usa.
+- **`capabilities()`:** declara la versión de capacidades del loader (`LOADER_CAPS_VERSION`); el
+  instalador del kit la verifica para exigir que el código del app en el bench destino soporte lo que
+  el catálogo usa. **v9** (8 → 9) agrega: la clave **`letter_heads`** en `capabilities()`, soporte de
+  los campos nuevos del Template (`letter_head`, `separate_cover_page`) en crear/diff/update, y los 3
+  campos de metadata de servicio del Item en `_seed_items`.
+- **Letter Heads dedicados (`letter_heads`, capacidad v9):** siembra idempotente por `letter_head_name`;
+  el loader **nunca** los marca `is_default = 1`. El catálogo es **dueño de `is_default = 0`**, para
+  garantizar que la selección del Letter Head sea **explícita por nombre** (vía
+  `Proposal Template.letter_head`) y **no** el default implícito del sitio.
 
 Invocación:
 
@@ -362,3 +373,4 @@ El submit automático ocurre en la transición Borrador → En Revision porque e
 | [ADR-0007](../adr/0007-contenido-editorial-item-y-congelamiento.md) | Contenido editorial del servicio en `Item` y congelamiento inmutable (snapshot) |
 | [ADR-0008](../adr/0008-integracion-fiscal-quotation-reuso-facturacion-mexico.md) | Impuesto automático en Quotation por reutilización read-only de `facturacion_mexico` |
 | [ADR-0013](../adr/0013-secciones-opcionales-por-propuesta.md) | Secciones narrativas opcionales activables por propuesta (selector + `include_by_default`) |
+| [ADR-0014](../adr/0014-render-portada-separada-merge.md) | Render de portada separada + merge con pypdf (portada full-bleed + Letter Head repetido) |

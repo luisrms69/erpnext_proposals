@@ -68,10 +68,14 @@ def on_quotation_validate(doc, method=None):
 	# `proposal_print_format` con el formato de la Proposal Template. Luego validar (Caso F).
 	from erpnext_proposals.erpnext_proposals.utils.print_format import (
 		assert_assignable_print_format,
+		sync_letter_head_from_template,
 		sync_proposal_print_format_from_template,
 	)
 
 	sync_proposal_print_format_from_template(doc)
+	# Letter Head dedicado: la plantilla puede fijar `letter_head`; se copia al campo NATIVO de la
+	# Quotation para que la selección sea EXPLÍCITA por nombre e independiente del default del sitio.
+	sync_letter_head_from_template(doc)
 	# Change-aware: solo bloquea ADOPTAR un formato no elegible; una propuesta que ya referencia un
 	# formato luego deshabilitado (sin cambiarlo) NO se invalida retroactivamente.
 	assert_assignable_print_format(doc, "proposal_print_format")
@@ -509,6 +513,8 @@ def _build_sections_snapshot(doc) -> list:
 					"is_executive_summary": ps.is_executive_summary or 0,
 					# Presentación por Template (Proposal Template Section): congela si el heading se oculta.
 					"hide_title": int(row.hide_title or 0),
+					# Paginación por Template: congela si la sección inicia página nueva.
+					"page_break_before": int(row.page_break_before or 0),
 					"captured_on": now,
 				}
 			)
@@ -614,15 +620,16 @@ def _attach_pdf(doc, print_format: str, filename: str, is_private: int) -> None:
 	"""Generate a PDF from a Print Format and attach it to the Quotation."""
 	try:
 		from frappe.utils.file_manager import save_file
-		from frappe.utils.pdf import get_pdf
 
 		from erpnext_proposals.erpnext_proposals.utils.official_document_protection import (
 			INTERNAL_REPLACE_FLAG,
 			OFFICIAL_FLAG_FIELD,
 		)
+		from erpnext_proposals.erpnext_proposals.utils.print_format import render_proposal_pdf
 
-		html = frappe.get_print(doc.doctype, doc.name, print_format=print_format)
-		pdf_bytes = get_pdf(html)
+		# Genérico: aplica portada separada (2 renders + merge) si la Proposal Template lo pide y es su
+		# Print Format comercial; en otro caso un solo render. No afecta otros Print Formats.
+		pdf_bytes = render_proposal_pdf(doc, print_format)
 
 		# Remove previous version(s) of this attachment if they exist. `save_file` añade un sufijo hash
 		# al nombre, por lo que la coincidencia es por PREFIJO (`{filename}%`) + `attached_to`, NO por

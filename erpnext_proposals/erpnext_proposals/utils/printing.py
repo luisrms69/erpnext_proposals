@@ -56,6 +56,137 @@ def parse_json(val) -> list:
 	return frappe.parse_json(val) or []
 
 
+def keep_headings_with_next(html: str) -> str:
+	"""Envuelve cada heading (h1-h6) junto con su siguiente elemento hermano en un contenedor
+	``page-break-inside: avoid``, para que un título/subtítulo no quede huérfano al final de una página.
+
+	wkhtmltopdf (WebKit) IGNORA ``page-break-after: avoid`` en headings, pero SÍ respeta
+	``page-break-inside: avoid`` en un bloque: por eso el "keep-with-next" se materializa como estructura,
+	no como propiedad del heading. Es GENÉRICO (por etiqueta de heading, sin nombres ni números de
+	sección) y no lanza: ante cualquier problema devuelve el HTML original. Registrado como jinja method.
+	"""
+	if not html:
+		return html
+	try:
+		from bs4 import BeautifulSoup
+
+		soup = BeautifulSoup(html, "html.parser")
+		for h in soup.find_all(["h1", "h2", "h3", "h4", "h5", "h6"]):
+			# Si ya está dentro de un keep-with-next (p. ej. dos headings consecutivos), no re-envolver.
+			if h.find_parent("div", class_="keep-with-next"):
+				continue
+			nxt = h.find_next_sibling()
+			while nxt is not None and getattr(nxt, "name", None) is None:
+				nxt = nxt.find_next_sibling()
+			if nxt is None:
+				continue
+			wrapper = soup.new_tag("div")
+			wrapper["class"] = "keep-with-next"
+			h.insert_before(wrapper)
+			wrapper.append(h.extract())
+			wrapper.append(nxt.extract())
+		return str(soup)
+	except Exception:
+		return html
+
+
+# Campos editoriales propios del Item (custom fields) que definen el "Item de servicio" de la propuesta.
+_ITEM_EDITORIAL_FIELDS = (
+	"proposal_methodology",
+	"proposal_expected_result",
+	"proposal_scope_limit",
+)
+
+
+def service_item(doc):
+	"""Devuelve el Quotation Item de servicio de esta propuesta, de forma GENÉRICA (sin hardcodear
+	ningún item_code). Reglas, en orden:
+
+	1. Asociación por alcance: si existe **exactamente un** Item cuya ``item_code`` aparece en
+	   ``quotation_scope_items`` (vínculo Scope Item.erpnext_item → Quotation Scope Item), se usa ese.
+	2. Fallback: si no hay asociación por alcance pero existe **exactamente un** Item con campos
+	   editoriales propios poblados (``proposal_methodology``/``proposal_expected_result``/
+	   ``proposal_scope_limit``), se usa ese.
+	3. Ambigüedad: si hay varios candidatos o ninguno, devuelve ``None`` (el Print Format no elige
+	   arbitrariamente ni inventa).
+
+	Registrado como jinja method: en el contenido de Sections/PF, ``{% set svc = service_item(doc) %}``.
+	"""
+	items = list(getattr(doc, "items", None) or [])
+	if not items:
+		return None
+
+	scope_codes = {
+		r.item_code
+		for r in (getattr(doc, "quotation_scope_items", None) or [])
+		if getattr(r, "item_code", None)
+	}
+	scoped = [it for it in items if getattr(it, "item_code", None) in scope_codes]
+	if len(scoped) == 1:
+		return scoped[0]
+
+	editorial = [
+		it for it in items if any((getattr(it, f, None) or "").strip() for f in _ITEM_EDITORIAL_FIELDS)
+	]
+	if len(editorial) == 1:
+		return editorial[0]
+
+	return None
+
+
+def _visible_chapter_names(doc) -> list:
+	"""Nombres (``section_name``/``source_section``) de los capítulos VISIBLES en el MISMO orden que
+	usan el índice y los títulos del Print Format: secciones con ``hide_title=0`` y contenido,
+	ordenadas por ``sequence``. Front-matter (``hide_title=1``) queda fuera del 1..N.
+
+	Usa el snapshot congelado si existe; si no, el Template vivo. No lanza."""
+	raw = getattr(doc, "proposal_sections_snapshot", None)
+	if raw:
+		try:
+			data = json.loads(raw)
+		except _JSON_ERRORS:
+			data = []
+		rows = [
+			d
+			for d in data
+			if isinstance(d, dict)
+			and not int(d.get("hide_title", 0) or 0)
+			and (d.get("content") or "").strip()
+		]
+		rows.sort(key=lambda d: d.get("sequence") or 0)
+		return [d.get("source_section") for d in rows]
+
+	if not getattr(doc, "proposal_template", None):
+		return []
+	tmpl = frappe.get_doc("Proposal Template", doc.proposal_template)
+	rows = []
+	for row in tmpl.sections:
+		ps = frappe.get_cached_doc("Proposal Section", row.proposal_section)
+		if not ps.enabled:
+			continue
+		content = row.custom_content if row.use_custom_content else ps.content
+		if not content:
+			continue
+		if int(row.hide_title or 0):
+			continue
+		rows.append((row.sequence or 0, ps.section_name))
+	rows.sort(key=lambda x: x[0])
+	return [name for _, name in rows]
+
+
+def section_number(doc, section_identifier) -> str:
+	"""Número de capítulo (1..N) de la Section indicada por su ``section_name``, derivado del MISMO
+	conjunto ordenado que usan el índice y los títulos. Devuelve '' si no está visible/existe, de modo
+	que las referencias cruzadas ("sección {{ section_number(doc, 'X') }}") sean siempre dinámicas.
+
+	Registrado como jinja method para usarse en contenido de Sections y Print Formats."""
+	names = _visible_chapter_names(doc)
+	for i, name in enumerate(names, start=1):
+		if name == section_identifier:
+			return str(i)
+	return ""
+
+
 # Excepciones que puede lanzar json.loads (ValueError incluye JSONDecodeError; TypeError si el valor no
 # es str/bytes). Se declara como constante nombrada para evitar la tupla literal en el `except`, cuya
 # forma con/sin paréntesis es inestable entre versiones de ruff-format.

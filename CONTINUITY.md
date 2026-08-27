@@ -1,77 +1,95 @@
 # CONTINUITY.md — erpnext_proposals
 
-**Fecha:** 2026-08-13
-**Rama activa:** `fix/pf-version-disabled-owner-and-historical-guard` (base `upstream/version-16` = **v0.9.0**).
-**Tarea actual:** **App 0.9.1** — endurecer el ciclo de versionamiento de Print Formats del loader (fix de idempotencia estructural + guard histórico en dry-run). Complementa el fix declarativo ya desplegado del pack 1.24.0.
+**Fecha:** 2026-08-26
+**Rama activa:** `feat/proposal-rendering-infrastructure` (base `upstream/version-16` = **v0.9.1**)
+**Tarea actual:** Cerrar por `/ship` la feature pública **v0.10.0** (infraestructura genérica de render de propuestas).
 
 ---
 
 ## Recuperación rápida
 
 Estoy trabajando en:
-`/ship commit` de **v0.9.1** en `fix/pf-version-disabled-owner-and-historical-guard`. Dos cambios en `catalog_data/catalog_loader.py`:
-- **A.2:** `_seed_print_formats(..., superseded=set)` — para un Print Format listado en `supersedes` (de `print_format_versions`), el seeder **no gestiona `disabled`**; el versionador (`_seed_print_format_versions`) es su único dueño → elimina el flip-flop que rompía la idempotencia (residual `disabled` en el `--apply` de 1.23.0).
-- **B:** si el plan cambiaría html/css/presentación de un Print Format **histórico** (`is_print_format_historical`), el loader lo reporta como **`conflict`** desde `--dry-run`, antes de que ADR-0011 lo bloquee en el `--apply`. `disabled` queda fuera del guard.
+El versionado/PR del app PÚBLICO `erpnext_proposals`. Feature genérica, backward-compatible, sin
+hardcodes de cliente: Letter Head explícito por plantilla + portada separada opcional (2 renders +
+merge pypdf) + helpers de paginación/numeración + campos de servicio en Item + loader v9.
 
-Próximo paso concreto:
-Tras autorización: `/ship push` → `/ship pr` (base `version-16`). Tras merge del usuario: `/sync-check` + tag/Release **v0.9.1** (`/ship release`). **No** mezclar con un nuevo despliegue del pack a prod.
+Plan que estoy siguiendo:
+Flujo `/ship`: commit (hecho) → push → pr. Bump 0.9.1 → 0.10.0 (MINOR). PR base `version-16`.
+Un solo PR "infraestructura genérica de propuestas" (decidido con el usuario; incluye los 3 campos de Item).
+
+Objetivo inmediato:
+`/ship push` de `feat/proposal-rendering-infrastructure` y luego `/ship pr` hacia `version-16`.
 
 Criterio de avance:
-Cada paso con autorización explícita separada; git solo vía `/ship` [[feedback_git_solo_via_ship]]; nunca merge (lo hace el usuario) [[feedback_nunca_merge]]. Sin escritura en BD/servidores sin aviso.
+Push OK con upstream configurado; PR abierto con descripción GENÉRICA (no cliente) y gates de
+versionado/documental de `/ship pr` en verde. Cada paso con autorización explícita separada; git solo
+vía `/ship` [[feedback_git_solo_via_ship]]; nunca merge — lo hace el usuario [[feedback_nunca_merge]].
 
 ---
 
 ## Estado actual
 
 ### Ya cerrado
-- **App v0.9.0** (PR #45, squash `ecec974`) — versionamiento de Print Formats: selector central, ADR-0011 (retiró `disabled` del guard), loader v8 `print_format_versions`. Tag+Release publicados.
-- **Pack privado 1.24.0** — sellado (`releases/1.24.0/`) y transferido a prod (`~/private-kits/releases/1.24.0/`). Fix declarativo A.1 (formato anterior con `disabled: 1` en `print_formats`) + reporte detallado en instalador + `RUNBOOK-despliegue.md`. Corrige el residual de idempotencia del 1.23.0.
+- **Commit de la feature** en la rama de trabajo (bump 0.10.0 incluido). 9 archivos de código + 6 de docs.
+- Documentación: ADR-0014 (render portada separada + merge), `tecnico/print-formats.md`, `tecnico/arquitectura.md`,
+  `usuario/campos-principales.md`, `CHANGELOG 0.10.0`, `mkdocs.yml`. `mkdocs build --strict` limpio.
+- Validación visual del candidato en `proposals-acti.dev` (18 págs): portada full-bleed 1 pág sin header,
+  header en 17/17 interiores, footer 18/18, sin recortes, sin huérfanos, tabla 5.3 y firmas OK.
+- Regresión verde: print_format_integrity(19)/print_format_versions(4)/get_sections_snapshot(18)/
+  phase_tags_loader(5). Idempotencia loader 0/0/0. ruff check+format limpios.
 
-### En progreso (esta rama, 0.9.1)
-- A.2 + B implementados en `catalog_loader.py`; `superseded_pf` cableado en `run()`.
-- Tests nuevos: `test_a2_versioner_owns_disabled_of_superseded`, `test_b_historical_content_change_is_conflict`.
-- Doc: `docs/tecnico/print-formats.md` — sección "Aplicación por el loader del pack".
-- Bump `0.9.0 → 0.9.1` (PATCH). `caps_version` sigue **8** (cambios internos, no capacidad nueva).
-- Validado: suite **327 OK / 1 skip**; ruff check+format limpios; `mkdocs --strict` limpio.
+### En progreso
+- `/ship push` pendiente de autorización explícita del usuario.
 
 ### Pendiente inmediato
-1. `/ship commit` (autorizado) → reportar hash + working tree limpio.
-2. `/ship push`.
-3. `/ship pr` a `version-16`. **No** hacer merge ni release hasta reportar el PR.
-
-### Verificación de prod (tarea del usuario, cierre separado — no bloquea este commit)
-- En `erp.buzola.mx` correr solo `--check` + `--dry-run` de 1.24.0. Esperado **0/0/0**. **No** `--apply`, ni backup, ni `bench migrate`. Si el dry-run muestra algo ≠ 0/0/0 → detenerse y reportar.
+1. `/ship push` (verificar/configurar upstream HTTPS + push de la rama).
+2. `/ship pr` → PR hacia `version-16` (describir la capacidad GENÉRICA, no la implementación de cliente).
+3. Post-merge (usuario mergea, nunca Claude): `/sync-check` + `/ship release` (tag+Release **v0.10.0**).
 
 ### No repetir
-- No versionar contenido de cliente (branding, catálogos reales, assets, PDFs, one_offs). Gate de datos de cliente.
-- No `git` manual — solo vía `/ship` [[feedback_git_solo_via_ship]]. **NUNCA** merge — lo hace el usuario [[feedback_nunca_merge]].
-- No re-desplegar el pack a prod como parte de 0.9.1.
-- En prod: `git`/`bench` como usuario **`erpnext`** (no `luisrms69` → dubious ownership).
+- NO intentar header repetible con `#header-html` dentro del Print Format custom ni `position:fixed`:
+  ambos fallan en wkhtmltopdf (fuera de página / no repite). Solución = 2 renders + merge (ADR-0014).
+- NO incluir el pack privado Actiglobal en este PR (catálogo, `pf_bolsa_verbatim.html`, `build_bolsa_horas.py`,
+  ni nada bajo `/home/erpnext/clientesconsultoriamx/`).
+- NO commitear en `version-16` (rama protegida). NO desplegar staging ni transferir/release del pack todavía.
 
 ---
 
 ## Decisiones vigentes
-- **Dueño único de `disabled`:** en el ciclo de versionamiento, solo `_seed_print_format_versions` cambia `disabled` del formato sustituido. `_seed_print_formats` lo excluye vía el set `superseded`. Declarar el anterior con `disabled: 1` en `print_formats` es además lo consistente (evita el flip-flop aun sin A.2).
-- **Guard histórico en el loader (B):** cambiar presentación de un Print Format histórico es `conflict` en dry-run; `disabled` no es presentación (permitido por el modelo, ADR-0011 "Actualización 2026-08-12").
-- **ADR-0011:** históricos (`proposal_effective_print_format`) protegidos en html/css/rename/delete; el registro oficial son los PDFs adjuntos del freeze, no la reimpresión.
-- App genérica en el repo; catálogos/branding/assets reales en packs privados por ruta externa (ADR-0006). Cada cliente tiene su propio sitio y pack [[reference_clientes_packs_sites]].
+- **Portada separada + merge (ADR-0014):** opt-in por `Proposal Template.separate_cover_page`; el modo va
+  por `doc.proposal_render_part` ('cover'|'body'); merge con pypdf; fallback single-render. Sin tocar core,
+  sin monkey-patch, sin afectar otros Print Formats.
+- **Letter Head explícito por nombre:** `Proposal Template.letter_head → Quotation.letter_head`; el loader
+  siembra Letter Heads con `is_default=0` (nunca default del sitio).
+- **Anti-huérfanos:** `keep_headings_with_next` usa `page-break-inside:avoid` + `overflow:hidden` (wkhtmltopdf
+  ignora `page-break-after:avoid`). Ver [[reference_separate_cover_2render]].
+- App genérica en el repo; branding/catálogos reales en packs privados por ruta externa (ADR-0006)
+  [[reference_clientes_packs_sites]].
 
 ---
 
 ## Archivos relevantes ahora
 
 ### Leer primero
-- `erpnext_proposals/erpnext_proposals/catalog_data/catalog_loader.py` — `_seed_print_formats` (A.2/B), `run()` (`superseded_pf`), `_seed_print_format_versions`.
-- `erpnext_proposals/erpnext_proposals/utils/print_format_protection.py` — `is_print_format_historical`, `_PRESENTATION_FIELDS`.
+- `docs/adr/0014-render-portada-separada-merge.md` — la decisión de arquitectura.
+- `erpnext_proposals/erpnext_proposals/utils/print_format.py` — `render_proposal_pdf`, `sync_letter_head_from_template`, `_uses_separate_cover`.
 
 ### Probablemente editar
-- Solo si CI pide ajustes de lint/formato.
+- Solo si CI/CodeRabbit piden ajustes; irían en esta misma rama.
 
 ### No tocar
-- `releases/*` del pack privado (inmutables). `docs/adr/0011-*.md` (ya cerrado).
+- `version-16` (protegida). El pack privado fuera del repo.
 
 ---
 
 ## Riesgos / cuidados
-- 0.9.1 no requiere `bench migrate` (sin esquema/fixtures) ni `bench build` (sin JS). Solo código Python del loader.
-- El comportamiento nuevo del loader solo se observa al aplicar packs; los tests lo cubren con datos ficticios.
+- El "fantasma" invisible del heading tras el footer se resolvió con `overflow:hidden`; si se toca la CSS de
+  `.keep-with-next`, revalidar que no reaparezca.
+- Preflight de staging aprobado (wkhtmltopdf 0.12.6.1 patched qt, pypdf 6.13.3, header/footer 3/3, PDF real
+  desde producción). NO desplegar staging ni transferir el pack todavía.
+
+---
+
+## Información faltante
+- Confirmar el remoto `upstream` HTTPS del app público antes de `/ship push` (`git remote -v`; si falta,
+  seguir el flujo `gh` HTTPS autorizado del CLAUDE.md del bench).

@@ -161,6 +161,65 @@ históricos sin la propiedad siguen siendo `valid=True` y muestran su heading co
 
 ---
 
+## Render de portada separada + merge (portada full-bleed + Letter Head repetido)
+
+Cuando una `Proposal Template` marca **`separate_cover_page = 1`** y se renderiza su Print Format
+comercial, el PDF se produce en **dos renders unidos con el merger nativo de Frappe (pypdf)**, sin
+rasterizar y sin postproceso externo. La orquestación vive en **`render_proposal_pdf(doc,
+print_format)`** (`utils/print_format.py`), cableada desde `utils/quotation.py::_attach_pdf`. Ver
+[ADR-0014](../adr/0014-render-portada-separada-merge.md).
+
+Motivo: un encabezado corrido (Letter Head repetido en todas las páginas) exige un **margen superior
+uniforme** que es incompatible con una **portada full-bleed a sangre** en la misma pasada. Separar
+portada y cuerpo y unirlos con pypdf reconcilia ambos.
+
+| Render | Qué emite | Letter Head | Páginas |
+|---|---|---|---|
+| 1 — Portada | Solo la portada (margen superior cero) | **Sin** Letter Head (`no_letterhead`) | Se toma **solo la primera** |
+| 2 — Cuerpo | Todo el cuerpo + footer | Letter Head **repetido en todas** las páginas | Todas |
+
+**Selector de modo de render — `doc.proposal_render_part`:** el modo se pasa por un atributo efímero
+del propio `doc` (`'cover'` | `'body'`) que **solo el Print Format consume** para decidir qué bloque
+emitir y si lleva Letter Head. **No** hay monkey-patch a `get_pdf`, **no** se toca Frappe core, **no**
+se afecta ningún otro Print Format.
+
+**Fallback backward-compatible:** cualquier plantilla **sin** la marca `separate_cover_page`, o
+**cualquier otro Print Format** (p. ej. `Rentabilidad Estimada`), usa **un solo render** con el
+comportamiento estándar de siempre. La ruta de dos renders solo se activa con la marca **y** el Print
+Format comercial de esa plantilla.
+
+### Selección del Letter Head (explícita por nombre)
+
+El Letter Head del cuerpo se elige **explícitamente por nombre** en la plantilla y se copia al campo
+nativo de la Quotation:
+
+- **`Proposal Template.letter_head`** (Link → `Letter Head`, opcional) declara el encabezado de marca
+  de esa familia de propuesta.
+- **`sync_letter_head_from_template`** (`utils/print_format.py`, llamada desde `on_quotation_validate`)
+  copia ese valor al campo **nativo `Quotation.letter_head`** al aplicar/cambiar la plantilla o si el
+  campo está **vacío**. **No pisa** una selección manual del usuario.
+
+Así el Letter Head es **explícito por nombre** e independiente del default del sitio. El render del
+cuerpo usa ese Letter Head; la portada se emite `no_letterhead`.
+
+### Helpers Jinja de paginación y numeración (`utils/printing.py`)
+
+Métodos Jinja **genéricos** registrados en `hooks.py`, consumidos por el Print Format comercial:
+
+| Helper | Qué hace |
+|---|---|
+| `keep_headings_with_next(html)` | Envuelve cada heading (`h1`–`h6`) junto con su siguiente elemento hermano en un `<div class="keep-with-next">` con `page-break-inside:avoid`, para que un título/subtítulo no quede **huérfano** al final de página. Necesario porque wkhtmltopdf **ignora** `page-break-after:avoid` en headings pero **sí respeta** `page-break-inside:avoid` en un bloque. Genérico y **no lanza**: ante error devuelve el HTML original. |
+| `section_number(doc, section_identifier)` | Número de capítulo (1..N) **dinámico** de una Section por su nombre, derivado del mismo conjunto ordenado que el índice; `''` si no es visible. Para **referencias cruzadas** siempre dinámicas. |
+| `service_item(doc)` | Resuelve de forma **genérica** el Quotation Item "de servicio" de la propuesta (por asociación con `quotation_scope_items`, o único con campos editoriales poblados; `None` si es ambiguo). **Sin hardcodear** `item_code`. |
+
+### Paginación por sección — `Proposal Template Section.page_break_before`
+
+**`page_break_before`** (Check en `Proposal Template Section`, default `0`) controla la paginación por
+Template: `1` = la sección **inicia página nueva**; `0` = **fluye** tras la anterior. Es
+**independiente** de `is_executive_summary`.
+
+---
+
 ## Convención de nombres para evidencia visual
 
 Los PDFs de evidencia se guardan en `working_docs/archive/visual-regression/<formato>/`:
@@ -268,8 +327,8 @@ criterio vive en **un solo lugar** (`utils/print_format.py`) y lo comparten:
 | `propuesta_comercial.json` | Fuente de verdad del Print Format comercial genérico (default) |
 | `utils/print_format_protection.py` | Candado de Print Formats históricos (ADR-0011) |
 | `rentabilidad_estimada.json` | Fuente de verdad del Print Format de rentabilidad |
-| `utils/print_format.py` | Resolución/congelamiento + selector central (`get_proposal_print_formats`), validación (`assert_assignable_print_format`) y status (`get_print_format_status`) |
+| `utils/print_format.py` | Resolución/congelamiento + selector central (`get_proposal_print_formats`), validación (`assert_assignable_print_format`), status (`get_print_format_status`), **render de portada separada + merge (`render_proposal_pdf`)** y **sincronización de Letter Head (`sync_letter_head_from_template`)** |
 | `public/js/proposal_print_format.js` | Helper JS central: `set_query` + warning de obsoleto para ambos campos (`app_include_js`) |
-| `utils/printing.py` | Helpers Jinja: `render_section_content`, `parse_json`, `get_sections_snapshot` (lectura fail-closed del snapshot), `get_logo_url`, `get_logo_data_uri` |
+| `utils/printing.py` | Helpers Jinja: `render_section_content`, `parse_json`, `get_sections_snapshot` (lectura fail-closed del snapshot), `get_logo_url`, `get_logo_data_uri`, **`keep_headings_with_next`**, **`section_number`**, **`service_item`** |
 | `report/profitability_estimate/` | Fuente de datos para Rentabilidad Estimada |
 | `working_docs/archive/visual-regression/` | PDFs de evidencia histórica por formato |
