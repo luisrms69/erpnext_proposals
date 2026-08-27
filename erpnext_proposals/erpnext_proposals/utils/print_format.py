@@ -59,6 +59,85 @@ def sync_proposal_print_format_from_template(doc) -> None:
 		doc.proposal_print_format = template_pf
 
 
+def _uses_separate_cover(doc, print_format: str) -> bool:
+	"""True si el PDF debe generarse con portada separada (2 renders + merge): la Proposal Template
+	del documento tiene ``separate_cover_page`` Y el Print Format solicitado es el comercial efectivo
+	(no la Rentabilidad ni otros). GENÉRICO: depende solo de metadata de la plantilla, sin nombres
+	de documento/cliente/template hardcodeados."""
+	tmpl_name = doc.get("proposal_template")
+	if not tmpl_name:
+		return False
+	if not int(frappe.db.get_value("Proposal Template", tmpl_name, "separate_cover_page") or 0):
+		return False
+	return print_format == resolve_commercial_print_format(doc)
+
+
+def render_proposal_pdf(doc, print_format: str) -> bytes:
+	"""Genera el PDF de una propuesta.
+
+	Si la Proposal Template está marcada con ``separate_cover_page`` y se renderiza su Print Format
+	comercial, produce el PDF en DOS renders unidos con el merger PDF nativo de Frappe (sin rasterizar,
+	sin postproceso externo):
+
+	- **Render 1 — portada:** ``doc.proposal_render_part='cover'`` + ``no_letterhead`` → solo la portada
+	  full-bleed, sin header interior, 1 página.
+	- **Render 2 — cuerpo:** ``doc.proposal_render_part='body'`` → todo el cuerpo con el header del
+	  Letter Head repetido en TODAS las páginas + footer.
+
+	En cualquier otro caso (plantilla sin la marca, u otro Print Format como Rentabilidad), un solo
+	render con el comportamiento estándar. NO monkey-patchea ``get_pdf`` ni afecta otros Print Formats:
+	el modo de render se pasa por un atributo del propio ``doc`` que solo este Print Format consume."""
+	from frappe.utils.pdf import get_file_data_from_writer, get_pdf
+
+	if not _uses_separate_cover(doc, print_format):
+		return get_pdf(frappe.get_print(doc.doctype, doc.name, print_format=print_format))
+
+	import io
+
+	from pypdf import PdfReader, PdfWriter
+
+	writer = PdfWriter()
+	try:
+		# RENDER 1 — portada. Es por diseño UNA sola página; se toma SOLO la primera del render para
+		# garantizar "portada = 1 página" de forma determinista (el min-height de la portada puede rozar
+		# el área útil y generar una 2ª página en blanco, que aquí se descarta con el merger nativo).
+		doc.proposal_render_part = "cover"
+		cover_html = frappe.get_print(
+			doc.doctype, doc.name, print_format=print_format, doc=doc, no_letterhead=1
+		)
+		cover_reader = PdfReader(io.BytesIO(get_pdf(cover_html)))
+		writer.add_page(cover_reader.pages[0])
+
+		# RENDER 2 — cuerpo con header (Letter Head) repetido en TODAS sus páginas.
+		doc.proposal_render_part = "body"
+		body_html = frappe.get_print(doc.doctype, doc.name, print_format=print_format, doc=doc)
+		get_pdf(body_html, output=writer)
+	finally:
+		doc.proposal_render_part = None
+
+	return get_file_data_from_writer(writer)
+
+
+def sync_letter_head_from_template(doc) -> None:
+	"""Puebla el campo NATIVO `letter_head` de la Quotation con el Letter Head configurado en la
+	Proposal Template, de forma GENÉRICA (sin nombres hardcodeados):
+
+	- Solo aplica a Quotations con `proposal_template` que además define `letter_head` (si la plantilla
+	  no lo define, no se toca: comportamiento nativo de Frappe / default de Company).
+	- Se puebla cuando se APLICA/CAMBIA la plantilla (`has_value_changed`) o cuando el campo está vacío.
+	  Esto hace que el Letter Head dedicado GANE incluso si erpnext ya pre-rellenó el default de Company
+	  en `set_default_letter_head` (accounts_controller), garantizando selección explícita por nombre.
+	- NO sobrescribe una selección MANUAL del usuario mientras la plantilla no cambie.
+	"""
+	if not doc.get("proposal_template"):
+		return
+	template_lh = frappe.db.get_value("Proposal Template", doc.proposal_template, "letter_head")
+	if not template_lh:
+		return
+	if doc.has_value_changed("proposal_template") or not doc.get("letter_head"):
+		doc.letter_head = template_lh
+
+
 def validate_print_format(pf_name: str | None) -> None:
 	"""Valida que un Print Format sea usable para Quotation (elegibilidad única). Error claro si no."""
 	if not pf_name:

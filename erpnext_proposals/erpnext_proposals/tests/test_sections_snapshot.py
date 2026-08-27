@@ -40,6 +40,7 @@ SNAP_KEYS = {
 	"source_section",
 	"is_executive_summary",
 	"hide_title",
+	"page_break_before",
 	"captured_on",
 }
 

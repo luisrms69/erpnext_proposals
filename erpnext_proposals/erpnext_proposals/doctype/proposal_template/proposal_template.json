@@ -9,6 +9,8 @@
   "template_name",
   "description",
   "print_format",
+  "letter_head",
+  "separate_cover_page",
   "sections"
  ],
  "fields": [
@@ -31,6 +33,20 @@
    "fieldtype": "Link",
    "label": "Print Format",
    "options": "Print Format"
+  },
+  {
+   "description": "Letter Head (branding/header interior) usado por esta familia de propuesta. Opcional. Se copia a Quotation.letter_head al aplicar la plantilla; vacío = comportamiento nativo de Frappe.",
+   "fieldname": "letter_head",
+   "fieldtype": "Link",
+   "label": "Letter Head",
+   "options": "Letter Head"
+  },
+  {
+   "default": "0",
+   "description": "Si está activo, el PDF de la propuesta se genera en DOS renders: portada full-bleed sin header (1 pág) + cuerpo con header (Letter Head) repetido en todas las páginas, unidos con el merger PDF nativo. Evita el conflicto entre la portada a-sangre y el margen del header repetible. Requiere que el Print Format soporte el modo de render (doc.proposal_render_part).",
+   "fieldname": "separate_cover_page",
+   "fieldtype": "Check",
+   "label": "Portada separada (2 renders + merge)"
   },
   {
    "fieldname": "sections",

@@ -31,7 +31,11 @@ class TestProposalSpecificScope(unittest.TestCase):
 	@classmethod
 	def setUpClass(cls):
 		super().setUpClass()
-		from erpnext_proposals.erpnext_proposals.tests.company import get_test_company, get_test_item_group
+		from erpnext_proposals.erpnext_proposals.tests.company import (
+			get_test_company,
+			get_test_item_group,
+			get_test_price_list,
+		)
 
 		cls.company = get_test_company()
 		if not cls.company:
@@ -83,6 +87,10 @@ class TestProposalSpecificScope(unittest.TestCase):
 				{"doctype": "Proposal Template", "template_name": TEMPLATE, "description": "t"}
 			).insert(ignore_permissions=True)
 		cls.cost_center = frappe.db.get_value("Cost Center", {"is_group": 0}, "name")
+		# Price List de venta explícita (MXN): el site fresco de CI no siembra ninguna, así que
+		# Quotation.selling_price_list/price_list_currency quedarían vacíos y el save() sin
+		# ignore_mandatory fallaría. Se setea en la Quotation (ver _make_quotation), no por default del site.
+		cls.selling_price_list = get_test_price_list()
 		if not frappe.db.exists("Scope Item", "_SS_S1"):
 			frappe.get_doc(
 				{
@@ -134,6 +142,7 @@ class TestProposalSpecificScope(unittest.TestCase):
 				"proposal_group": "SS-" + frappe.generate_hash(length=6),
 				"company": self.company,
 				"currency": "MXN",
+				"selling_price_list": self.selling_price_list,
 				"transaction_date": frappe.utils.today(),
 				"proposal_template": TEMPLATE,
 				"proposal_cost_center": self.cost_center,

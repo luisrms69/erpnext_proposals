@@ -109,6 +109,8 @@ genéricos y vienen del catálogo.
 |---|---|---|---|
 | Nombre del template | Nombre | Identificador del template. Aparece en el selector de la Cotización. | Al crear. |
 | Descripción | Descripción | Texto libre para describir para qué tipo de proyecto aplica. | Opcional, para orientar al usuario. |
+| Letter Head | Letter Head | Encabezado de marca (branding) de esta familia de propuesta. Se elige por nombre de una lista de Letter Heads. Al aplicar el template en una Cotización, se copia a su encabezado; no se pisa una selección hecha a mano. | Opcional. Al configurar la imagen de marca del template. |
+| Portada separada | Portada separada | Si se activa, el PDF de la propuesta se genera con una portada a página completa separada del cuerpo (que lleva el encabezado de marca repetido). Si se deja apagado, el PDF sale como siempre. | Al querer una portada full-bleed distinta del cuerpo. |
 | Secciones | Secciones (tabla) | Lista ordenada de secciones que incluye este template. | Al crear o cuando se quieran agregar/quitar secciones. |
 
 ### Campos de cada fila de sección en el template
@@ -120,6 +122,7 @@ genéricos y vienen del catálogo.
 | Título personalizado | Si se quiere mostrar un título diferente al de la sección original, solo en este template |
 | Usar contenido personalizado | Si está marcado, usa el contenido del campo siguiente en lugar del contenido de la sección |
 | Contenido personalizado | Texto alternativo solo para este template |
+| Page Break Before | Si está marcado, esta sección **inicia página nueva** en el PDF; si no, fluye a continuación de la sección anterior |
 
 ---
 

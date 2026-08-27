@@ -26,7 +26,11 @@ class TestScopeMomentSnapshot(unittest.TestCase):
 	@classmethod
 	def setUpClass(cls):
 		super().setUpClass()
-		from erpnext_proposals.erpnext_proposals.tests.company import get_test_company, get_test_item_group
+		from erpnext_proposals.erpnext_proposals.tests.company import (
+			get_test_company,
+			get_test_item_group,
+			get_test_price_list,
+		)
 
 		cls.company = get_test_company()
 		if not cls.company:
@@ -75,6 +79,10 @@ class TestScopeMomentSnapshot(unittest.TestCase):
 				{"doctype": "Proposal Template", "template_name": TEMPLATE, "description": "t"}
 			).insert(ignore_permissions=True)
 		cls.cost_center = frappe.db.get_value("Cost Center", {"is_group": 0}, "name")
+		# Price List de venta explícita (MXN): el site fresco de CI no siembra ninguna → sin esto el
+		# save() sin ignore_mandatory falla por selling_price_list/price_list_currency. Se setea en la
+		# Quotation (ver _draft), no por default del site.
+		cls.selling_price_list = get_test_price_list()
 		# Dos scope items: uno CON moment, otro SIN moment (no debe romper).
 		cls._scope("_MOM_S1", 10, "Periodo 2-3")
 		cls._scope("_MOM_S2", 20, None)
@@ -124,6 +132,7 @@ class TestScopeMomentSnapshot(unittest.TestCase):
 				"proposal_group": "MOM-" + frappe.generate_hash(length=6),
 				"company": self.company,
 				"currency": "MXN",
+				"selling_price_list": self.selling_price_list,
 				"transaction_date": frappe.utils.today(),
 				"proposal_template": TEMPLATE,
 				"proposal_cost_center": self.cost_center,

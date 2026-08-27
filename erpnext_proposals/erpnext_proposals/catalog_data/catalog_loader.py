@@ -82,7 +82,11 @@ BASE_SECTIONS = frozenset(
 #     formato por una versión nueva, deshabilita el anterior (disabled=1; ADR-0011 permite `disabled`
 #     en históricos, nunca su contenido), adjunta un changelog como File al nuevo formato y repunta
 #     los Proposal Templates del pack al nuevo. Genérico e idempotente; no borra nada.
-LOADER_CAPS_VERSION = 8
+# v9: Letter Heads dedicados (clave `letter_heads`) + `Proposal Template.letter_head`. Siembra
+#     Letter Heads de branding SIN marcarlos default (is_default=0 es propiedad del catálogo) y
+#     los enlaza por nombre desde el Template; la app copia Template.letter_head → Quotation.letter_head
+#     al aplicar la plantilla. Selección explícita por nombre, independiente del default del sitio.
+LOADER_CAPS_VERSION = 9
 
 
 def capabilities() -> dict:
@@ -111,6 +115,8 @@ def capabilities() -> dict:
 		"phase_tags": callable(globals().get("_apply_phase_tags")),
 		# v8: Versionamiento declarativo de Print Formats (deshabilitar anterior + changelog + repunte).
 		"print_format_versions": callable(globals().get("_seed_print_format_versions")),
+		# v9: Letter Heads dedicados (branding no-default) + Proposal Template.letter_head.
+		"letter_heads": callable(globals().get("_seed_letter_heads")),
 		# El loader NO tiene capacidad de sembrar masters fiscales (UOM / Item Groups).
 		"no_fiscal_master_writes": not callable(globals().get("_seed_item_groups"))
 		and not callable(globals().get("_seed_uoms")),
@@ -166,6 +172,9 @@ def run(catalog_path: str | None = None, dry_run: bool = True, update_content: b
 		_seed_payment_terms_templates(
 			data.get("payment_terms_templates", []), report, dry_run, update_content
 		)
+		# Letter Heads dedicados antes que Templates: Proposal Template.letter_head es un Link que
+		# requiere que el Letter Head exista al guardar el template. NUNCA se marcan como default.
+		_seed_letter_heads(data.get("letter_heads", []), report, dry_run, update_content)
 		# Print Formats antes que Templates: Proposal Template.print_format es un Link que
 		# requiere que el Print Format exista al guardar el template.
 		# Formatos sustituidos: el versionador es dueño de su `disabled`; _seed_print_formats no lo gestiona.
@@ -501,6 +510,10 @@ def _seed_items(items: list, report: dict, dry_run: bool, update_content: bool =
 		"proposal_methodology",
 		"proposal_expected_result",
 		"proposal_scope_limit",
+		# Características canónicas del servicio (fuente única; consumidas por binding en Sections).
+		"proposal_service_validity",
+		"proposal_min_unit",
+		"proposal_service_hours",
 	]
 	for it in items:
 		code = it["item_code"]
@@ -643,6 +656,75 @@ def _seed_payment_terms_templates(
 			report["updated"].append(f"{label}: {diffs}")
 		else:
 			report["conflicts"].append(f"{label}: {diffs}")
+
+
+_LETTER_HEAD_MANAGED = ("source", "content", "header_script", "footer", "footer_script", "align")
+
+
+def _seed_letter_heads(letter_heads: list, report: dict, dry_run: bool, update_content: bool = False) -> None:
+	"""Crea/actualiza idempotentemente Letter Heads dedicados del catálogo (branding de propuestas).
+
+	- Identidad: ``letter_head_name`` (autoname del DocType).
+	- **NUNCA** marca ``is_default=1``: el catálogo es dueño de ``is_default=0`` para garantizar que el
+	  branding se seleccione SIEMPRE de forma explícita por nombre (vía Proposal Template → Quotation),
+	  nunca como default implícito del sitio. Si alguien lo marcó default, se corrige a 0.
+	- Solo administra los campos provistos; el resto usa el default del DocType. No borra nada.
+	"""
+	for lh in letter_heads:
+		name = lh["letter_head_name"]
+		label = f"Letter Head '{name}'"
+		expected = {k: lh[k] for k in _LETTER_HEAD_MANAGED if k in lh}
+		disabled = int(lh.get("disabled", 0))
+
+		if not frappe.db.exists("Letter Head", name):
+			if not dry_run:
+				doc = frappe.get_doc(
+					{
+						"doctype": "Letter Head",
+						"letter_head_name": name,
+						"is_default": 0,
+						"disabled": disabled,
+						**expected,
+					}
+				)
+				doc.insert(ignore_permissions=True)
+				# Letter Head.before_insert fuerza `source="Image"` (UX del DocType). Restauramos el
+				# `source` del catálogo con db_set (sin re-validar): es IRRELEVANTE para el render
+				# —get_letter_head lee `content` directamente, sin mirar `source`— pero necesario para
+				# la idempotencia y para que un `save` posterior no dispare set_image sobre el content.
+				if expected.get("source"):
+					doc.db_set("source", expected["source"], update_modified=False)
+			report["created"].append(label)
+			continue
+
+		current = (
+			frappe.db.get_value(
+				"Letter Head", name, [*expected.keys(), "is_default", "disabled"], as_dict=True
+			)
+			or {}
+		)
+		diffs = _diff(expected, current)
+		flag_diffs = []
+		if int(current.get("is_default") or 0) != 0:
+			flag_diffs.append("is_default→0")
+		if int(current.get("disabled") or 0) != disabled:
+			flag_diffs.append(f"disabled→{disabled}")
+		if flag_diffs:
+			diffs = (diffs + ", " if diffs else "") + ", ".join(flag_diffs)
+
+		if not diffs:
+			report["unchanged"].append(label)
+		elif update_content:
+			if not dry_run:
+				doc = frappe.get_doc("Letter Head", name)
+				for k, v in expected.items():
+					setattr(doc, k, v)
+				doc.is_default = 0
+				doc.disabled = disabled
+				doc.save(ignore_permissions=True)
+			report["updated"].append(label)
+		else:
+			report["conflicts"].append(f"{label}: difiere del catálogo → {diffs} (usar update_content)")
 
 
 def _seed_print_formats(
@@ -1029,6 +1111,10 @@ def _seed_templates(
 				)
 				if t.get("print_format"):
 					doc.print_format = t["print_format"]
+				if t.get("letter_head"):
+					doc.letter_head = t["letter_head"]
+				if "separate_cover_page" in t:
+					doc.separate_cover_page = int(t["separate_cover_page"])
 				for r in rows:
 					doc.append("sections", _template_section_row(r))
 				doc.insert(ignore_permissions=True)
@@ -1043,6 +1129,18 @@ def _seed_templates(
 				diffs = (
 					diffs + "; " if diffs else ""
 				) + f"print_format: {pf_current!r} -> {t['print_format']!r}"
+		if t.get("letter_head"):
+			lh_current = frappe.db.get_value("Proposal Template", name, "letter_head") or ""
+			if (t["letter_head"] or "") != lh_current:
+				diffs = (
+					diffs + "; " if diffs else ""
+				) + f"letter_head: {lh_current!r} -> {t['letter_head']!r}"
+		if "separate_cover_page" in t:
+			scp_current = int(frappe.db.get_value("Proposal Template", name, "separate_cover_page") or 0)
+			if int(t["separate_cover_page"]) != scp_current:
+				diffs = (
+					diffs + "; " if diffs else ""
+				) + f"separate_cover_page: {scp_current} -> {int(t['separate_cover_page'])}"
 		if not diffs:
 			report["unchanged"].append(label)
 		elif update_content:
@@ -1052,6 +1150,10 @@ def _seed_templates(
 					doc.description = t["description"]
 				if t.get("print_format"):
 					doc.print_format = t["print_format"]
+				if t.get("letter_head"):
+					doc.letter_head = t["letter_head"]
+				if "separate_cover_page" in t:
+					doc.separate_cover_page = int(t["separate_cover_page"])
 				doc.set("sections", [])
 				for r in rows:
 					doc.append("sections", _template_section_row(r))
@@ -1078,6 +1180,7 @@ def _template_section_row(r: dict) -> dict:
 		"custom_content": r.get("custom_content", ""),
 		"custom_title": r.get("custom_title", ""),
 		"hide_title": r.get("hide_title", 0),
+		"page_break_before": r.get("page_break_before", 0),
 	}
 
 
@@ -1094,6 +1197,7 @@ def _template_rows_diff(template_name: str, expected_rows: list) -> str:
 				(row.custom_title or ""),
 				(row.custom_content or ""),
 				int(row.hide_title or 0),
+				int(row.page_break_before or 0),
 			)
 			for row in doc.sections
 		),
@@ -1109,6 +1213,7 @@ def _template_rows_diff(template_name: str, expected_rows: list) -> str:
 				(r.get("custom_title") or ""),
 				(r.get("custom_content") or ""),
 				int(r.get("hide_title", 0)),
+				int(r.get("page_break_before", 0)),
 			)
 			for r in expected_rows
 		),
