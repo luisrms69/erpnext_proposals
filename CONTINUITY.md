@@ -38,7 +38,7 @@ vía `/ship` [[feedback_git_solo_via_ship]]; nunca merge — lo hace el usuario 
   327 tests: 0 failures / 0 errors** tras migrar el site de tests. Ver [[feedback_correr_suite_completa_migrada]].
 - Documentación: ADR-0014 (render portada separada + merge), `tecnico/print-formats.md`, `tecnico/arquitectura.md`,
   `usuario/campos-principales.md`, `CHANGELOG 0.10.0`, `mkdocs.yml`. `mkdocs build --strict` limpio.
-- Validación visual del candidato en `proposals-acti.dev` (18 págs): portada full-bleed 1 pág sin header,
+- Validación visual del candidato en un site de desarrollo (18 págs): portada full-bleed 1 pág sin header,
   header en 17/17 interiores, footer 18/18, sin recortes, sin huérfanos, tabla 5.3 y firmas OK.
 - Regresión verde: print_format_integrity(19)/print_format_versions(4)/get_sections_snapshot(18)/
   phase_tags_loader(5). Idempotencia loader 0/0/0. ruff check+format limpios.
@@ -54,8 +54,8 @@ vía `/ship` [[feedback_git_solo_via_ship]]; nunca merge — lo hace el usuario 
 ### No repetir
 - NO intentar header repetible con `#header-html` dentro del Print Format custom ni `position:fixed`:
   ambos fallan en wkhtmltopdf (fuera de página / no repite). Solución = 2 renders + merge (ADR-0014).
-- NO incluir el pack privado Actiglobal en este PR (catálogo, `pf_bolsa_verbatim.html`, `build_bolsa_horas.py`,
-  ni nada bajo `/home/erpnext/clientesconsultoriamx/`).
+- NO incluir el pack privado del cliente en este PR (catálogo, Print Format brandeado, script de build,
+  assets): vive fuera del repo, en una ruta privada externa (ADR-0006). El repo público es solo genérico.
 - NO commitear en `version-16` (rama protegida). NO desplegar staging ni transferir/release del pack todavía.
 
 ---
