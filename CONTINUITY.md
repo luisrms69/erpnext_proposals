@@ -1,8 +1,8 @@
 # CONTINUITY.md — erpnext_proposals
 
-**Fecha:** 2026-08-26
+**Fecha:** 2026-08-27
 **Rama activa:** `feat/proposal-rendering-infrastructure` (base `upstream/version-16` = **v0.9.1**)
-**Tarea actual:** Cerrar por `/ship` la feature pública **v0.10.0** (infraestructura genérica de render de propuestas).
+**Tarea actual:** Cerrar por `/ship` la feature pública **v0.10.0** (infraestructura genérica de render de propuestas). Commit feature + fix de fixture-filter hechos; siguiente: re-ejecutar `/ship pr`.
 
 ---
 
@@ -31,6 +31,9 @@ vía `/ship` [[feedback_git_solo_via_ship]]; nunca merge — lo hace el usuario 
 
 ### Ya cerrado
 - **Commit de la feature** en la rama de trabajo (bump 0.10.0 incluido). 9 archivos de código + 6 de docs.
+- **Fix `hooks.py`:** agregados los 3 fieldnames de servicio de Item al allowlist del filtro de fixtures
+  (`test_fixture_hooks_consistency` lo exigía; patrón `fixture-patterns`). Suite completa verde tras migrar
+  el site de tests. Ver [[feedback_fixture_filter_hooks]].
 - Documentación: ADR-0014 (render portada separada + merge), `tecnico/print-formats.md`, `tecnico/arquitectura.md`,
   `usuario/campos-principales.md`, `CHANGELOG 0.10.0`, `mkdocs.yml`. `mkdocs build --strict` limpio.
 - Validación visual del candidato en `proposals-acti.dev` (18 págs): portada full-bleed 1 pág sin header,
