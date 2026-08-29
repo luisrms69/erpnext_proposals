@@ -252,6 +252,7 @@ bench --site <site> execute \
 | `facturacion_mexico` (impuestos) | Impuesto automático en Quotation reutilizando la resolución fiscal existente | `utils/quotation_tax.py` — `apply_fiscal_taxes` (hook `Quotation.before_validate`) | **Read-only sobre `facturacion_mexico`** (solo `import`); ver abajo y **ADR-0008** |
 | ERPNext `Contact` | Resolución y persistencia del contacto dirigido de la Quotation | `utils/quotation_contact.py` — `set_proposal_contact` (hook `Quotation.before_insert`), `autocorrect_missing_contact` (hook `Quotation.validate`) | Reúso nativo `get_default_contact`/`get_contact_details`; ver abajo y **ADR-0009** |
 | Frappe CRM `CRM Deal` (opcional) | Contacto del Deal como autoritativo al crear la Quotation | `utils/quotation_contact.py` — `_deal_primary_contact` | Lectura **desacoplada** (guardada por `frappe.db.exists`); sin dependencia del app `crm` |
+| Gotenberg (opcional) | Motor HTML→PDF desacoplado y versionado para Print Formats operativos | `utils/gotenberg.py` (`GotenbergClient`) + `utils/renderer.py` (dispatch en `render_proposal_pdf`) | Se activa por formato con el Custom Field técnico **`Print Format.proposal_renderer_profile`** (oculto/read-only; `legacy`=wkhtmltopdf por defecto, `gotenberg-v1`=Gotenberg). Endpoint por config de entorno **`proposal_gotenberg_url`** (fail-closed; sin fallback silencioso). Ningún Print Format lo adopta aún. Ver **ADR-0015** |
 
 ### Materialización de dependencias en Tasks del Project
 

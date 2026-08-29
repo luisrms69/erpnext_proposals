@@ -44,6 +44,7 @@ nav:
     - ADR-0012 Protección de PDFs oficiales: adr/0012-proteccion-eliminacion-pdfs-oficiales.md
     - ADR-0013 Secciones opcionales por propuesta: adr/0013-secciones-opcionales-por-propuesta.md
     - ADR-0014 Render de portada separada + merge: adr/0014-render-portada-separada-merge.md
+    - ADR-0015 Renderer PDF desacoplado y versionado: adr/0015-renderer-pdf-desacoplado-versionado.md
 
 theme:
   name: material

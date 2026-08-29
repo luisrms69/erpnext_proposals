@@ -10,6 +10,7 @@ Datos ficticios; nunca contenido de cliente.
 """
 
 import unittest
+from unittest.mock import patch
 
 import frappe
 
@@ -17,6 +18,7 @@ from erpnext_proposals.erpnext_proposals.tests.fiscal_year import (
 	cleanup_fiscal_year,
 	ensure_current_fiscal_year,
 )
+from erpnext_proposals.erpnext_proposals.utils import print_format_protection as pfp
 from erpnext_proposals.erpnext_proposals.utils.print_format_protection import (
 	is_print_format_historical,
 )
@@ -245,3 +247,47 @@ class TestPrintFormatProtection(unittest.TestCase):
 		self.assertTrue(st1["commercial"])
 		self.assertTrue(st1["rentabilidad"])
 		self.assertTrue(st1["official_present"])
+
+
+class _FakePF:
+	"""Doc mínimo para ejercitar el guard sin BD (el campo aún no está migrado en meta)."""
+
+	def __init__(self, name: str, changed: set):
+		self.name = name
+		self._changed = set(changed)
+
+	def get(self, key, default=None):
+		return default  # `__islocal` ausente → falsy
+
+	def is_new(self):
+		return False
+
+	def has_value_changed(self, field):
+		return field in self._changed
+
+
+class TestRendererProfileHistoricalLock(unittest.TestCase):
+	"""ADR-0015 sobre ADR-0011: el renderer profile de un PF histórico es inmutable (mismo candado).
+
+	Unitario sobre el guard real y `_PRESENTATION_FIELDS` — no requiere el Custom Field migrado, así que
+	puede correr ANTES del migrate (gatea la autorización del migrate)."""
+
+	def test_renderer_profile_is_a_protected_presentation_field(self):
+		self.assertIn("proposal_renderer_profile", pfp._PRESENTATION_FIELDS)
+
+	def test_historical_pf_cannot_change_renderer_profile(self):
+		doc = _FakePF("_Test PF", {"proposal_renderer_profile"})
+		with patch.object(pfp, "is_print_format_historical", return_value=True):
+			with self.assertRaises(frappe.ValidationError):
+				pfp.protect_historical_print_format_on_save(doc)
+
+	def test_non_historical_pf_can_change_renderer_profile(self):
+		doc = _FakePF("_Test PF", {"proposal_renderer_profile"})
+		with patch.object(pfp, "is_print_format_historical", return_value=False):
+			pfp.protect_historical_print_format_on_save(doc)  # no debe lanzar
+
+	def test_historical_pf_unrelated_change_not_blocked(self):
+		"""Sin cambio en campos protegidos (idempotencia) no bloquea, aunque sea histórico."""
+		doc = _FakePF("_Test PF", set())
+		with patch.object(pfp, "is_print_format_historical", return_value=True):
+			pfp.protect_historical_print_format_on_save(doc)  # no debe lanzar
