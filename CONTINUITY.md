@@ -2,7 +2,7 @@
 
 **Fecha:** 2026-08-29
 **Rama activa:** `docs/adr-0015-renderer-pdf` (base `upstream/version-16` = **v0.10.0**)
-**Tarea actual:** Cerrar por `/ship` la **implementación base del renderer desacoplado (ADR-0015)**: capacidad genérica para que un Print Format renderice vía Gotenberg, conservando wkhtmltopdf por defecto. Commit en curso (autorizado).
+**Tarea actual:** Cerrar por `/ship` la **implementación base del renderer desacoplado (ADR-0015)**: capacidad genérica para que un Print Format renderice vía Gotenberg, conservando wkhtmltopdf por defecto. Commit + push hechos; **PR abierto** contra `version-16`.
 
 ---
 
@@ -14,15 +14,15 @@ técnico (`Print Format.proposal_renderer_profile`, oculto/read-only): `legacy` 
 o `gotenberg-v1` (Gotenberg). Backward-compatible; ningún formato adopta `gotenberg-v1` todavía.
 
 Plan que estoy siguiendo:
-Flujo `/ship`: **commit (en curso)** → push → pr, pasos separados con autorización independiente.
+Flujo `/ship`: commit ✓ → push ✓ → **pr (PR abierto)**. Bump `__version__` → v0.11.0 ✓.
 PR base `version-16`.
 
 Objetivo inmediato:
-Completar `/ship commit` (11 archivos + CONTINUITY.md). Después `/ship push`. Antes de `/ship pr`,
-**subir `__version__` a v0.11.0 (MINOR — nueva capacidad)**, calculado contra `upstream/version-16`.
+Revisión del PR (CodeRabbit / CI). El **merge lo hace el usuario** (Squash and Merge). Tras el merge:
+`/sync-check` → `/ship release` (tag + GitHub Release v0.11.0).
 
 Criterio de avance:
-Commit creado con los 11 archivos; suite completa verde (355 OK) ya corrida sobre site migrado.
+CI verde en el PR; gates de `/pr-ready` pasados (355 tests OK, mkdocs --strict, ruff, versionado MINOR).
 
 ---
 
@@ -40,12 +40,12 @@ Commit creado con los 11 archivos; suite completa verde (355 OK) ya corrida sobr
 - ADR-0015 redactado y aprobado (Status: "base implementada; sin formatos adoptándola aún").
 
 ### En progreso
-- `/ship commit` de la rama `docs/adr-0015-renderer-pdf`.
+- PR abierto contra `version-16` (rama `docs/adr-0015-renderer-pdf`, 2 commits + este de CONTINUITY).
 
 ### Pendiente inmediato
-1. Completar el commit (este paso).
-2. `/ship push` (autorización separada).
-3. Bump `__version__` → v0.11.0 y luego `/ship pr` (base `version-16`).
+1. Revisión del PR (CodeRabbit / CI verde).
+2. Merge por el usuario (Squash and Merge) — Claude NO mergea.
+3. Post-merge: `/sync-check` → `/ship release` (tag + GitHub Release v0.11.0).
 
 ### No repetir
 - No re-diagnosticar el incidente de PDF en staging: NO es premisa del ADR (causa raíz = diagnóstico
