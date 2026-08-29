@@ -86,7 +86,20 @@ def render_proposal_pdf(doc, print_format: str) -> bytes:
 
 	En cualquier otro caso (plantilla sin la marca, u otro Print Format como Rentabilidad), un solo
 	render con el comportamiento estándar. NO monkey-patchea ``get_pdf`` ni afecta otros Print Formats:
-	el modo de render se pasa por un atributo del propio ``doc`` que solo este Print Format consume."""
+	el modo de render se pasa por un atributo del propio ``doc`` que solo este Print Format consume.
+
+	**Renderer profile (ADR-0015):** si el Print Format declara ``gotenberg-v1`` en su renderer profile,
+	el render se delega a Gotenberg (motor desacoplado y versionado). Cualquier otro valor (incluido el
+	campo ausente/vacío) sigue exactamente por el camino wkhtmltopdf de abajo — compat hacia atrás."""
+	from erpnext_proposals.erpnext_proposals.utils.renderer import (
+		GOTENBERG_V1,
+		get_renderer_profile,
+		render_proposal_pdf_gotenberg,
+	)
+
+	if get_renderer_profile(print_format) == GOTENBERG_V1:
+		return render_proposal_pdf_gotenberg(doc, print_format)
+
 	from frappe.utils.pdf import get_file_data_from_writer, get_pdf
 
 	if not _uses_separate_cover(doc, print_format):

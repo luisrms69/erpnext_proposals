@@ -55,6 +55,9 @@ _PRESENTATION_FIELDS = (
 	"margin_right",
 	"page_number",
 	"pdf_generator",
+	# ADR-0015: el renderer profile es representación contractual del PDF — cambiarlo en un formato
+	# histórico equivale a cambiar cómo se genera ese documento. Se protege igual que HTML/CSS.
+	"proposal_renderer_profile",
 	"standard",
 	"doc_type",
 	"print_format_for",
