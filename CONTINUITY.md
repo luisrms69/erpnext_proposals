@@ -35,7 +35,7 @@ Suite completa verde (368 OK); PDF real aprobado por el usuario (18 pág, sin so
   usuario contra el original del cliente.
 
 ### En progreso
-- `/ship` de `fix/gotenberg-render-cover-toolbar` (commit hecho; falta push + PR).
+- **PR abierto** contra `version-16` (rama `fix/gotenberg-render-cover-toolbar`, v0.11.2).
 
 ### Pendiente inmediato
 1. `/ship push` + `/ship pr` de v0.11.2 (base `version-16`). Tras merge: `/sync-check` → `/ship release`.
