@@ -1,91 +1,88 @@
 # CONTINUITY.md — erpnext_proposals
 
-**Fecha:** 2026-08-29
-**Rama activa:** `docs/adr-0015-renderer-pdf` (base `upstream/version-16` = **v0.10.0**)
-**Tarea actual:** Cerrar por `/ship` la **implementación base del renderer desacoplado (ADR-0015)**: capacidad genérica para que un Print Format renderice vía Gotenberg, conservando wkhtmltopdf por defecto. Commit + push hechos; **PR abierto** contra `version-16`.
+**Fecha:** 2026-08-30
+**Rama activa:** `fix/loader-renderer-profile` (base `upstream/version-16` = **v0.11.0**)
+**Tarea actual:** Fase de adopción de Gotenberg para el pack Actiglobal. **Paso 1 (en curso):** fix público **v0.11.1** — el loader ya puede sembrar `proposal_renderer_profile` desde el catálogo. Commit hecho; falta push + PR.
 
 ---
 
 ## Recuperación rápida
 
 Estoy trabajando en:
-La capa genérica mínima ADR-0015: un Print Format elige su motor HTML→PDF con un renderer profile
-técnico (`Print Format.proposal_renderer_profile`, oculto/read-only): `legacy` (wkhtmltopdf, default)
-o `gotenberg-v1` (Gotenberg). Backward-compatible; ningún formato adopta `gotenberg-v1` todavía.
+Adoptar la capacidad Gotenberg (ADR-0015, v0.11.0) en el pack privado Actiglobal. Antes hay que
+cerrar un fix público mínimo: el loader (`_seed_print_formats`) no incluía `proposal_renderer_profile`
+en su allowlist, así que un catálogo no podía adoptar Gotenberg declarativamente.
 
 Plan que estoy siguiendo:
-Flujo `/ship`: commit ✓ → push ✓ → **pr (PR abierto)**. Bump `__version__` → v0.11.0 ✓.
-PR base `version-16`.
+1. **v0.11.1 (app público)** — allowlist `_PRINT_FORMAT_MANAGED_FIELDS` + `proposal_renderer_profile`,
+   caps v10 (`renderer_profile`), test. Flujo `/ship`: commit ✓ → push → pr.
+2. **Pack 1.7.0** — crear `Bolsa de Horas - Consultoría Microsoft v3` con `gotenberg-v1`, sin tocar v1/v2.
 
 Objetivo inmediato:
-Revisión del PR (CodeRabbit / CI). El **merge lo hace el usuario** (Squash and Merge). Tras el merge:
-`/sync-check` → `/ship release` (tag + GitHub Release v0.11.0).
+`/ship push` de `fix/loader-renderer-profile` (autorización separada) → `/ship pr` (base `version-16`).
 
 Criterio de avance:
-CI verde en el PR; gates de `/pr-ready` pasados (355 tests OK, mkdocs --strict, ruff, versionado MINOR).
+Suite completa verde (357 OK); caps_version=10 y renderer_profile=True.
 
 ---
 
 ## Estado actual
 
 ### Ya cerrado
-- Base del renderer implementada y verificada: adapter `GotenbergClient` (html_to_pdf + merge por
-  endpoint, fail-closed, sin fallback), orquestación 2-render + merge en Gotenberg (pypdf fuera del
-  camino contractual), inline de assets data-URI, extracción header/footer.
-- Custom Field técnico `proposal_renderer_profile` (hidden/read-only) creado en `proposals-acti.dev`
-  (migrate hecho) y en el site de tests. `arquitectura.md` actualizado (integración Gotenberg).
-- Candado ADR-0011 extendido: `proposal_renderer_profile` inmutable en formatos históricos.
-- E2E real del dispatch verificado (objetos sintéticos `_GOTENBERG-E2E-*`, creados y eliminados):
-  gotenberg-v1 elegido, 2 renders + merge Gotenberg, sin get_pdf/pypdf/fallback, 4 páginas.
-- ADR-0015 redactado y aprobado (Status: "base implementada; sin formatos adoptándola aún").
+- **v0.11.0 released** (ADR-0015): renderer PDF desacoplado. Tag + GitHub Release alineados (8d3259f).
+- **Fase 1 de adopción (inspección read-only del pack)** completa: pack en v1.6.1; template
+  `Bolsa de Horas - Consultoría Microsoft` → PF `…v2`; assets por URL absoluta (incompatibles con
+  header/footer Chromium); loader sin `proposal_renderer_profile` en allowlist (blocker).
+- **v0.11.1 implementado** (commit en esta rama): fix del loader + caps v10 + 2 tests. Suite 357 OK.
 
 ### En progreso
-- PR abierto contra `version-16` (rama `docs/adr-0015-renderer-pdf`, 2 commits + este de CONTINUITY).
+- **PR abierto** contra `version-16` (rama `fix/loader-renderer-profile`, v0.11.1).
 
 ### Pendiente inmediato
-1. Revisión del PR (CodeRabbit / CI verde).
-2. Merge por el usuario (Squash and Merge) — Claude NO mergea.
-3. Post-merge: `/sync-check` → `/ship release` (tag + GitHub Release v0.11.0).
+1. Revisión/CI del PR → merge por el usuario → `/sync-check` → `/ship release` (tag + Release v0.11.1).
+2. **Pack 1.7.0**: PF `…v3` (`gotenberg-v1`), `print_format_versions` (current=v3, supersedes=v2,
+   disable + repunte de template), bump 1.6.1→1.7.0, sellar `releases/1.7.0/`. Validar visualmente local.
 
 ### No repetir
-- No re-diagnosticar el incidente de PDF en staging: NO es premisa del ADR (causa raíz = diagnóstico
-  separado). ADR-0015 lo trata como contexto, no como causa.
-- No tocar el pack Actiglobal, formatos productivos, staging ni producción en esta fase.
-- No adoptar `gotenberg-v1` en ningún Print Format todavía (eso es fase de adopción, futura).
-- `bench console` NO corre desde el bench root: usar rutas absolutas al `exec(open(...))`.
+- NO tocar v1/v2 (históricos/operativos) ni el Letter Head compartido "Actiglobal — Propuestas".
+- NO meter base64 gigante en el catálogo: v3 referencia assets como `/files/actiglobal_*.png`
+  (relativos) y el adapter Gotenberg los inlinea a data-URI.
+- NO desplegar el pack a staging/producción en esta fase (solo local `proposals-acti.dev`).
+- `bench console` no corre desde bench root → rutas absolutas en `exec(open(...))`.
 
 ---
 
 ## Decisiones vigentes
-- `proposal_renderer_profile` es **metadata técnica**, no control de usuario: oculto + read-only; lo
-  asigna el app/loader programáticamente (hidden/read-only no bloquean escritura de servidor).
-- Gotenberg pineado por versión (`gotenberg/gotenberg:8.34.0` probado); endpoint por
-  `proposal_gotenberg_url` (config de entorno, no de cliente). Fail-closed sin fallback silencioso.
-- Merge contractual DENTRO de Gotenberg (`/forms/pdfengines/merge`); pypdf fuera del camino.
-- `docs/tecnico/print-formats.md` se actualizará en la **fase de adopción** de un formato real, no ahora.
+- Blocker loader → **fix público** (no one_off): `proposal_renderer_profile` es capacidad genérica; el
+  catálogo debe poder declararla. Tratado como **PATCH v0.11.1** (completa v0.11.0).
+- v3 construye su **propio `#header-html`** con logo `/files/actiglobal_logo_color.png` relativo; el
+  Letter Head histórico queda intacto (el Template conserva su metadata de letter_head).
+- Bump del pack: **1.6.1 → 1.7.0 (MINOR)** por nueva versión de PF + adopción de capacidad.
+- Nombre del nuevo PF: **`Bolsa de Horas - Consultoría Microsoft v3`**.
 
 ---
 
 ## Archivos relevantes ahora
 
 ### Leer primero
-- `docs/adr/0015-renderer-pdf-desacoplado-versionado.md` — decisión, frontera, hardening parqueado.
+- `erpnext_proposals/catalog_data/catalog_loader.py` — `_PRINT_FORMAT_MANAGED_FIELDS`, `_seed_print_formats`, `_seed_print_format_versions`, `capabilities()`.
+- Pack: `.../erpnext_proposals_catalog/actiglobal_catalog.json` (v1.6.1) — `print_formats`, `templates`, `print_format_versions`.
 
-### Probablemente editar
-- `erpnext_proposals/__init__.py` — bump a v0.11.0 antes de `/ship pr`.
+### Probablemente editar (Fase 2, pack)
+- `actiglobal_catalog.json` (PF v3 + print_format_versions + version 1.7.0) + changelog + sellar `releases/1.7.0/`.
 
 ### No tocar
-- `one_offs/` (ignorado; scripts del e2e/probe temporales).
-- Pack Actiglobal / formatos productivos.
+- PF `Bolsa de Horas - Consultoría Microsoft` (v1) y `… v2`; Letter Head "Actiglobal — Propuestas".
+- `one_offs/` (ignorado).
 
 ---
 
 ## Riesgos / cuidados
-- El ajuste visual fino de márgenes header/footer para gotenberg-v1 es actividad de **adopción (v2)**
-  por formato, no de este MVP.
-- Reproducibilidad: ADR-0015 garantiza HTML→PDF, **no** datos→HTML (parqueado).
+- Assets en header/footer de Chromium: solo se inlinan rutas **relativas** (`/files/…`), no URLs
+  absolutas (`base_url`/`get_url`). v3 debe usar relativas.
+- Márgenes: `gotenberg-v1` usa defaults; el ajuste fino por formato es esperado (v2 por formato).
 
 ---
 
 ## Información faltante
-- Ninguna para continuar el `/ship`.
+- Ninguna para continuar el `/ship` de v0.11.1.

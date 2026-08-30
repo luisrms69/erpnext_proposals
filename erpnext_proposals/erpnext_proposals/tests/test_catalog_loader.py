@@ -270,6 +270,63 @@ class TestCatalogLoader(unittest.TestCase):
 			os.rmdir(tmpdir)
 			frappe.db.commit()  # nosemgrep — limpieza de fixtures de test
 
+	def test_print_format_renderer_profile_seeded(self):
+		"""v10 (ADR-0015): el catálogo puede declarar `proposal_renderer_profile` y el seeder lo
+		administra como campo del Print Format (igual que html/css), habilitando la adopción de Gotenberg."""
+		import os
+		import tempfile
+
+		pf_name = "_DEMO PF Gotenberg"
+		tmpdir = tempfile.mkdtemp()
+		try:
+			catalog = {
+				"version": "t",
+				"catalog": "demo_pf_rp",
+				"phases": [],
+				"sections": [],
+				"versioned": [],
+				"items": [],
+				"scope_items": [],
+				"templates": [],
+				"print_formats": [
+					{
+						"name": pf_name,
+						"doc_type": "Quotation",
+						"print_format_type": "Jinja",
+						"standard": "No",
+						"custom_format": 1,
+						"html": "<div>x</div>",
+						"proposal_renderer_profile": "gotenberg-v1",
+					}
+				],
+			}
+			path = os.path.join(tmpdir, "catalog.json")
+			with open(path, "w", encoding="utf-8") as fh:
+				json.dump(catalog, fh)
+
+			catalog_loader.run(catalog_path=path, dry_run=False)
+			self.assertEqual(
+				frappe.db.get_value("Print Format", pf_name, "proposal_renderer_profile"),
+				"gotenberg-v1",
+			)
+			# idempotente: re-correr no reporta cambios
+			rep2 = catalog_loader.run(catalog_path=path, dry_run=False)
+			self.assertEqual(len(rep2["updated"]), 0)
+			self.assertEqual(len(rep2["conflicts"]), 0)
+		finally:
+			if frappe.db.exists("Print Format", pf_name):
+				frappe.delete_doc("Print Format", pf_name, force=True, ignore_permissions=True)
+			if os.path.exists(os.path.join(tmpdir, "catalog.json")):
+				os.remove(os.path.join(tmpdir, "catalog.json"))
+			os.rmdir(tmpdir)
+			frappe.db.commit()  # nosemgrep — limpieza de fixtures de test
+
+	def test_capabilities_incluye_renderer_profile(self):
+		"""v10: caps expone `renderer_profile` y `caps_version >= 10` (contrato para el instalador)."""
+		caps = catalog_loader.capabilities()
+		self.assertTrue(caps["renderer_profile"])
+		self.assertGreaterEqual(caps["caps_version"], 10)
+
 	def test_print_format_protegido_nunca_se_modifica(self):
 		"""Un Print Format en PROTECTED_PRINT_FORMATS se reporta como conflicto y jamás se escribe,
 		aunque el catálogo intente administrarlo."""

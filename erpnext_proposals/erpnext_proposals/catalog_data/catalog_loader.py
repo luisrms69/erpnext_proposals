@@ -48,6 +48,29 @@ PROTECTED_PRINT_FORMATS = frozenset(
 )
 
 
+# Campos de Print Format que el seeder administra desde el catálogo (`_seed_print_formats`). El resto
+# usa el default del DocType. `proposal_renderer_profile` (ADR-0015, v10) permite que el catálogo
+# declare el motor de render del formato (`legacy`/`gotenberg-v1`) igual que html/css; sigue protegido
+# como presentación en formatos históricos (ADR-0011).
+_PRINT_FORMAT_MANAGED_FIELDS = (
+	"doc_type",
+	"print_format_type",
+	"standard",
+	"custom_format",
+	"disabled",
+	"module",
+	"page_number",
+	"font_size",
+	"margin_top",
+	"margin_bottom",
+	"margin_left",
+	"margin_right",
+	"html",
+	"css",
+	"proposal_renderer_profile",
+)
+
+
 # Las 10 Sections base (after_install) NUNCA se crean ni modifican por el seeder.
 BASE_SECTIONS = frozenset(
 	{
@@ -86,7 +109,10 @@ BASE_SECTIONS = frozenset(
 #     Letter Heads de branding SIN marcarlos default (is_default=0 es propiedad del catálogo) y
 #     los enlaza por nombre desde el Template; la app copia Template.letter_head → Quotation.letter_head
 #     al aplicar la plantilla. Selección explícita por nombre, independiente del default del sitio.
-LOADER_CAPS_VERSION = 9
+# v10: el catálogo puede declarar `proposal_renderer_profile` (`legacy`/`gotenberg-v1`) en un Print
+#      Format; `_seed_print_formats` lo administra igual que html/css (ADR-0015). Completa la capacidad
+#      genérica del renderer desacoplado para que un pack pueda adoptar Gotenberg de forma declarativa.
+LOADER_CAPS_VERSION = 10
 
 
 def capabilities() -> dict:
@@ -117,6 +143,8 @@ def capabilities() -> dict:
 		"print_format_versions": callable(globals().get("_seed_print_format_versions")),
 		# v9: Letter Heads dedicados (branding no-default) + Proposal Template.letter_head.
 		"letter_heads": callable(globals().get("_seed_letter_heads")),
+		# v10: el catálogo puede declarar el renderer profile de un Print Format (ADR-0015).
+		"renderer_profile": "proposal_renderer_profile" in _PRINT_FORMAT_MANAGED_FIELDS,
 		# El loader NO tiene capacidad de sembrar masters fiscales (UOM / Item Groups).
 		"no_fiscal_master_writes": not callable(globals().get("_seed_item_groups"))
 		and not callable(globals().get("_seed_uoms")),
@@ -757,22 +785,7 @@ def _seed_print_formats(
 	)
 
 	superseded = superseded or set()
-	fields = [
-		"doc_type",
-		"print_format_type",
-		"standard",
-		"custom_format",
-		"disabled",
-		"module",
-		"page_number",
-		"font_size",
-		"margin_top",
-		"margin_bottom",
-		"margin_left",
-		"margin_right",
-		"html",
-		"css",
-	]
+	fields = list(_PRINT_FORMAT_MANAGED_FIELDS)
 	for pf in pfs:
 		name = pf["name"]
 		label = f"Print Format '{name}'"
