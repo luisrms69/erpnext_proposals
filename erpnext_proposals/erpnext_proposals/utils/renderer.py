@@ -50,9 +50,9 @@ def get_renderer_profile(print_format: str | None) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Opciones de página del profile gotenberg-v1 (Letter, portrait, printBackground, scale 1)
-# Márgenes en pulgadas. Los del body son valores por defecto razonables para una propuesta con
-# letterhead; el ajuste visual fino por formato es actividad de adopción (v2), no de este MVP.
+# Opciones de página del profile gotenberg-v1 (Letter, portrait, printBackground, scale 1).
+# Los MÁRGENES se leen del propio Print Format (reglas `.print-format`, misma fuente que wkhtmltopdf)
+# y se convierten a pulgadas: así el footer/header quedan en su reserva contractual, sin hardcodear.
 # ---------------------------------------------------------------------------
 def _base_page_options() -> dict:
 	return {
@@ -64,27 +64,63 @@ def _base_page_options() -> dict:
 	}
 
 
-def cover_page_options() -> dict:
-	"""Portada: márgenes 0 (full-bleed) y solo la primera página (determinista)."""
+# Conversión de longitudes CSS a pulgadas (unidad de los márgenes de Gotenberg).
+_UNIT_TO_MM = {"mm": 1.0, "cm": 10.0, "in": 25.4, "pt": 25.4 / 72, "px": 25.4 / 96}
+
+
+def _length_to_inches(value: str) -> float | None:
+	"""Convierte una longitud CSS (``'27mm'`` / ``'1in'`` / ``'72pt'`` / ``'0'``) a pulgadas.
+	``None`` si no parsea. Sin unidad se asume ``mm`` (unidad de los márgenes de Print Format)."""
+	match = re.match(r"^\s*([0-9]*\.?[0-9]+)\s*(mm|cm|in|pt|px)?\s*$", value or "")
+	if not match:
+		return None
+	number = float(match.group(1))
+	unit = match.group(2) or "mm"
+	return number * _UNIT_TO_MM.get(unit, 1.0) / 25.4
+
+
+def read_print_format_margins(html: str) -> dict:
+	"""Lee los márgenes de página del Print Format (reglas ``.print-format`` del HTML renderizado) y
+	los devuelve como opciones de Gotenberg en **pulgadas**. Usa la misma fuente que wkhtmltopdf
+	(``get_print_format_styles``, last-wins), de modo que el PDF respeta los márgenes contractuales del
+	formato — genérico para cualquier Print Format, sin valores hardcodeados."""
+	from bs4 import BeautifulSoup
+	from frappe.utils.pdf import get_print_format_styles
+
+	name_map = {
+		"margin-top": "marginTop",
+		"margin-bottom": "marginBottom",
+		"margin-left": "marginLeft",
+		"margin-right": "marginRight",
+	}
+	soup = BeautifulSoup(html, "html5lib")
+	margins: dict = {}
+	for style in get_print_format_styles(soup):
+		if style.name in name_map:
+			inches = _length_to_inches(style.value)
+			if inches is not None:
+				margins[name_map[style.name]] = inches  # last-wins, igual que wkhtmltopdf
+	return margins
+
+
+def cover_page_options(html: str) -> dict:
+	"""Portada: full-bleed (top/left/right = 0) reservando abajo el espacio del footer contractual del
+	propio Print Format (``margin-bottom`` de ``.print-format``). Solo la primera página (determinista)."""
+	bottom = read_print_format_margins(html).get("marginBottom", 0)
 	return {
 		**_base_page_options(),
 		"marginTop": 0,
-		"marginBottom": 0,
 		"marginLeft": 0,
 		"marginRight": 0,
+		"marginBottom": bottom,
 		"nativePageRanges": "1",
 	}
 
 
-def body_page_options() -> dict:
-	"""Cuerpo: reserva margen superior/inferior para header/footer y márgenes laterales de propuesta."""
-	return {
-		**_base_page_options(),
-		"marginTop": 1.0,
-		"marginBottom": 0.7,
-		"marginLeft": 0.6,
-		"marginRight": 0.6,
-	}
+def body_page_options(html: str) -> dict:
+	"""Cuerpo: base + los márgenes del propio Print Format, para que el header/footer queden dentro de
+	su área reservada y nunca sobre el contenido."""
+	return {**_base_page_options(), **read_print_format_margins(html)}
 
 
 # ---------------------------------------------------------------------------
@@ -134,6 +170,35 @@ def inline_local_assets(html: str) -> str:
 		return f"{prefix}{quote_open}{data_uri}{quote_close}"
 
 	return _LOCAL_ASSET_RE.sub(_repl, html)
+
+
+# ---------------------------------------------------------------------------
+# Normalización del HTML para PDF (equivalente mínimo a toggle_visible_pdf de Frappe)
+# ---------------------------------------------------------------------------
+def _normalize_soup(soup) -> None:
+	"""Quita del árbol los elementos que no deben entrar al PDF y revela los ``visible-pdf``:
+
+	- elimina ``.print-hide`` (barra de acciones de printview: "Imprimir / Obtener PDF");
+	- elimina ``.hidden-pdf``;
+	- en ``.visible-pdf`` quita esa clase (que es la que los mantiene ocultos en pantalla).
+
+	Equivale al ``toggle_visible_pdf`` de Frappe, aplicado con nuestro propio parser mínimo."""
+	for tag in soup.find_all(class_="print-hide"):
+		tag.extract()
+	for tag in soup.find_all(class_="hidden-pdf"):
+		tag.extract()
+	for tag in soup.find_all(class_="visible-pdf"):
+		tag["class"] = [c for c in tag.get("class", []) if c != "visible-pdf"]
+
+
+def normalize_html_for_pdf(html: str) -> str:
+	"""Normaliza un documento HTML para PDF: quita ``.print-hide`` / ``.hidden-pdf`` y revela
+	``.visible-pdf``. Se aplica tanto a la portada como al cuerpo antes de enviarlos a Gotenberg."""
+	from bs4 import BeautifulSoup
+
+	soup = BeautifulSoup(html, "html5lib")
+	_normalize_soup(soup)
+	return str(soup)
 
 
 # ---------------------------------------------------------------------------
@@ -215,15 +280,27 @@ def render_proposal_pdf_gotenberg(doc, print_format: str) -> bytes:
 	try:
 		if separate_cover:
 			doc.proposal_render_part = "cover"
-			cover_html = inline_local_assets(
-				get_print(doc.doctype, doc.name, print_format=print_format, doc=doc, no_letterhead=1)
+			cover_raw = get_print(doc.doctype, doc.name, print_format=print_format, doc=doc, no_letterhead=1)
+			# La portada NO lleva header interior (``#header-html`` se descarta) ni el footer dentro del
+			# flujo (si no, quedaría arriba). El ``#footer-html`` se extrae y se envía a Gotenberg como
+			# footer.html del cover → queda AL PIE de la portada (como el original del cliente).
+			cover_index, _hc, cover_footer_frag, cover_styles = extract_header_footer(cover_raw)
+			cover_html = inline_local_assets(normalize_html_for_pdf(cover_index))
+			cover_footer_doc = (
+				inline_local_assets(wrap_fragment_as_document(cover_footer_frag, cover_styles))
+				if cover_footer_frag
+				else None
 			)
-			cover_pdf = client.html_to_pdf(cover_html, options=cover_page_options())
+			# Márgenes del propio PF: full-bleed arriba/lados, reserva inferior contractual para el footer.
+			cover_opts = cover_page_options(cover_raw)
+			cover_pdf = client.html_to_pdf(cover_html, footer_html=cover_footer_doc, options=cover_opts)
 			doc.proposal_render_part = "body"
 
 		body_html = get_print(doc.doctype, doc.name, print_format=print_format, doc=doc)
 		index_html, header_frag, footer_frag, styles = extract_header_footer(body_html)
-		index_html = inline_local_assets(index_html)
+		# Normalizar el index (header/footer ya extraídos): quita el toolbar de printview y demás
+		# elementos ``print-hide``/``hidden-pdf`` que no deben entrar al PDF.
+		index_html = inline_local_assets(normalize_html_for_pdf(index_html))
 		header_doc = (
 			inline_local_assets(wrap_fragment_as_document(header_frag, styles)) if header_frag else None
 		)
@@ -231,7 +308,7 @@ def render_proposal_pdf_gotenberg(doc, print_format: str) -> bytes:
 			inline_local_assets(wrap_fragment_as_document(footer_frag, styles)) if footer_frag else None
 		)
 		body_pdf = client.html_to_pdf(
-			index_html, header_html=header_doc, footer_html=footer_doc, options=body_page_options()
+			index_html, header_html=header_doc, footer_html=footer_doc, options=body_page_options(body_html)
 		)
 	finally:
 		doc.proposal_render_part = None
