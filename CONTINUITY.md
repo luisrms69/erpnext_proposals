@@ -36,10 +36,10 @@ Suite completa verde (357 OK); caps_version=10 y renderer_profile=True.
 - **v0.11.1 implementado** (commit en esta rama): fix del loader + caps v10 + 2 tests. Suite 357 OK.
 
 ### En progreso
-- `/ship` de `fix/loader-renderer-profile` (commit hecho; falta push + PR).
+- **PR abierto** contra `version-16` (rama `fix/loader-renderer-profile`, v0.11.1).
 
 ### Pendiente inmediato
-1. `/ship push` + `/ship pr` de v0.11.1 (base `version-16`). Tras merge: `/sync-check` → `/ship release`.
+1. Revisión/CI del PR → merge por el usuario → `/sync-check` → `/ship release` (tag + Release v0.11.1).
 2. **Pack 1.7.0**: PF `…v3` (`gotenberg-v1`), `print_format_versions` (current=v3, supersedes=v2,
    disable + repunte de template), bump 1.6.1→1.7.0, sellar `releases/1.7.0/`. Validar visualmente local.
 
