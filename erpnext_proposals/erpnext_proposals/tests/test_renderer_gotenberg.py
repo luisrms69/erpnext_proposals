@@ -251,6 +251,170 @@ class TestGotenbergOrchestration(unittest.TestCase):
 		self.assertEqual(client.html_to_pdf.call_count, 1)
 
 
+class TestNormalizeHtmlForPdf(unittest.TestCase):
+	"""v0.11.2 FIX 1: normalización del HTML para PDF (equivalente mínimo a toggle_visible_pdf)."""
+
+	def test_print_hide_removed(self):
+		html = '<html><body><div class="action-banner print-hide">Imprimir · Obtener PDF</div><p>ok</p></body></html>'
+		out = rnd.normalize_html_for_pdf(html)
+		self.assertNotIn("print-hide", out)
+		self.assertNotIn("Obtener PDF", out)
+		self.assertIn("ok", out)
+
+	def test_hidden_pdf_removed(self):
+		html = '<html><body><div class="hidden-pdf">secreto</div><p>ok</p></body></html>'
+		out = rnd.normalize_html_for_pdf(html)
+		self.assertNotIn("hidden-pdf", out)
+		self.assertNotIn("secreto", out)
+		self.assertIn("ok", out)
+
+	def test_visible_pdf_stays_visible(self):
+		html = '<html><body><div class="visible-pdf">mostrar</div></body></html>'
+		out = rnd.normalize_html_for_pdf(html)
+		self.assertNotIn("visible-pdf", out)  # la clase que lo ocultaba se quita
+		self.assertIn("mostrar", out)  # el contenido permanece
+
+
+class TestCoverStripsHeaderFooter(unittest.TestCase):
+	"""v0.11.2 FIX 2 (+ FIX 1 en cover/body): la portada no lleva header/footer inline ni toolbar;
+	el cuerpo sigue extrayendo y enviando header/footer por separado."""
+
+	def _doc(self):
+		doc = MagicMock()
+		doc.doctype = "Quotation"
+		doc.name = "QTN-1"
+		return doc
+
+	def _run_capture(self):
+		client = MagicMock()
+		client.html_to_pdf.side_effect = [b"COVER", b"BODY"]
+		client.merge.return_value = b"FINAL"
+		cover = (
+			"<html><body>"
+			'<div class="action-banner print-hide">Imprimir Obtener PDF</div>'
+			'<div id="footer-html" class="visible-pdf"><img src="/files/bar.png">PIE</div>'
+			'<div class="portada">PORTADA</div>'
+			"</body></html>"
+		)
+		body = (
+			"<html><body>"
+			'<div class="action-banner print-hide">Imprimir Obtener PDF</div>'
+			'<div id="header-html" class="hidden-pdf">LOGO</div>'
+			'<div class="print-format">CUERPO</div>'
+			'<div id="footer-html" class="visible-pdf">PIE</div>'
+			"</body></html>"
+		)
+		with (
+			patch.object(rnd, "GotenbergClient", return_value=client),
+			patch(
+				"erpnext_proposals.erpnext_proposals.utils.print_format._uses_separate_cover",
+				return_value=True,
+			),
+			patch("frappe.get_print", side_effect=[cover, body]),
+		):
+			out = rnd.render_proposal_pdf_gotenberg(self._doc(), "PF")
+		self.assertEqual(out, b"FINAL")
+		return client.html_to_pdf.call_args_list
+
+	def test_cover_removes_header_and_footer_html(self):
+		cover_html = self._run_capture()[0].args[0]
+		self.assertNotIn("header-html", cover_html)  # FIX 2
+		self.assertNotIn("footer-html", cover_html)  # FIX 2
+		self.assertNotIn("print-hide", cover_html)  # FIX 1
+		self.assertNotIn("Obtener PDF", cover_html)
+		self.assertIn("PORTADA", cover_html)
+
+	def test_cover_sends_footer_but_not_header(self):
+		cover_call = self._run_capture()[0]
+		# la portada NO lleva header interior, pero SÍ el footer (queda al pie de la portada)
+		self.assertIsNone(cover_call.kwargs.get("header_html"))
+		self.assertIsNotNone(cover_call.kwargs.get("footer_html"))
+		self.assertIn("PIE", cover_call.kwargs["footer_html"])
+
+	def test_body_still_extracts_and_sends_header_footer(self):
+		body_call = self._run_capture()[1]
+		index = body_call.args[0]
+		self.assertNotIn("print-hide", index)  # FIX 1: sin toolbar
+		self.assertNotIn("Obtener PDF", index)
+		self.assertIn("CUERPO", index)
+		# header/footer se envían por separado
+		self.assertIn("LOGO", body_call.kwargs["header_html"])
+		self.assertIn("PIE", body_call.kwargs["footer_html"])
+
+
+class TestPrintFormatMargins(unittest.TestCase):
+	"""v0.11.2: el camino Gotenberg respeta los márgenes del Print Format (no hardcodea el profile)."""
+
+	IN27 = 27 / 25.4
+	IN28 = 28 / 25.4
+	IN43 = 43 / 25.4
+
+	def test_length_to_inches(self):
+		self.assertAlmostEqual(rnd._length_to_inches("27mm"), self.IN27, places=4)
+		self.assertAlmostEqual(rnd._length_to_inches("0mm"), 0.0, places=6)
+		self.assertAlmostEqual(rnd._length_to_inches("1in"), 1.0, places=6)
+		self.assertAlmostEqual(rnd._length_to_inches("72pt"), 1.0, places=4)
+		self.assertAlmostEqual(rnd._length_to_inches("48"), 48 / 25.4, places=4)  # sin unidad → mm
+		self.assertIsNone(rnd._length_to_inches("auto"))
+
+	def test_read_print_format_margins_converts_to_inches(self):
+		html = (
+			"<style>.print-format { page-size: Letter; margin-top: 27mm; margin-bottom: 28mm; "
+			"margin-left: 0mm; margin-right: 0mm; }</style>"
+		)
+		m = rnd.read_print_format_margins(html)
+		self.assertAlmostEqual(m["marginTop"], self.IN27, places=4)
+		self.assertAlmostEqual(m["marginBottom"], self.IN28, places=4)
+		self.assertEqual(m["marginLeft"], 0.0)
+		self.assertEqual(m["marginRight"], 0.0)
+
+	def test_body_page_options_respects_pf_bottom(self):
+		html = "<style>.print-format { margin-top: 27mm; margin-bottom: 28mm; }</style>"
+		opts = rnd.body_page_options(html)
+		self.assertEqual(opts["paperWidth"], 8.5)  # base preservada
+		self.assertAlmostEqual(opts["marginBottom"], self.IN28, places=4)  # reserva del footer del PF
+		self.assertAlmostEqual(opts["marginTop"], self.IN27, places=4)
+
+	def test_cover_page_options_full_bleed_reserva_bottom(self):
+		html = "<style>.print-format { margin-top: 0mm; margin-bottom: 43mm; margin-left: 0mm; margin-right: 0mm; }</style>"
+		opts = rnd.cover_page_options(html)
+		self.assertEqual(opts["marginTop"], 0)  # full-bleed
+		self.assertEqual(opts["marginLeft"], 0)
+		self.assertEqual(opts["marginRight"], 0)
+		self.assertAlmostEqual(opts["marginBottom"], self.IN43, places=4)  # reserva del footer de portada
+		self.assertEqual(opts["nativePageRanges"], "1")
+
+	def test_render_passes_pf_margins_to_gotenberg(self):
+		"""Render real (cliente mockeado): body usa margin-bottom del PF; cover full-bleed + bottom."""
+		doc = MagicMock()
+		doc.doctype = "Quotation"
+		doc.name = "QTN-1"
+		client = MagicMock()
+		client.html_to_pdf.side_effect = [b"COVER", b"BODY"]
+		client.merge.return_value = b"FINAL"
+		cover = "<html><head><style>.print-format{margin-top:0mm;margin-bottom:43mm;margin-left:0mm;margin-right:0mm;}</style></head><body><div id='footer-html'>PIE</div><div class='portada'>P</div></body></html>"
+		body = "<html><head><style>.print-format{margin-top:27mm;margin-bottom:28mm;margin-left:0mm;margin-right:0mm;}</style></head><body><div id='header-html'>LOGO</div><div class='print-format'>C</div><div id='footer-html'>PIE</div></body></html>"
+		with (
+			patch.object(rnd, "GotenbergClient", return_value=client),
+			patch(
+				"erpnext_proposals.erpnext_proposals.utils.print_format._uses_separate_cover",
+				return_value=True,
+			),
+			patch("frappe.get_print", side_effect=[cover, body]),
+		):
+			rnd.render_proposal_pdf_gotenberg(doc, "PF")
+		cover_opts = client.html_to_pdf.call_args_list[0].kwargs["options"]
+		body_opts = client.html_to_pdf.call_args_list[1].kwargs["options"]
+		# cover: full-bleed arriba/lados, reserva inferior contractual (43mm)
+		self.assertEqual(
+			(cover_opts["marginTop"], cover_opts["marginLeft"], cover_opts["marginRight"]), (0, 0, 0)
+		)
+		self.assertAlmostEqual(cover_opts["marginBottom"], self.IN43, places=4)
+		# body: margin-bottom del PF (28mm) → el footer no se superpone
+		self.assertAlmostEqual(body_opts["marginBottom"], self.IN28, places=4)
+		self.assertAlmostEqual(body_opts["marginTop"], self.IN27, places=4)
+
+
 class TestRendererProfileFieldIsTechnical(unittest.TestCase):
 	"""Nivel fixture (sin BD): el Custom Field es metadata TÉCNICA, no un control de usuario.
 
