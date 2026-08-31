@@ -39,7 +39,8 @@ sin volver a resolver. Una **nueva versión** hereda ese formato como override e
 | `assert_assignable_print_format(doc, fieldname)` | validación **change-aware** de servidor compartida (Quotation `proposal_print_format` + Proposal Template `print_format`): bloquea ADOPTAR un formato no elegible; no re-valida referencias no modificadas (protege históricos) |
 | `get_proposal_print_formats(...)` | whitelisted; **query central** del campo Link (elegibilidad única: `doc_type=Quotation`, `disabled=0`) |
 | `get_print_format_status(name)` | whitelisted; estado (`ok`/`missing`/`disabled`/`wrong_doctype`) para el warning de referencia obsoleta |
-| `get_effective_commercial_print_format(quotation)` | whitelisted; lo usa el botón *Imprimir Propuesta Comercial* (JS) |
+| `get_effective_commercial_print_format(quotation)` | whitelisted; **helper de UI** (valida permiso de lectura y devuelve el formato efectivo). **No** genera ni abre el PDF: solo alimenta el indicador *"Formato efectivo actual"* del campo en el formulario |
+| `download_commercial_pdf(quotation)` | whitelisted; lo usa el botón *Imprimir Propuesta Comercial* (JS). Valida permiso de lectura, resuelve el Print Format efectivo **en servidor** (`resolve_commercial_print_format`) y genera los bytes **exclusivamente** con `render_proposal_pdf()` — respetando el renderer profile (`gotenberg-v1` o `legacy`, ver **ADR-0015**). Devuelve el PDF como **descarga** (`application/pdf`). El botón ya **no** abre `/printview`, por lo que el renderer configurado siempre se aplica |
 
 El mismo resolver se usa en el snapshot de impresión y al adjuntar el PDF comercial, de modo que
 todos los caminos de impresión coinciden en el formato efectivo.

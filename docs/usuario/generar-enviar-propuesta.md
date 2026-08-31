@@ -31,7 +31,9 @@ El módulo incluye dos documentos PDF para la Cotización:
 ### Qué formato de propuesta se usa
 
 El módulo agrega el botón **Propuesta → Imprimir Propuesta Comercial**, que elige **automáticamente**
-el formato que corresponde a la propuesta, según esta precedencia:
+el formato que corresponde a la propuesta y **descarga el PDF directamente** (ya no abre la vista previa
+de impresión en una pestaña). El PDF lo genera el renderer configurado para ese formato, según esta
+precedencia:
 
 1. **Override de la propuesta** — campo **Proposal Print Format** (pestaña Propuesta), editable en
    Borrador. Si tiene valor, ese formato manda.
@@ -43,8 +45,9 @@ usará. Al pasar la propuesta a **En Revisión**, el formato efectivo **se conge
 emitida no cambia de formato aunque después cambien los defaults. Una **nueva versión** hereda ese
 formato como override editable.
 
-> El botón **Imprimir** genérico de la barra superior te deja elegir cualquier formato manualmente;
-> el botón **Imprimir Propuesta Comercial** aplica la resolución automática descrita arriba.
+> El botón **Imprimir** genérico de la barra superior te deja elegir cualquier formato manualmente y
+> abre la vista previa en pantalla; el botón **Imprimir Propuesta Comercial** aplica la resolución
+> automática descrita arriba y **descarga** el PDF ya generado por el renderer configurado.
 
 ### Sincronización con el catálogo al generar el PDF (en Borrador)
 
