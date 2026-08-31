@@ -231,20 +231,16 @@ frappe.ui.form.on("Quotation", {
 						frm.add_custom_button(
 							__("Imprimir Propuesta Comercial"),
 							() =>
-								// En Borrador: aviso + resync antes de abrir el PDF (cada preview refleja el catálogo vigente).
+								// En Borrador: aviso + resync antes de descargar (cada preview refleja el catálogo vigente).
+								// El PDF SIEMPRE se genera server-side por render_proposal_pdf(): el endpoint resuelve el
+								// Print Format efectivo y respeta el renderer profile (Gotenberg o legacy, ADR-0015). NO se
+								// abre /printview — eso saltaba el renderer. open_url_post hace POST con CSRF y el endpoint
+								// responde type="download": el navegador descarga el PDF.
 								generate_pdf_with_resync(frm, () => {
-									frappe
-										.call({
-											method: "erpnext_proposals.erpnext_proposals.utils.print_format.get_effective_commercial_print_format",
-											args: { quotation: frm.doc.name },
-										})
-										.then((r2) => {
-											const fmt = r2.message || "Propuesta Comercial";
-											const url = `/printview?doctype=Quotation&name=${encodeURIComponent(
-												frm.doc.name
-											)}&format=${encodeURIComponent(fmt)}&no_letterhead=0`;
-											window.open(url, "_blank");
-										});
+									open_url_post(
+										"/api/method/erpnext_proposals.erpnext_proposals.utils.print_format.download_commercial_pdf",
+										{ quotation: frm.doc.name }
+									);
 								}),
 							__("Propuesta")
 						);

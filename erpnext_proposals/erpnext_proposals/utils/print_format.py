@@ -237,3 +237,26 @@ def get_effective_commercial_print_format(quotation: str) -> str:
 	doc = frappe.get_doc("Quotation", quotation)
 	doc.check_permission("read")
 	return resolve_commercial_print_format(doc)
+
+
+@frappe.whitelist()
+def download_commercial_pdf(quotation: str) -> None:
+	"""Descarga el PDF comercial de una Quotation SIEMPRE por la cadena oficial de render.
+
+	Resuelve el Print Format efectivo con ``resolve_commercial_print_format`` (congelada → el congelado;
+	Borrador → resolución dinámica) y genera los bytes EXCLUSIVAMENTE con ``render_proposal_pdf`` — la
+	única puerta al renderer, que a su vez despacha a Gotenberg o al camino legacy wkhtmltopdf según el
+	renderer profile del Print Format (ADR-0015). NO construye ``/printview`` ni llama al motor directo,
+	de modo que el renderer profile SIEMPRE se respeta (el botón de UI antes abría printview y saltaba
+	este dispatch). Es preview/descarga: NO adjunta el PDF como documento oficial (flujo independiente).
+	"""
+	doc = frappe.get_doc("Quotation", quotation)
+	doc.check_permission("read")
+
+	print_format = resolve_commercial_print_format(doc)
+	pdf_bytes = render_proposal_pdf(doc, print_format)
+
+	frappe.local.response.filename = f"{doc.name}.pdf"
+	frappe.local.response.filecontent = pdf_bytes
+	frappe.local.response.content_type = "application/pdf"
+	frappe.local.response.type = "download"
