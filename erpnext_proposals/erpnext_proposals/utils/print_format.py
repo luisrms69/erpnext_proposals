@@ -240,15 +240,19 @@ def get_effective_commercial_print_format(quotation: str) -> str:
 
 
 @frappe.whitelist()
-def download_commercial_pdf(quotation: str) -> None:
-	"""Descarga el PDF comercial de una Quotation SIEMPRE por la cadena oficial de render.
+def download_commercial_draft_pdf(quotation: str) -> None:
+	"""Descarga un PDF **BORRADOR** (no oficial) de la Propuesta Comercial, para revisión externa
+	mientras la Quotation sigue editable.
 
-	Resuelve el Print Format efectivo con ``resolve_commercial_print_format`` (congelada → el congelado;
-	Borrador → resolución dinámica) y genera los bytes EXCLUSIVAMENTE con ``render_proposal_pdf`` — la
-	única puerta al renderer, que a su vez despacha a Gotenberg o al camino legacy wkhtmltopdf según el
-	renderer profile del Print Format (ADR-0015). NO construye ``/printview`` ni llama al motor directo,
-	de modo que el renderer profile SIEMPRE se respeta (el botón de UI antes abría printview y saltaba
-	este dispatch). Es preview/descarga: NO adjunta el PDF como documento oficial (flujo independiente).
+	Resuelve el Print Format efectivo con ``resolve_commercial_print_format`` y genera los bytes
+	EXCLUSIVAMENTE con ``render_proposal_pdf`` — única puerta al renderer, que despacha a Gotenberg o al
+	camino legacy wkhtmltopdf según el renderer profile del Print Format (ADR-0015).
+
+	Es solo una descarga de conveniencia: **NO** adjunta el PDF ni crea File oficial, **NO** congela
+	(``proposal_effective_print_format``/secciones/tarifas/snapshot), **NO** cambia ``workflow_state``,
+	**NO** hace submit y **NO** invoca ``attach_proposal_pdfs``. El documento formal se genera aparte al
+	pasar a *En Revisión* (flujo intacto). El ``filename`` lleva el prefijo ``BORRADOR`` para que nunca se
+	confunda con el documento oficial.
 	"""
 	doc = frappe.get_doc("Quotation", quotation)
 	doc.check_permission("read")
@@ -256,7 +260,7 @@ def download_commercial_pdf(quotation: str) -> None:
 	print_format = resolve_commercial_print_format(doc)
 	pdf_bytes = render_proposal_pdf(doc, print_format)
 
-	frappe.local.response.filename = f"{doc.name}.pdf"
+	frappe.local.response.filename = f"BORRADOR - Propuesta Comercial - {doc.name}.pdf"
 	frappe.local.response.filecontent = pdf_bytes
 	frappe.local.response.content_type = "application/pdf"
 	frappe.local.response.type = "download"
