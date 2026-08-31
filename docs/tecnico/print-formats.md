@@ -39,11 +39,21 @@ sin volver a resolver. Una **nueva versión** hereda ese formato como override e
 | `assert_assignable_print_format(doc, fieldname)` | validación **change-aware** de servidor compartida (Quotation `proposal_print_format` + Proposal Template `print_format`): bloquea ADOPTAR un formato no elegible; no re-valida referencias no modificadas (protege históricos) |
 | `get_proposal_print_formats(...)` | whitelisted; **query central** del campo Link (elegibilidad única: `doc_type=Quotation`, `disabled=0`) |
 | `get_print_format_status(name)` | whitelisted; estado (`ok`/`missing`/`disabled`/`wrong_doctype`) para el warning de referencia obsoleta |
-| `get_effective_commercial_print_format(quotation)` | whitelisted; **helper de UI** (valida permiso de lectura y devuelve el formato efectivo). **No** genera ni abre el PDF: solo alimenta el indicador *"Formato efectivo actual"* del campo en el formulario |
-| `download_commercial_pdf(quotation)` | whitelisted; lo usa el botón *Imprimir Propuesta Comercial* (JS). Valida permiso de lectura, resuelve el Print Format efectivo **en servidor** (`resolve_commercial_print_format`) y genera los bytes **exclusivamente** con `render_proposal_pdf()` — respetando el renderer profile (`gotenberg-v1` o `legacy`, ver **ADR-0015**). Devuelve el PDF como **descarga** (`application/pdf`). El botón ya **no** abre `/printview`, por lo que el renderer configurado siempre se aplica |
+| `get_effective_commercial_print_format(quotation)` | whitelisted; valida permiso de lectura y devuelve el Print Format comercial **efectivo**. Lo usa el botón *Imprimir Propuesta Comercial* (JS): con el nombre devuelto abre la **vista preliminar** `/printview` (revisión HTML). No genera ni descarga PDF |
+| `download_commercial_draft_pdf(quotation)` | whitelisted; lo usa el botón *Descargar PDF Borrador* (JS, solo en Borrador). Valida permiso de lectura, resuelve el Print Format efectivo **en servidor** (`resolve_commercial_print_format`) y genera los bytes **exclusivamente** con `render_proposal_pdf()` — respetando el renderer profile (`gotenberg-v1` o `legacy`, ver **ADR-0015**). Descarga un PDF **BORRADOR** (`filename` con prefijo `BORRADOR`); **no** adjunta, **no** congela, **no** cambia estado ni invoca el flujo formal |
 
-El mismo resolver se usa en el snapshot de impresión y al adjuntar el PDF comercial, de modo que
-todos los caminos de impresión coinciden en el formato efectivo.
+El mismo resolver se usa en el snapshot de impresión, en el PDF borrador y al adjuntar el PDF comercial,
+de modo que todos los caminos de impresión coinciden en el formato efectivo.
+
+**Tres caminos separados** (no confundir):
+
+1. **Preview HTML (Borrador)** — botón *Imprimir Propuesta Comercial* → `get_effective_commercial_print_format`
+   → `/printview` → `window.open`. Revisión visual en HTML; no descarga PDF.
+2. **PDF Borrador (Borrador)** — botón *Descargar PDF Borrador* → `download_commercial_draft_pdf` →
+   `render_proposal_pdf`. Descarga no oficial con nombre `BORRADOR`; no adjunta ni congela.
+3. **Documento formal (Borrador → En Revisión)** — flujo automático, independiente:
+   `attach_proposal_pdfs(doc)` → `_attach_pdf(...)` → `render_proposal_pdf(doc, print_format)` → renderer
+   profile → PDF privado adjunto a la Quotation.
 
 ### Logo del PDF
 

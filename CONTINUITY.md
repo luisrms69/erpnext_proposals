@@ -1,92 +1,77 @@
 # CONTINUITY.md — erpnext_proposals
 
-**Fecha:** 2026-08-30
-**Rama activa:** `fix/commercial-pdf-uses-renderer` (base `upstream/version-16` = **v0.11.2**)
-**Tarea actual:** Cerrar el fix público **v0.11.3** — el botón *Imprimir Propuesta Comercial* deja de abrir `/printview` y descarga el PDF por el flujo oficial del renderer. Commit ✓ + push ✓; PR en creación.
+**Fecha:** 2026-08-31
+**Rama activa:** `fix/restore-commercial-preview-printview` (base `upstream/version-16` = **v0.11.3**)
+**Tarea actual:** Preparar **v0.12.0** = **v0.11.2 + un botón nuevo de PDF Borrador**. Corrige la regresión
+que introdujo v0.11.3 en el botón *Imprimir Propuesta Comercial*. Sin commit/push/PR aún.
 
 ---
 
 ## Recuperación rápida
 
 Estoy trabajando en:
-El defecto por el que el botón *Imprimir Propuesta Comercial* abría `/printview` (`window.open`) y
-**saltaba** `render_proposal_pdf()` — y por tanto el renderer profile (`gotenberg-v1`/`legacy`,
-ADR-0015). En `SAL-QTN-2026-00013` el PF efectivo resolvía `gotenberg-v1`, pero el botón nunca lo usaba.
+v0.11.3 (PR #51) cambió **incorrectamente** el botón *Imprimir Propuesta Comercial*: pasó de abrir el
+preview HTML (`/printview`) a descargar un PDF directo, eliminando la revisión preliminar en HTML que el
+cliente necesita en Borrador. v0.12.0 restaura ese preview **y** añade, por separado, un botón para
+descargar un PDF claramente marcado como **BORRADOR** mientras la propuesta sigue editable.
 
 Plan que estoy siguiendo:
-Flujo `/ship` de v0.11.3: commit ✓ → push ✓ → **pr** (base `version-16`). Tras merge (lo hace el
-usuario): `/sync-check` → `/ship release`. Después: **actualizar staging** para la prueba **E2E real
-desde el botón**.
+Corrección **manual** archivo por archivo (sin `git revert/reset/restore/checkout`). Referencia funcional
+= **v0.11.2** (commit `732fa9d`). Entregar auditoría v0.11.2 vs v0.12.0 (categoría D = 0) → autorización
+→ `/ship commit` → push → PR → release.
 
 Objetivo inmediato:
-Crear el PR hacia `version-16`. No abrir otros frentes hasta el merge.
+Entregar el paquete de auditoría y esperar autorización. NO commit/push/PR/deploy.
 
 Criterio de avance:
-Tests A–H verdes (8/8) + suites relacionadas (renderer 35, resolution 11, selector 10, protection 10);
-`mkdocs build --strict` limpio; linters OK.
+Tests nuevos verdes + suites relacionadas; `mkdocs --strict` limpio; linters OK; y la auditoría demuestra
+que **lo único nuevo** frente a v0.11.2 es el PDF Borrador.
 
 ---
 
-## Estado actual
+## Los tres flujos (deben quedar separados)
 
-### Ya cerrado
-- **v0.11.0** (ADR-0015): renderer PDF desacoplado. **v0.11.1**: loader siembra `proposal_renderer_profile`.
-  **v0.11.2**: renderer Gotenberg respeta print-media y márgenes del Print Format. Todos released.
-
-### En progreso (este PR — v0.11.3)
-- **Endpoint whitelisted** `download_commercial_pdf(quotation)` en `utils/print_format.py`: valida
-  permiso de lectura → `resolve_commercial_print_format(doc)` → `render_proposal_pdf(doc, pf)` → devuelve
-  descarga (`type="download"`, `application/pdf`). No adjunta como documento oficial.
-- **`quotation.js`**: el botón comercial usa `open_url_post` al endpoint (POST + CSRF); ya **no** arma
-  `/printview` ni `window.open`. Se conserva `generate_pdf_with_resync` (resync en Borrador).
-  **Rentabilidad Estimada sin cambios.**
-- **Docs**: `tecnico/print-formats.md`, `referencia/api.md`, `usuario/generar-enviar-propuesta.md`.
-- **Bump** `0.11.2 → 0.11.3` (PATCH).
-
-### Pendiente inmediato
-1. `/ship pr` (base `version-16`) → merge por el usuario → `/sync-check` → `/ship release` (tag +
-   GitHub Release `v0.11.3`).
-2. **Actualizar staging** (`erpstagingacti.buzola.mx`, bench `/home/erpnext/frappe-bench`) y correr la
-   **prueba E2E real desde el botón** (Gotenberg ya desplegado en el host).
-
-### No repetir
-- El botón comercial **debe** pasar siempre por `render_proposal_pdf()`; nunca `/printview` para el PDF comercial.
-- No cambiar `renderer.py`, `gotenberg.py`, el Print Format ni el pack privado en este frente.
-- El pack Actiglobal es **file-based** (NO Git / NO `/ship`).
-- Claude **no** corre en staging: el usuario ejecuta y pega salida.
+1. **Preview HTML (Borrador)** — botón *Imprimir Propuesta Comercial*:
+   `generate_pdf_with_resync` → `get_effective_commercial_print_format` → `/printview` → `window.open`.
+   **Recupera el comportamiento de v0.11.2.** No descarga PDF.
+2. **PDF Borrador (Borrador)** — botón NUEVO *Descargar PDF Borrador* (solo `workflow_state === "Borrador"`,
+   `docstatus === 0`): `generate_pdf_with_resync` → endpoint `download_commercial_draft_pdf` →
+   `resolve_commercial_print_format` → `render_proposal_pdf` (respeta gotenberg-v1/legacy). Descarga
+   `BORRADOR - Propuesta Comercial - <Quotation>.pdf`. **No** adjunta, **no** congela, **no** cambia estado,
+   **no** invoca `attach_proposal_pdfs`.
+3. **Documento formal (Borrador → En Revisión)** — flujo AUTOMÁTICO **intacto** (v0.11.2):
+   `attach_proposal_pdfs(doc)` → `_attach_pdf(...)` → `render_proposal_pdf(doc, print_format)` → renderer
+   profile → PDF privado adjunto. **NO se toca** `workflow_validations.py`, `quotation.py`, `renderer.py`,
+   `gotenberg.py`, `official_document_protection.py`, `hooks.py`, Print Formats ni pack privado.
 
 ---
 
-## Decisiones vigentes (v0.11.3)
-- **Resolución del PF en servidor**, dentro del endpoint: congelada → `proposal_effective_print_format`;
-  Borrador → override → Template → default. Evita divergencia cliente/servidor.
-- **`render_proposal_pdf()` es la única puerta** al motor: el endpoint no llama a `GotenbergClient` ni
-  duplica lógica; el dispatch `gotenberg-v1`/`legacy` (ADR-0015) se aplica solo.
-- **Preview/descarga, no oficial**: este botón no adjunta el PDF; el flujo de congelado/adjunto
-  (`quotation.py::_attach_pdf`) ya usaba `render_proposal_pdf()` y no se tocó.
-- **Entrega por descarga** (`open_url_post` + `type="download"`): reemplaza la apertura de pestaña printview.
+## Cambios de v0.12.0 (respecto a v0.11.2)
+
+- `public/js/quotation.js` — botón comercial = v0.11.2; **+ botón nuevo** *Descargar PDF Borrador* (Borrador).
+- `utils/print_format.py` — **+ endpoint** `download_commercial_draft_pdf` (renombrado desde el
+  `download_commercial_pdf` de v0.11.3, ahora con semántica y filename de BORRADOR).
+- `tests/test_commercial_draft_pdf.py` — cobertura del endpoint borrador + verificación por fuente del JS
+  (preview HTML preservado, botón borrador solo en Borrador, sin nombre viejo `download_commercial_pdf`).
+- `docs/referencia/api.md`, `docs/tecnico/print-formats.md`, `docs/usuario/generar-enviar-propuesta.md` —
+  documentan los tres flujos; se elimina toda afirmación de v0.11.3 de que el botón comercial descarga PDF.
+- `erpnext_proposals/__init__.py` — `0.11.3 → 0.12.0`.
+
+> El nombre `download_commercial_pdf` de v0.11.3 **desaparece por completo** (código, JS, tests, docs).
+> La afirmación de v0.11.3 *"el botón comercial nunca debe abrir /printview"* era **incorrecta** y se retira.
 
 ---
 
-## Archivos relevantes ahora
+## Estado / pendientes
 
-### Leer primero
-- `erpnext_proposals/erpnext_proposals/utils/print_format.py` — `download_commercial_pdf`,
-  `resolve_commercial_print_format`, `render_proposal_pdf`.
-- `erpnext_proposals/public/js/quotation.js` — botón *Imprimir Propuesta Comercial* (bloque `st.commercial`).
-- `erpnext_proposals/erpnext_proposals/tests/test_commercial_pdf_download.py` — tests A–H.
-
-### No tocar
-- `renderer.py`, `gotenberg.py`, Print Format, pack privado, infra/site config. `one_offs/` (ignorado).
+- **Staging** sigue en **v0.11.2**; el usuario ya verificó que el **PDF formal** de v0.11.2 funciona.
+- Pendiente tras liberar v0.12.0: actualizar staging **una sola vez** y validar los tres flujos
+  (preview HTML, PDF Borrador, documento formal) end-to-end con Gotenberg real.
+- Claude **no** ejecuta en staging: el usuario corre y pega salida.
 
 ---
 
-## Riesgos / cuidados
-- La prueba E2E definitiva es en **staging** con Gotenberg real; localmente se validó por unit tests
-  con HTTP mockeado (no se ejercitó Gotenberg real desde el botón).
-- Tras el merge, el release **no** está cerrado hasta tag + GitHub Release `v0.11.3` alineados.
-
----
-
-## Información faltante
-- Ninguna para crear el PR de v0.11.3.
+## No repetir
+- El botón *Imprimir Propuesta Comercial* **debe** abrir `/printview` (preview HTML) — no descargar PDF.
+- El PDF Borrador **nunca** debe confundirse con el oficial (prefijo `BORRADOR`, sin adjuntar).
+- No tocar el flujo formal de *En Revisión*, ni Frappe/ERPNext core, ni interceptar `download_pdf` nativo.

@@ -231,16 +231,20 @@ frappe.ui.form.on("Quotation", {
 						frm.add_custom_button(
 							__("Imprimir Propuesta Comercial"),
 							() =>
-								// En Borrador: aviso + resync antes de descargar (cada preview refleja el catálogo vigente).
-								// El PDF SIEMPRE se genera server-side por render_proposal_pdf(): el endpoint resuelve el
-								// Print Format efectivo y respeta el renderer profile (Gotenberg o legacy, ADR-0015). NO se
-								// abre /printview — eso saltaba el renderer. open_url_post hace POST con CSRF y el endpoint
-								// responde type="download": el navegador descarga el PDF.
+								// En Borrador: aviso + resync antes de abrir el PDF (cada preview refleja el catálogo vigente).
 								generate_pdf_with_resync(frm, () => {
-									open_url_post(
-										"/api/method/erpnext_proposals.erpnext_proposals.utils.print_format.download_commercial_pdf",
-										{ quotation: frm.doc.name }
-									);
+									frappe
+										.call({
+											method: "erpnext_proposals.erpnext_proposals.utils.print_format.get_effective_commercial_print_format",
+											args: { quotation: frm.doc.name },
+										})
+										.then((r2) => {
+											const fmt = r2.message || "Propuesta Comercial";
+											const url = `/printview?doctype=Quotation&name=${encodeURIComponent(
+												frm.doc.name
+											)}&format=${encodeURIComponent(fmt)}&no_letterhead=0`;
+											window.open(url, "_blank");
+										});
 								}),
 							__("Propuesta")
 						);
@@ -261,6 +265,25 @@ frappe.ui.form.on("Quotation", {
 					}
 				},
 			});
+
+			// Solo en Borrador: descargar un PDF de BORRADOR (no oficial) para revisión externa. Genera con
+			// el renderer configurado en servidor (render_proposal_pdf, ADR-0015) y descarga con un nombre
+			// prefijado "BORRADOR". NO adjunta, NO congela, NO cambia estado ni invoca el flujo formal: el
+			// documento oficial se genera aparte al pasar a En Revisión. El filename lo pone el servidor.
+			if (frm.doc.docstatus === 0 && frm.doc.workflow_state === "Borrador") {
+				frm.add_custom_button(
+					__("Descargar PDF Borrador"),
+					() =>
+						// Aviso + resync antes de generar, para que el borrador refleje el catálogo vigente.
+						generate_pdf_with_resync(frm, () => {
+							open_url_post(
+								"/api/method/erpnext_proposals.erpnext_proposals.utils.print_format.download_commercial_draft_pdf",
+								{ quotation: frm.doc.name }
+							);
+						}),
+					__("Propuesta")
+				);
+			}
 
 			// Mostrar el Print Format comercial efectivo que se usará.
 			frappe

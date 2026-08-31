@@ -17,7 +17,7 @@ Accesibles desde el cliente JS con `frappe.call({method: '...'})` o desde Python
   - [`rebuild_cost_matrix`](#rebuild-cost-matrix)
 - **erpnext_proposals/erpnext_proposals/utils/print_format.py**
   - [`get_effective_commercial_print_format`](#get-effective-commercial-print-format)
-  - [`download_commercial_pdf`](#download-commercial-pdf)
+  - [`download_commercial_draft_pdf`](#download-commercial-draft-pdf)
 - **erpnext_proposals/erpnext_proposals/utils/project.py**
   - [`create_project_from_quotation`](#create-project-from-quotation)
 - **erpnext_proposals/erpnext_proposals/utils/proposal_versioning.py**
@@ -46,22 +46,29 @@ Rebuilds Proposal Cost Matrix from employee cost data.
 
 **Módulo:** `erpnext_proposals.erpnext_proposals.utils.print_format`
 
-Formato comercial efectivo de una Quotation (helper de UI para mostrar el *"Formato efectivo actual"*; no genera el PDF).
+Resuelve y devuelve el Print Format comercial **efectivo** de una Quotation (congelada → el congelado;
+Borrador → resolución dinámica). Valida permiso de lectura. Lo usa el botón *Imprimir Propuesta
+Comercial* (JS): con el nombre devuelto abre la **vista preliminar** `/printview` (revisión HTML). No
+genera ni descarga un PDF.
 
 
-### `download_commercial_pdf(quotation)`
+### `download_commercial_draft_pdf(quotation)`
 
 **Módulo:** `erpnext_proposals.erpnext_proposals.utils.print_format`
 
-Descarga el PDF comercial de una Quotation. Lo invoca el botón *Imprimir Propuesta Comercial* (JS).
+Descarga un PDF **BORRADOR** (no oficial) de la Propuesta Comercial, para revisión externa mientras la
+Quotation sigue en Borrador. Lo invoca el botón *Descargar PDF Borrador* (JS), disponible solo en Borrador.
 
 - **Argumento:** `quotation` — nombre de la Quotation.
 - **Permiso requerido:** lectura (`read`) sobre la Quotation.
 - **Comportamiento:** resuelve el Print Format efectivo en servidor (`resolve_commercial_print_format`)
   y genera los bytes **exclusivamente** con `render_proposal_pdf()`, respetando el renderer profile
-  (`gotenberg-v1` o `legacy`, ver **ADR-0015**). No construye `/printview` ni llama al motor directo.
+  (`gotenberg-v1` o `legacy`, ver **ADR-0015**). **No** adjunta el PDF ni crea File, **no** congela,
+  **no** cambia `workflow_state`, **no** hace submit y **no** invoca `attach_proposal_pdfs` (el documento
+  formal se genera aparte al pasar a *En Revisión*).
 - **Respuesta:** descarga del archivo (`type="download"`, `content_type="application/pdf"`,
-  `filename="<Quotation>.pdf"`). Es preview/descarga: **no** adjunta el PDF como documento oficial.
+  `filename="BORRADOR - Propuesta Comercial - <Quotation>.pdf"`) — el prefijo `BORRADOR` lo distingue del
+  documento oficial.
 
 
 ## `erpnext_proposals/erpnext_proposals/utils/project.py`

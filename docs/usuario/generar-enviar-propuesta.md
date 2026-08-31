@@ -31,8 +31,8 @@ El módulo incluye dos documentos PDF para la Cotización:
 ### Qué formato de propuesta se usa
 
 El módulo agrega el botón **Propuesta → Imprimir Propuesta Comercial**, que elige **automáticamente**
-el formato que corresponde a la propuesta y **descarga el PDF directamente** (ya no abre la vista previa
-de impresión en una pestaña). El PDF lo genera el renderer configurado para ese formato, según esta
+el formato que corresponde a la propuesta y abre la **vista preliminar de impresión** (`/printview`) en
+una pestaña, para revisar la propuesta en **HTML** antes de formalizarla. Elige el formato según esta
 precedencia:
 
 1. **Override de la propuesta** — campo **Proposal Print Format** (pestaña Propuesta), editable en
@@ -47,7 +47,21 @@ formato como override editable.
 
 > El botón **Imprimir** genérico de la barra superior te deja elegir cualquier formato manualmente y
 > abre la vista previa en pantalla; el botón **Imprimir Propuesta Comercial** aplica la resolución
-> automática descrita arriba y **descarga** el PDF ya generado por el renderer configurado.
+> automática descrita arriba y abre esa misma vista preliminar en HTML.
+
+### Descargar un PDF de BORRADOR (solo en Borrador)
+
+Mientras la propuesta está en **Borrador**, además del preview HTML tienes el botón
+**Propuesta → Descargar PDF Borrador**. Este botón **descarga** un PDF de la Propuesta Comercial
+generado por el renderer configurado (el mismo que produce el documento formal), pensado para
+compartir una revisión externa antes de formalizar.
+
+- El archivo se llama **`BORRADOR - Propuesta Comercial - <Cotización>.pdf`**, para que **nunca** se
+  confunda con el documento oficial.
+- Es solo una descarga de conveniencia: **no** se adjunta a la Cotización, **no** congela el formato ni
+  el alcance, y **no** cambia el estado de la propuesta.
+- Solo aparece en **Borrador**. Al pasar a **En Revisión** desaparece: a partir de ahí el sistema genera
+  y adjunta el **documento formal** por separado (ver más abajo).
 
 ### Sincronización con el catálogo al generar el PDF (en Borrador)
 
