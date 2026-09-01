@@ -2,6 +2,23 @@
 
 ## [No liberado]
 
+### Added — SOW como tercer documento oficial (v0.16.0)
+- **`Proposal Template.sow_print_format`** (Link → Print Format, opcional): define el Print Format del
+  **SOW** (Statement of Work) de esa familia de propuesta. Vacío = no se genera SOW.
+- **Resolver genérico** `resolve_sow_print_format` + `get_effective_sow_print_format` (whitelisted): el
+  SOW es **otra representación del mismo contenido congelado** de la Quotation — mismo `render_proposal_pdf`,
+  mismo snapshot/freeze, misma protección histórica; solo cambia el Print Format.
+- **SOW como tercer documento oficial:** `attach_proposal_pdfs` adjunta, al pasar **Borrador → En Revisión**,
+  propuesta comercial + rentabilidad + **SOW** (privados e inmutables), cuando la plantilla define `sow_print_format`.
+- **Portada separada generalizada:** `_uses_separate_cover` deja de reconocer solo el Print Format comercial;
+  ahora aplica a **cualquier documento oficial designado por la plantilla** (comercial o SOW) cuando el flag
+  existente **`separate_cover_page`** está activo — sin ramas por tipo ni nombres hardcodeados.
+- **Acciones de borrador** (whitelisted): `download_sow_draft_pdf` y `download_rentabilidad_draft_pdf`
+  (espejo de `download_commercial_draft_pdf`).
+- **Botones (grupo Propuesta), nomenclatura inequívoca:** `Vista previa comercial`, `Descargar PDF comercial`,
+  `Vista previa rentabilidad`, `Descargar PDF rentabilidad`, `Vista previa SOW`, `Descargar PDF SOW`.
+- El loader de catálogos carga `sow_print_format` en el Proposal Template.
+
 ### Added — Relación N:M Item ↔ Scope Item (v0.15.0)
 - Relación **N:M** entre `Item` y `Scope Item`: child table `Scope Item.erpnext_items` (DocType
   `Scope Item ERPNext Item`) + resolver central `resolve_scope_items_for_item` que une child y el Link

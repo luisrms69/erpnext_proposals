@@ -41,6 +41,19 @@ def dynamic_commercial_print_format(doc) -> str:
 	return pf or DEFAULT_COMMERCIAL_PRINT_FORMAT
 
 
+def resolve_sow_print_format(doc):
+	"""Print Format del SOW efectivo (o ``None`` si la plantilla no configura uno).
+
+	GENÉRICO: se resuelve desde ``Proposal Template.sow_print_format`` (sin nombres hardcodeados). El
+	SOW es OTRA REPRESENTACIÓN del mismo contenido congelado de la Quotation: usa el mismo renderer y el
+	mismo snapshot; solo cambia el Print Format. Si la plantilla no define SOW, no se genera SOW.
+	"""
+	tmpl = doc.get("proposal_template")
+	if not tmpl:
+		return None
+	return frappe.db.get_value("Proposal Template", tmpl, "sow_print_format") or None
+
+
 def sync_proposal_print_format_from_template(doc) -> None:
 	"""Puebla el override editable `proposal_print_format` con el Print Format configurado en la
 	Proposal Template, de forma GENÉRICA (sin nombres hardcodeados):
@@ -61,15 +74,19 @@ def sync_proposal_print_format_from_template(doc) -> None:
 
 def _uses_separate_cover(doc, print_format: str) -> bool:
 	"""True si el PDF debe generarse con portada separada (2 renders + merge): la Proposal Template
-	del documento tiene ``separate_cover_page`` Y el Print Format solicitado es el comercial efectivo
-	(no la Rentabilidad ni otros). GENÉRICO: depende solo de metadata de la plantilla, sin nombres
-	de documento/cliente/template hardcodeados."""
+	del documento tiene ``separate_cover_page`` Y el Print Format solicitado es uno de los **documentos
+	oficiales de marca que la plantilla designa** (comercial o SOW). GENÉRICO: depende solo de metadata
+	de la plantilla (el mismo flag ``separate_cover_page`` y los Print Formats que la plantilla apunta),
+	sin nombres de documento/cliente/PF hardcodeados ni ramas específicas por tipo. La Rentabilidad
+	Estimada (PF interno fijo, no designado por la plantilla) queda naturalmente excluida."""
 	tmpl_name = doc.get("proposal_template")
 	if not tmpl_name:
 		return False
 	if not int(frappe.db.get_value("Proposal Template", tmpl_name, "separate_cover_page") or 0):
 		return False
-	return print_format == resolve_commercial_print_format(doc)
+	cover_pfs = {resolve_commercial_print_format(doc), resolve_sow_print_format(doc)}
+	cover_pfs.discard(None)
+	return print_format in cover_pfs
 
 
 def render_proposal_pdf(doc, print_format: str) -> bytes:
@@ -261,6 +278,51 @@ def download_commercial_draft_pdf(quotation: str) -> None:
 	pdf_bytes = render_proposal_pdf(doc, print_format)
 
 	frappe.local.response.filename = f"BORRADOR - Propuesta Comercial - {doc.name}.pdf"
+	frappe.local.response.filecontent = pdf_bytes
+	frappe.local.response.content_type = "application/pdf"
+	frappe.local.response.type = "download"
+
+
+@frappe.whitelist()
+def get_effective_sow_print_format(quotation: str):
+	"""Print Format SOW efectivo de una Quotation (o vacío si la plantilla no define SOW). Lo usa el JS
+	para mostrar/ocultar el botón ``Generar SOW``."""
+	doc = frappe.get_doc("Quotation", quotation)
+	doc.check_permission("read")
+	return resolve_sow_print_format(doc) or ""
+
+
+@frappe.whitelist()
+def download_sow_draft_pdf(quotation: str) -> None:
+	"""Descarga un PDF **BORRADOR** del SOW mientras la Quotation sigue editable. Mismo mecanismo que
+	``download_commercial_draft_pdf`` (mismo renderer, mismo contenido), variando SOLO el Print Format
+	(el SOW efectivo de la plantilla). NO adjunta, NO congela, NO cambia estado: el SOW oficial se genera
+	junto a los demás documentos al pasar a *En Revisión*."""
+	doc = frappe.get_doc("Quotation", quotation)
+	doc.check_permission("read")
+
+	print_format = resolve_sow_print_format(doc)
+	if not print_format:
+		frappe.throw(_("La plantilla de esta propuesta no tiene configurado un Print Format de SOW."))
+	pdf_bytes = render_proposal_pdf(doc, print_format)
+
+	frappe.local.response.filename = f"BORRADOR - SOW - {doc.name}.pdf"
+	frappe.local.response.filecontent = pdf_bytes
+	frappe.local.response.content_type = "application/pdf"
+	frappe.local.response.type = "download"
+
+
+@frappe.whitelist()
+def download_rentabilidad_draft_pdf(quotation: str) -> None:
+	"""Descarga un PDF **BORRADOR** de la Rentabilidad Estimada mientras la Quotation sigue editable.
+	Mismo mecanismo que los demás borradores (mismo ``render_proposal_pdf``), con el Print Format interno
+	``Rentabilidad Estimada``. NO adjunta, NO congela, NO cambia estado."""
+	doc = frappe.get_doc("Quotation", quotation)
+	doc.check_permission("read")
+
+	pdf_bytes = render_proposal_pdf(doc, "Rentabilidad Estimada")
+
+	frappe.local.response.filename = f"BORRADOR - Rentabilidad Estimada - {doc.name}.pdf"
 	frappe.local.response.filecontent = pdf_bytes
 	frappe.local.response.content_type = "application/pdf"
 	frappe.local.response.type = "download"

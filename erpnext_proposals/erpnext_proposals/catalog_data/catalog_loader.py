@@ -1163,6 +1163,8 @@ def _seed_templates(
 				)
 				if t.get("print_format"):
 					doc.print_format = t["print_format"]
+				if t.get("sow_print_format"):
+					doc.sow_print_format = t["sow_print_format"]
 				if t.get("letter_head"):
 					doc.letter_head = t["letter_head"]
 				if "separate_cover_page" in t:
@@ -1181,6 +1183,12 @@ def _seed_templates(
 				diffs = (
 					diffs + "; " if diffs else ""
 				) + f"print_format: {pf_current!r} -> {t['print_format']!r}"
+		if t.get("sow_print_format"):
+			sow_current = frappe.db.get_value("Proposal Template", name, "sow_print_format") or ""
+			if (t["sow_print_format"] or "") != sow_current:
+				diffs = (
+					diffs + "; " if diffs else ""
+				) + f"sow_print_format: {sow_current!r} -> {t['sow_print_format']!r}"
 		if t.get("letter_head"):
 			lh_current = frappe.db.get_value("Proposal Template", name, "letter_head") or ""
 			if (t["letter_head"] or "") != lh_current:
@@ -1202,6 +1210,8 @@ def _seed_templates(
 					doc.description = t["description"]
 				if t.get("print_format"):
 					doc.print_format = t["print_format"]
+				if t.get("sow_print_format"):
+					doc.sow_print_format = t["sow_print_format"]
 				if t.get("letter_head"):
 					doc.letter_head = t["letter_head"]
 				if "separate_cover_page" in t:

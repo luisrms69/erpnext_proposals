@@ -251,7 +251,7 @@ frappe.ui.form.on("Quotation", {
 
 					if (!st.commercial) {
 						frm.add_custom_button(
-							__("Imprimir Propuesta Comercial"),
+							__("Vista previa comercial"),
 							() =>
 								// En Borrador: aviso + resync antes de abrir el PDF (cada preview refleja el catálogo vigente).
 								generate_pdf_with_resync(frm, () => {
@@ -274,7 +274,7 @@ frappe.ui.form.on("Quotation", {
 
 					if (!st.rentabilidad) {
 						frm.add_custom_button(
-							__("Imprimir Rentabilidad Estimada"),
+							__("Vista previa rentabilidad"),
 							() =>
 								generate_pdf_with_resync(frm, () => {
 									const url = `/printview?doctype=Quotation&name=${encodeURIComponent(
@@ -294,7 +294,7 @@ frappe.ui.form.on("Quotation", {
 			// documento oficial se genera aparte al pasar a En Revisión. El filename lo pone el servidor.
 			if (frm.doc.docstatus === 0 && frm.doc.workflow_state === "Borrador") {
 				frm.add_custom_button(
-					__("Descargar PDF Borrador"),
+					__("Descargar PDF comercial"),
 					() =>
 						// Aviso + resync antes de generar, para que el borrador refleje el catálogo vigente.
 						generate_pdf_with_resync(frm, () => {
@@ -305,6 +305,58 @@ frappe.ui.form.on("Quotation", {
 						}),
 					__("Propuesta")
 				);
+				// Descargar PDF de la Rentabilidad Estimada (mismo render_proposal_pdf, PF interno).
+				frm.add_custom_button(
+					__("Descargar PDF rentabilidad"),
+					() =>
+						generate_pdf_with_resync(frm, () => {
+							open_url_post(
+								"/api/method/erpnext_proposals.erpnext_proposals.utils.print_format.download_rentabilidad_draft_pdf",
+								{ quotation: frm.doc.name }
+							);
+						}),
+					__("Propuesta")
+				);
+			}
+
+			// Solo en Borrador: generar/descargar el SOW (otra representación del mismo contenido). Mismo
+			// mecanismo que el borrador comercial (render_proposal_pdf), variando solo el Print Format SOW.
+			// Solo se muestra si la plantilla configura un Print Format de SOW.
+			if (frm.doc.docstatus === 0 && frm.doc.workflow_state === "Borrador") {
+				frappe
+					.call({
+						method: "erpnext_proposals.erpnext_proposals.utils.print_format.get_effective_sow_print_format",
+						args: { quotation: frm.doc.name },
+					})
+					.then((r) => {
+						if (r.message) {
+							const sowFmt = r.message;
+							// Vista previa SOW → HTML (mismo /printview que el comercial, con el PF SOW).
+							frm.add_custom_button(
+								__("Vista previa SOW"),
+								() =>
+									generate_pdf_with_resync(frm, () => {
+										const url = `/printview?doctype=Quotation&name=${encodeURIComponent(
+											frm.doc.name
+										)}&format=${encodeURIComponent(sowFmt)}&no_letterhead=0`;
+										window.open(url, "_blank");
+									}),
+								__("Propuesta")
+							);
+							// Descargar PDF SOW → PDF (mismo render_proposal_pdf que el comercial).
+							frm.add_custom_button(
+								__("Descargar PDF SOW"),
+								() =>
+									generate_pdf_with_resync(frm, () => {
+										open_url_post(
+											"/api/method/erpnext_proposals.erpnext_proposals.utils.print_format.download_sow_draft_pdf",
+											{ quotation: frm.doc.name }
+										);
+									}),
+								__("Propuesta")
+							);
+						}
+					});
 			}
 
 			// Mostrar el Print Format comercial efectivo que se usará.

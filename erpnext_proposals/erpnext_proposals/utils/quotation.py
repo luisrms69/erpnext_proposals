@@ -637,7 +637,10 @@ def attach_proposal_pdfs(doc) -> None:
 	PDF generation failure is non-blocking but logged with a visible warning.
 	The snapshot JSON is the hard protection; the PDF is the evidence artifact.
 	"""
-	from erpnext_proposals.erpnext_proposals.utils.print_format import resolve_commercial_print_format
+	from erpnext_proposals.erpnext_proposals.utils.print_format import (
+		resolve_commercial_print_format,
+		resolve_sow_print_format,
+	)
 
 	commercial_pf = resolve_commercial_print_format(doc)
 	_attach_pdf(
@@ -652,6 +655,16 @@ def attach_proposal_pdfs(doc) -> None:
 		filename=f"Rentabilidad Estimada - {doc.name}",
 		is_private=1,
 	)
+	# SOW: OTRA REPRESENTACIÓN del mismo contenido congelado. Mismo pipeline (_attach_pdf → renderer),
+	# mismo snapshot, misma protección histórica. Solo se adjunta si la plantilla define un PF de SOW.
+	sow_pf = resolve_sow_print_format(doc)
+	if sow_pf:
+		_attach_pdf(
+			doc,
+			print_format=sow_pf,
+			filename=f"SOW - {doc.name}",
+			is_private=1,
+		)
 	# Signal client to reload attachments once files are committed
 	frappe.publish_realtime(
 		"erpnext_proposals_pdfs_attached",
