@@ -166,74 +166,98 @@ def _dependency_codes_map(scope_item_names: list) -> dict:
 	return {n: json.dumps(sorted(codes), ensure_ascii=False) for n, codes in result.items()}
 
 
+_SCOPE_GEN_FIELDS = (
+	"name",
+	"sequence",
+	"code",
+	"title",
+	"description",
+	"deliverable",
+	"phase",
+	"default_activity_type",
+	"default_designation",
+	"estimated_hours",
+	"visible_in_proposal",
+	"is_internal_cost_task",
+	"planned_start_offset_days",
+	"moment",
+	"planned_duration_days",
+	"is_milestone",
+)
+
+
+def _append_scope_rows_for_item(doc, item_code: str, existing: set) -> int:
+	"""Agrega a ``quotation_scope_items`` las filas FALTANTES de un ``item_code``, resolviendo
+	Item → Scope Items por la FUENTE ÚNICA (``resolve_scope_items_for_item``: child N:N + legacy,
+	habilitados). ``existing`` = pares (item_code, scope_item) ya presentes; se actualiza in situ.
+	No elimina ni actualiza filas existentes y no duplica. Devuelve cuántas filas se agregaron."""
+	from erpnext_proposals.erpnext_proposals.utils.scope_item_links import resolve_scope_items_for_item
+
+	names = resolve_scope_items_for_item(item_code, enabled_only=True)
+	if not names:
+		return 0
+	scope_items = frappe.get_all(
+		"Scope Item",
+		filters={"name": ["in", names]},
+		fields=list(_SCOPE_GEN_FIELDS),
+		order_by="sequence asc",
+	)
+	dep_codes = _dependency_codes_map([si.name for si in scope_items])
+	added = 0
+	for si in scope_items:
+		if (item_code, si.name) in existing:
+			continue
+		doc.append(
+			"quotation_scope_items",
+			{
+				"scope_item": si.name,
+				"item_code": item_code,
+				"sequence": si.sequence,
+				"code": si.code,
+				"title": si.title,
+				"description": si.description,
+				"deliverable": si.deliverable,
+				"phase": si.phase,
+				"activity_type": si.default_activity_type,
+				"designation": si.default_designation,
+				"estimated_hours": si.estimated_hours,
+				# Valor inicial de include_in_proposal desde el catálogo (visible_in_proposal). Después es
+				# propiedad de la propuesta; el resync NO lo sobrescribe.
+				"include_in_proposal": 1 if si.visible_in_proposal else 0,
+				"is_internal_cost_task": si.is_internal_cost_task or 0,
+				# Planeación PMO congelada (opcional; puede venir vacía).
+				"planned_start_offset_days": si.planned_start_offset_days,
+				# Momento relativo de ejecución (snapshot comercial; puede venir vacío).
+				"moment": si.moment,
+				"planned_duration_days": si.planned_duration_days,
+				"is_milestone": si.is_milestone or 0,
+				"dependency_scope_item_codes": dep_codes.get(si.name, "[]"),
+				"auto_generated": 1,
+			},
+		)
+		existing.add((item_code, si.name))
+		added += 1
+	return added
+
+
 def _generate_scope_items(doc):
+	"""Autopoblado SOLO para líneas Quotation Item NUEVAS (un ``item_code`` que no existía en el
+	guardado previo). Un guardado normal NO repuebla: si el usuario borró una fila de alcance, no
+	reaparece; editar precio/cantidad/texto no reconstruye nada. La captura inicial (documento nuevo)
+	genera para todos los Items; agregar un Item nuevo genera solo el alcance de ese Item. Recuperar
+	faltantes a posteriori es una acción MANUAL explícita (``add_missing_scope_items_from_items``)."""
+	before = doc.get_doc_before_save()
+	prev_item_codes = {i.item_code for i in (before.items if before else []) if i.item_code}
 	existing = {
 		(row.item_code, row.scope_item)
 		for row in (doc.quotation_scope_items or [])
 		if row.item_code and row.scope_item
 	}
-
 	for item in doc.items or []:
-		if not item.item_code:
+		# Sin item_code, o item_code que ya estaba en el guardado previo → no repoblar.
+		if not item.item_code or item.item_code in prev_item_codes:
 			continue
-
-		scope_items = frappe.get_all(
-			"Scope Item",
-			filters={"erpnext_item": item.item_code, "enabled": 1},
-			fields=[
-				"name",
-				"sequence",
-				"code",
-				"title",
-				"description",
-				"deliverable",
-				"phase",
-				"default_activity_type",
-				"default_designation",
-				"estimated_hours",
-				"visible_in_proposal",
-				"is_internal_cost_task",
-				"planned_start_offset_days",
-				"moment",
-				"planned_duration_days",
-				"is_milestone",
-			],
-			order_by="sequence asc",
-		)
-		dep_codes = _dependency_codes_map([si.name for si in scope_items])
-
-		for si in scope_items:
-			if (item.item_code, si.name) in existing:
-				continue
-			doc.append(
-				"quotation_scope_items",
-				{
-					"scope_item": si.name,
-					"item_code": item.item_code,
-					"sequence": si.sequence,
-					"code": si.code,
-					"title": si.title,
-					"description": si.description,
-					"deliverable": si.deliverable,
-					"phase": si.phase,
-					"activity_type": si.default_activity_type,
-					"designation": si.default_designation,
-					"estimated_hours": si.estimated_hours,
-					# Valor inicial de include_in_proposal desde el catálogo (visible_in_proposal).
-					# Después es propiedad de la propuesta; el resync NO lo sobrescribe.
-					"include_in_proposal": 1 if si.visible_in_proposal else 0,
-					"is_internal_cost_task": si.is_internal_cost_task or 0,
-					# Planeación PMO congelada (opcional; puede venir vacía).
-					"planned_start_offset_days": si.planned_start_offset_days,
-					# Momento relativo de ejecución (snapshot comercial; puede venir vacío).
-					"moment": si.moment,
-					"planned_duration_days": si.planned_duration_days,
-					"is_milestone": si.is_milestone or 0,
-					"dependency_scope_item_codes": dep_codes.get(si.name, "[]"),
-					"auto_generated": 1,
-				},
-			)
-			existing.add((item.item_code, si.name))
+		_append_scope_rows_for_item(doc, item.item_code, existing)
 
 
 # Contenido general del Item que se CONGELA en la línea nativa Quotation Item (bloque del servicio).
@@ -294,18 +318,24 @@ _CATALOG_CONTROLLED_FIELDS = (
 
 
 def _catalog_rows_for_items(item_codes: list) -> dict:
-	"""Devuelve los Scope Item de catálogo habilitados para los item_codes dados,
-	mapeados a los campos del child, con clave (item_code, scope_item_name)."""
+	"""Scope Items de catálogo habilitados asociados a los item_codes, por la FUENTE ÚNICA
+	(``resolve_scope_items_for_item``: child N:N + legacy), mapeados a los campos del child con clave
+	(item_code, scope_item_name). Un mismo Scope Item puede aplicar a varios Items."""
+	from erpnext_proposals.erpnext_proposals.utils.scope_item_links import resolve_scope_items_for_item
+
 	result: dict = {}
 	codes = list({c for c in (item_codes or []) if c})
 	if not codes:
 		return result
+	per_item = {code: resolve_scope_items_for_item(code, enabled_only=True) for code in codes}
+	all_names = sorted({n for names in per_item.values() for n in names})
+	if not all_names:
+		return result
 	rows = frappe.get_all(
 		"Scope Item",
-		filters={"erpnext_item": ["in", codes], "enabled": 1},
+		filters={"name": ["in", all_names]},
 		fields=[
 			"name",
-			"erpnext_item",
 			"sequence",
 			"code",
 			"title",
@@ -324,30 +354,35 @@ def _catalog_rows_for_items(item_codes: list) -> dict:
 		],
 		order_by="sequence asc",
 	)
-	dep_codes = _dependency_codes_map([si.name for si in rows])
-	for si in rows:
-		result[(si.erpnext_item, si.name)] = {
-			"sequence": si.sequence,
-			"code": si.code,
-			"title": si.title,
-			"description": si.description,
-			"deliverable": si.deliverable,
-			"phase": si.phase,
-			"activity_type": si.default_activity_type,
-			"designation": si.default_designation,
-			"estimated_hours": si.estimated_hours,
-			"is_internal_cost_task": si.is_internal_cost_task or 0,
-			# Planeación PMO congelada — controlada por catálogo (refrescada en resync).
-			"planned_start_offset_days": si.planned_start_offset_days,
-			# Momento relativo de ejecución — snapshot comercial (refrescado en resync).
-			"moment": si.moment,
-			"planned_duration_days": si.planned_duration_days,
-			"is_milestone": si.is_milestone or 0,
-			"dependency_scope_item_codes": dep_codes.get(si.name, "[]"),
-			# Solo para el ADD de resync (valor inicial). NO está en _CATALOG_CONTROLLED_FIELDS,
-			# por lo que el UPDATE nunca sobrescribe include_in_proposal en filas existentes.
-			"include_in_proposal": 1 if si.visible_in_proposal else 0,
-		}
+	by_name = {si.name: si for si in rows}
+	dep_codes = _dependency_codes_map(all_names)
+	for code, names in per_item.items():
+		for name in names:
+			si = by_name.get(name)
+			if not si:
+				continue
+			result[(code, name)] = {
+				"sequence": si.sequence,
+				"code": si.code,
+				"title": si.title,
+				"description": si.description,
+				"deliverable": si.deliverable,
+				"phase": si.phase,
+				"activity_type": si.default_activity_type,
+				"designation": si.default_designation,
+				"estimated_hours": si.estimated_hours,
+				"is_internal_cost_task": si.is_internal_cost_task or 0,
+				# Planeación PMO congelada — controlada por catálogo (refrescada en resync).
+				"planned_start_offset_days": si.planned_start_offset_days,
+				# Momento relativo de ejecución — snapshot comercial (refrescado en resync).
+				"moment": si.moment,
+				"planned_duration_days": si.planned_duration_days,
+				"is_milestone": si.is_milestone or 0,
+				"dependency_scope_item_codes": dep_codes.get(si.name, "[]"),
+				# Solo informativo (valor inicial de include_in_proposal). NO está en
+				# _CATALOG_CONTROLLED_FIELDS, por lo que el UPDATE del resync nunca lo sobrescribe.
+				"include_in_proposal": 1 if si.visible_in_proposal else 0,
+			}
 	return result
 
 
@@ -356,9 +391,10 @@ def resync_scope_from_catalog(quotation_name: str) -> dict:
 	"""Sincroniza explícitamente la tabla de alcance con el catálogo Scope Item.
 
 	Solo disponible en Borrador. Sobre filas ``auto_generated=1``: actualiza los campos
-	controlados por catálogo, elimina las que ya no tienen respaldo (Scope Item
-	deshabilitado/borrado o Item quitado de la cotización) y agrega combinaciones nuevas.
-	Las filas ``auto_generated=0`` (personalizaciones de la propuesta) nunca se tocan.
+	controlados por catálogo y elimina las que ya no tienen respaldo (Scope Item deshabilitado/borrado
+	o Item quitado de la cotización). **NO agrega** combinaciones faltantes (eso es la acción manual
+	``add_missing_scope_items_from_items``). Las filas ``auto_generated=0`` (personalizaciones de la
+	propuesta) nunca se tocan.
 	"""
 	doc = frappe.get_doc("Quotation", quotation_name)
 	doc.check_permission("write")
@@ -398,22 +434,9 @@ def resync_scope_from_catalog(quotation_name: str) -> dict:
 
 	doc.set("quotation_scope_items", kept)
 
-	existing = {(r.item_code, r.scope_item) for r in doc.quotation_scope_items}
-	added = 0
-	for (item_code, scope_name), fields in catalog.items():
-		if (item_code, scope_name) in existing:
-			continue
-		doc.append(
-			"quotation_scope_items",
-			{
-				"scope_item": scope_name,
-				"item_code": item_code,
-				"auto_generated": 1,
-				# include_in_proposal e is_internal_cost_task vienen de `fields` (catálogo).
-				**fields,
-			},
-		)
-		added += 1
+	# El resync NO agrega combinaciones faltantes: solo actualiza las filas auto-generadas contra el
+	# catálogo y elimina las que perdieron respaldo. Recuperar faltantes es una acción MANUAL explícita
+	# (`add_missing_scope_items_from_items`); el guardado y el resync nunca repueblan.
 
 	# Resync explícito: refresca los cuatro valores del bloque del servicio en TODAS las líneas y
 	# regenera el snapshot de Sections desde los maestros actuales (actualiza captured_on).
@@ -423,9 +446,31 @@ def resync_scope_from_catalog(quotation_name: str) -> dict:
 	return {
 		"updated": updated,
 		"removed": removed,
-		"added": added,
 		"total": len(doc.quotation_scope_items),
 	}
+
+
+@frappe.whitelist()
+def add_missing_scope_items_from_items(quotation_name: str) -> dict:
+	"""Acción MANUAL explícita: revisa TODOS los Items actuales de la Quotation y agrega únicamente las
+	combinaciones (Item, Scope Item) FALTANTES, resolviendo por la FUENTE ÚNICA (child N:N + legacy,
+	habilitados). No elimina nada, no actualiza filas existentes y no duplica. Es distinta del guardado
+	(que nunca repuebla) y del resync (que nunca agrega). Solo en Borrador."""
+	doc = frappe.get_doc("Quotation", quotation_name)
+	doc.check_permission("write")
+	if doc.docstatus != 0 or doc.get("workflow_state") != "Borrador":
+		frappe.throw(_("Solo disponible en una propuesta en Borrador."))
+
+	existing = {
+		(r.item_code, r.scope_item) for r in (doc.quotation_scope_items or []) if r.item_code and r.scope_item
+	}
+	added = 0
+	for it in doc.items or []:
+		if it.item_code:
+			added += _append_scope_rows_for_item(doc, it.item_code, existing)
+	if added:
+		doc.save()
+	return {"added": added, "total": len(doc.quotation_scope_items)}
 
 
 def freeze_proposal(doc) -> None:

@@ -18,6 +18,7 @@
   "section_classification",
   "phase",
   "erpnext_item",
+  "erpnext_items",
   "section_effort",
   "estimated_hours",
   "default_activity_type",
@@ -105,7 +106,14 @@
    "fieldtype": "Link",
    "label": "ERPNext Item",
    "options": "Item",
-   "description": "Referencia al Item nativo de ERPNext. No duplica precio ni costo — solo vincula el catálogo."
+   "description": "LEGACY (transición): un único Item. La relación vigente es la tabla 'ERPNext Items'. No duplica precio ni costo — solo vincula el catálogo."
+  },
+  {
+   "fieldname": "erpnext_items",
+   "fieldtype": "Table",
+   "label": "ERPNext Items",
+   "options": "Scope Item ERPNext Item",
+   "description": "Items ERPNext a los que aplica este Scope Item (relación N:N). Se administra desde el Item (botón 'Scope Items')."
   },
   {
    "fieldname": "section_effort",
