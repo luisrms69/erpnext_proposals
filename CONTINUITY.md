@@ -1,9 +1,11 @@
 # CONTINUITY.md — erpnext_proposals
 
 **Fecha:** 2026-09-01
-**Rama activa:** `feat/loader-manage-scope-enabled` (base `upstream/version-16`)
-**Tarea actual:** Cerrar la etapa **N:M Item ↔ Scope Item**: soporte del catálogo (loader) +
-documentación completa de la funcionalidad (feature base en commit anterior de la rama). Commit hecho; **sin push/PR aún**.
+**Rama activa:** `feat/loader-manage-scope-enabled` (base `upstream/version-16` = v0.12.0)
+**Tarea actual:** Etapa **N:M Item ↔ Scope Item** lista para PR. Bump a **0.15.0** (MINOR; base 0.12.0 +
+dos bumps previos que quedaron sin registrar en el CHANGELOG). El pack privado de cliente correspondiente
+ya se validó y aplicó en su **sitio de staging** por el loader oficial (conteos N:M correctos, idempotente).
+Pendiente: `/ship push` + `/ship pr`.
 
 ---
 
