@@ -11,6 +11,7 @@ nav:
     - Documentos del módulo: usuario/doctypes.md
     - Campos principales: usuario/campos-principales.md
     - Cómo crear una propuesta: usuario/crear-propuesta.md
+    - Scope Items reutilizables entre Items: usuario/scope-items-reutilizables.md
     - Generar y enviar al cliente: usuario/generar-enviar-propuesta.md
     - Versionar formatos de propuesta: usuario/versionar-print-formats.md
     - Propuesta ganada: usuario/propuesta-ganada.md
@@ -45,6 +46,7 @@ nav:
     - ADR-0013 Secciones opcionales por propuesta: adr/0013-secciones-opcionales-por-propuesta.md
     - ADR-0014 Render de portada separada + merge: adr/0014-render-portada-separada-merge.md
     - ADR-0015 Renderer PDF desacoplado y versionado: adr/0015-renderer-pdf-desacoplado-versionado.md
+    - ADR-0016 Relación N:M Item ↔ Scope Item: adr/0016-relacion-nm-item-scope-item.md
 
 theme:
   name: material

@@ -83,9 +83,15 @@ Hacer clic en **Guardar**.
 
 Al guardar, el sistema:
 
-1. Busca en el catálogo de alcances las actividades vinculadas a los ítems cotizados
-2. Agrega automáticamente las filas encontradas a la tabla de alcance
+1. Busca en el catálogo de alcances las actividades vinculadas a los ítems cotizados (relación Item ↔
+   Scope Item; ver [Scope Items reutilizables](scope-items-reutilizables.md))
+2. Agrega las filas encontradas a la tabla de alcance **solo para los ítems nuevos** (los que no
+   estaban en el guardado anterior)
 3. Marca cada fila como "generada automáticamente"
+
+**Importante:** un guardado normal **no repuebla** el alcance. Si eliminas una fila y guardas, **no
+reaparece**; editar precio/cantidad tampoco vuelve a agregar filas. Solo un **ítem nuevo** genera su
+alcance al guardar. Para recuperar faltantes existe una acción manual explícita (ver abajo).
 
 Si no hay coincidencias en el catálogo (porque los ítems no tienen alcances vinculados), la tabla queda vacía. Esto es normal si el catálogo no está configurado todavía.
 
@@ -117,17 +123,24 @@ Hacer clic en la fila para expandirla. Todos los campos son editables directamen
 
 Los cambios hechos aquí son propios de esta propuesta y no modifican el catálogo maestro.
 
-### Cómo usar el botón "Regenerar alcance"
+### Botones de alcance (grupo Propuesta, solo en Borrador)
 
-El botón **"Regenerar alcance"** reaparece en la Cotización guardada (en la barra de botones superior, grupo Propuesta).
+En la Cotización guardada, en la barra de botones superior (grupo **Propuesta**), hay dos acciones
+distintas que operan sobre el alcance. Ambas solo están disponibles en estado **Borrador**.
 
-Al presionarlo:
-- El sistema vuelve a buscar alcances en el catálogo para los ítems cotizados
-- Solo agrega filas que no existan ya en la tabla
-- No modifica ni elimina filas existentes
-- Pide confirmación antes de ejecutar
+**Agregar Scope Items desde Items** — recupera faltantes:
+- Revisa todos los Items de la Cotización y agrega a la tabla de alcance las combinaciones que falten
+- No duplica filas existentes ni elimina nada
+- Útil cuando se agregaron ítems después del primer guardado, o para reponer filas eliminadas por error
 
-Útil cuando se agregan ítems a la cotización después del primer guardado.
+**Sincronizar alcance desde catálogo** — refresca contenido:
+- Actualiza el contenido de las filas existentes contra el catálogo maestro (título, horas, etc.)
+- Elimina filas cuyo Scope Item ya no tiene respaldo en el catálogo
+- **No vuelve a agregar** filas eliminadas — reponer faltantes es exclusivamente *Agregar Scope Items
+  desde Items*
+
+Ver [Scope Items reutilizables](scope-items-reutilizables.md) para el detalle de la relación Item ↔
+Scope Item que alimenta estas acciones.
 
 ---
 
