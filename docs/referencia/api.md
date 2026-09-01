@@ -1,7 +1,7 @@
 <!--
   ARCHIVO GENERADO AUTOMÁTICAMENTE. NO EDITAR MANUALMENTE.
   Regenerar con: python3 scripts/generate_reference.py
-  Fecha generación: 2026-09-01 02:52
+  Fecha generación: 2026-09-01 10:20
 -->
 
 
@@ -20,6 +20,9 @@ Accesibles desde el cliente JS con `frappe.call({method: '...'})` o desde Python
   - [`get_print_format_status`](#get-print-format-status)
   - [`get_effective_commercial_print_format`](#get-effective-commercial-print-format)
   - [`download_commercial_draft_pdf`](#download-commercial-draft-pdf)
+  - [`get_effective_sow_print_format`](#get-effective-sow-print-format)
+  - [`download_sow_draft_pdf`](#download-sow-draft-pdf)
+  - [`download_rentabilidad_draft_pdf`](#download-rentabilidad-draft-pdf)
 - **erpnext_proposals/erpnext_proposals/utils/project.py**
   - [`create_project_from_quotation`](#create-project-from-quotation)
 - **erpnext_proposals/erpnext_proposals/utils/proposal_versioning.py**
@@ -76,6 +79,27 @@ Formato comercial efectivo de una Quotation (usado por el botón de impresión e
 **Módulo:** `erpnext_proposals.erpnext_proposals.utils.print_format`
 
 Descarga un PDF **BORRADOR** (no oficial) de la Propuesta Comercial, para revisión externa
+
+
+### `get_effective_sow_print_format(quotation)`
+
+**Módulo:** `erpnext_proposals.erpnext_proposals.utils.print_format`
+
+Print Format SOW efectivo de una Quotation (o vacío si la plantilla no define SOW). Lo usa el JS
+
+
+### `download_sow_draft_pdf(quotation)`
+
+**Módulo:** `erpnext_proposals.erpnext_proposals.utils.print_format`
+
+Descarga un PDF **BORRADOR** del SOW mientras la Quotation sigue editable. Mismo mecanismo que
+
+
+### `download_rentabilidad_draft_pdf(quotation)`
+
+**Módulo:** `erpnext_proposals.erpnext_proposals.utils.print_format`
+
+Descarga un PDF **BORRADOR** de la Rentabilidad Estimada mientras la Quotation sigue editable.
 
 
 ## `erpnext_proposals/erpnext_proposals/utils/project.py`

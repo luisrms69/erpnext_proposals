@@ -145,8 +145,8 @@ class TestButtonsJS(unittest.TestCase):
 		path = frappe.get_app_path("erpnext_proposals", "public", "js", "quotation.js")
 		with open(path, encoding="utf-8") as fh:
 			cls.js = fh.read()
-		cls.i_com = cls.js.index("Imprimir Propuesta Comercial")
-		cls.i_rent = cls.js.index("Imprimir Rentabilidad Estimada")
+		cls.i_com = cls.js.index("Vista previa comercial")
+		cls.i_rent = cls.js.index("Vista previa rentabilidad")
 
 	# A. El botón comercial recupera el preview HTML de v0.11.2 (get_effective → /printview → window.open).
 	def test_a_commercial_button_is_html_preview(self):
@@ -164,10 +164,10 @@ class TestButtonsJS(unittest.TestCase):
 		self.assertIn("Rentabilidad%20Estimada", block)
 		self.assertIn("window.open", block)
 
-	# B. Existe un botón separado "Descargar PDF Borrador", solo en Borrador, que llama al endpoint borrador.
+	# B. Existe un botón separado "Descargar PDF comercial", solo en Borrador, que llama al endpoint borrador.
 	def test_b_draft_button_only_in_borrador(self):
-		self.assertIn("Descargar PDF Borrador", self.js)
-		i_draft = self.js.index("Descargar PDF Borrador")
+		self.assertIn("Descargar PDF comercial", self.js)
+		i_draft = self.js.index("Descargar PDF comercial")
 		# Guarda de estado inmediatamente arriba del botón.
 		guard = self.js[max(0, i_draft - 400) : i_draft]
 		self.assertIn('workflow_state === "Borrador"', guard)

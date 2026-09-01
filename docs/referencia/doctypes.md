@@ -1,7 +1,7 @@
 <!--
   ARCHIVO GENERADO AUTOMÁTICAMENTE. NO EDITAR MANUALMENTE.
   Regenerar con: python3 scripts/generate_reference.py
-  Fecha generación: 2026-09-01 02:52
+  Fecha generación: 2026-09-01 10:20
 -->
 
 
@@ -99,6 +99,7 @@ Fuente: `erpnext_proposals/erpnext_proposals/doctype/proposal_template/proposal_
 | `template_name` | Template Name | Data | ✅ |  |
 | `description` | Description | Small Text |  |  |
 | `print_format` | Print Format | Link |  | Print Format |
+| `sow_print_format` | SOW Print Format | Link |  | Print Format |
 | `letter_head` | Letter Head | Link |  | Letter Head |
 | `separate_cover_page` | Portada separada (2 renders + merge) | Check |  |  |
 | `sections` | Sections | Table |  | Proposal Template Section |

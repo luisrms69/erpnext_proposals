@@ -9,6 +9,7 @@
   "template_name",
   "description",
   "print_format",
+  "sow_print_format",
   "letter_head",
   "separate_cover_page",
   "sections"
@@ -32,6 +33,13 @@
    "fieldname": "print_format",
    "fieldtype": "Link",
    "label": "Print Format",
+   "options": "Print Format"
+  },
+  {
+   "description": "Print Format del SOW (Statement of Work) para esta familia de propuesta. Opcional. Vacío = no se genera SOW. Reutiliza el mismo contenido congelado y renderer que la propuesta comercial.",
+   "fieldname": "sow_print_format",
+   "fieldtype": "Link",
+   "label": "SOW Print Format",
    "options": "Print Format"
   },
   {
