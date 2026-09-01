@@ -5,7 +5,8 @@
 **Tarea actual:** Etapa **N:M Item ↔ Scope Item** lista para PR. Bump a **0.15.0** (MINOR; base 0.12.0 +
 dos bumps previos que quedaron sin registrar en el CHANGELOG). El pack privado de cliente correspondiente
 ya se validó y aplicó en su **sitio de staging** por el loader oficial (conteos N:M correctos, idempotente).
-Pendiente: `/ship push` + `/ship pr`.
+**PR #53** abierto contra `version-16` (https://github.com/luisrms69/erpnext_proposals/pull/53). Pendiente:
+review/CI y **merge (lo ejecuta el usuario)**; luego cierre de release (tag + GitHub Release) — no en este ciclo.
 
 ---
 
