@@ -996,19 +996,56 @@ def _seed_scope_items(items: list, report: dict, dry_run: bool, update_content: 
 				f"{label}: Item '{pending_item}' no existe aún — erpnext_item pendiente (se vinculará al re-ejecutar)"
 			)
 		keys = list(provided.keys()) + list(cleared)
+
+		# Relación N:N Item ↔ Scope Item (child table `erpnext_items`). Se administra SOLO si la clave
+		# está presente en el registro: clave AUSENTE = no tocar (conserva lo existente); lista = sincroniza
+		# exactamente (agrega faltantes, quita no declarados, sin duplicar, orden irrelevante); lista vacía
+		# = limpia. Es INDEPENDIENTE del Link legacy `erpnext_item`: no se sincroniza ni se hace backfill
+		# entre ambos. Items inexistentes se OMITEN y se reportan (mismo criterio que dependencias/legacy;
+		# no se crean Items implícitos). Un Item repetido en el JSON invalida el catálogo.
+		has_n2m = "erpnext_items" in it
+		desired_items: list = []
+		if has_n2m:
+			raw = list(it.get("erpnext_items") or [])
+			if len(raw) != len(set(raw)):
+				frappe.throw(
+					_("Catálogo inválido: 'erpnext_items' repite un Item en Scope Item '{0}'.").format(code)
+				)
+			desired_items = [i for i in raw if frappe.db.exists("Item", i)]
+			for miss in [i for i in raw if not frappe.db.exists("Item", i)]:
+				report["pending"].append(
+					f"{label}: Item '{miss}' no existe aún — relación erpnext_items pendiente (se vinculará al re-ejecutar)"
+				)
+
 		if not frappe.db.exists("Scope Item", code):
 			if not dry_run:
 				doc = {"doctype": "Scope Item", "code": code, "enabled": 1}
 				doc.update(provided)
 				for f in cleared:
 					doc[f] = None
+				if has_n2m:
+					doc["erpnext_items"] = [{"item": i} for i in desired_items]
 				frappe.get_doc(doc).insert(ignore_permissions=True)
 			report["created"].append(label)
 			continue
 
 		current = frappe.db.get_value("Scope Item", code, keys, as_dict=True) if keys else {}
-		diffs = _diff_managed(provided, cleared, current)
-		if not diffs:
+		diff_parts = []
+		scalar_diffs = _diff_managed(provided, cleared, current)
+		if scalar_diffs:
+			diff_parts.append(scalar_diffs)
+		if has_n2m:
+			current_items = set(
+				frappe.get_all(
+					"Scope Item ERPNext Item",
+					filters={"parenttype": "Scope Item", "parentfield": "erpnext_items", "parent": code},
+					pluck="item",
+				)
+			)
+			if set(desired_items) != current_items:
+				diff_parts.append(f"erpnext_items {sorted(current_items)} -> {sorted(desired_items)}")
+
+		if not diff_parts:
 			report["unchanged"].append(label)
 		elif update_content:
 			if not dry_run:
@@ -1017,10 +1054,12 @@ def _seed_scope_items(items: list, report: dict, dry_run: bool, update_content: 
 					doc.set(f, v)
 				for f in cleared:
 					doc.set(f, None)
+				if has_n2m:
+					doc.set("erpnext_items", [{"item": i} for i in desired_items])
 				doc.save(ignore_permissions=True)
-			report["updated"].append(f"{label}: {diffs}")
+			report["updated"].append(f"{label}: {', '.join(diff_parts)}")
 		else:
-			report["conflicts"].append(f"{label}: {diffs}")
+			report["conflicts"].append(f"{label}: {', '.join(diff_parts)}")
 
 	# 2º paso idempotente: dependencias del catálogo (todos los Scope Items ya existen).
 	_seed_scope_dependencies(items, report, dry_run, update_content)

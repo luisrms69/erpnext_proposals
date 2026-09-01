@@ -3,7 +3,7 @@
 Sincronización explícita del alcance con el catálogo Scope Item, solo en Borrador:
 - update de filas auto_generated=1 con los campos controlados por catálogo,
 - remove de filas sin respaldo (Scope Item deshabilitado/borrado o Item quitado),
-- add de combinaciones nuevas,
+- (contrato nuevo) el resync NO agrega faltantes; eso es add_missing_scope_items_from_items,
 - preservación de filas auto_generated=0 y de campos ajenos al catálogo,
 - idempotencia (conteos reales),
 - guardas de servidor por separado y permiso de escritura.
@@ -219,7 +219,9 @@ class TestScopeCatalogResync(unittest.TestCase):
 
 	# ── A. Add ──────────────────────────────────────────────────────────────────
 
-	def test_06_add_new_catalog_scope_item(self):
+	def test_06_resync_does_not_add_new_catalog_scope_item(self):
+		# Contrato nuevo: el resync NO agrega combinaciones faltantes (eso es la acción manual
+		# add_missing_scope_items_from_items). Un Scope Item nuevo del catálogo NO aparece por resync.
 		q = self._make_quotation([ITEM_A])
 		self.assertEqual(len(q.quotation_scope_items), 3)
 
@@ -240,12 +242,10 @@ class TestScopeCatalogResync(unittest.TestCase):
 			res = resync_scope_from_catalog(q.name)
 			rows = self._rows(q.name)
 			keys = [(r.item_code, r.scope_item) for r in rows]
-			self.assertEqual(res["added"], 1)
-			self.assertEqual(len(rows), 4)
-			self.assertIn((ITEM_A, "_RESYNC_A4"), keys)
+			self.assertNotIn("added", res)  # el resync ya no reporta ni ejecuta 'added'
+			self.assertNotIn((ITEM_A, "_RESYNC_A4"), keys)
+			self.assertEqual(len(rows), 3)
 			self.assertEqual(len(keys), len(set(keys)), "No debe haber claves duplicadas")
-			new_row = self._row_by_scope(q.name, "_RESYNC_A4")
-			self.assertEqual(new_row.auto_generated, 1)
 		finally:
 			frappe.delete_doc("Scope Item", "_RESYNC_A4", force=True, ignore_permissions=True)
 
@@ -256,7 +256,7 @@ class TestScopeCatalogResync(unittest.TestCase):
 		resync_scope_from_catalog(q.name)  # normaliza
 		before = {r.scope_item: {f: r.get(f) for f in CONTROLLED_FIELDS} for r in self._rows(q.name)}
 		res = resync_scope_from_catalog(q.name)  # segunda pasada sin cambios
-		self.assertEqual(res["added"], 0)
+		self.assertNotIn("added", res)  # el resync ya no agrega
 		self.assertEqual(res["removed"], 0)
 		self.assertEqual(res["updated"], 0, "updated solo debe contar cambios reales")
 		after = {r.scope_item: {f: r.get(f) for f in CONTROLLED_FIELDS} for r in self._rows(q.name)}
@@ -480,7 +480,7 @@ class TestScopeCatalogResync(unittest.TestCase):
 		res = resync_scope_from_catalog(q.name)
 		keys = [(r.item_code, r.scope_item) for r in self._rows(q.name)]
 		self.assertEqual(len(keys), len(set(keys)), "resync no debe duplicar claves")
-		self.assertEqual(res["added"], 0)
+		self.assertNotIn("added", res)
 		resync_scope_from_catalog(q.name)
 		keys2 = [(r.item_code, r.scope_item) for r in self._rows(q.name)]
 		self.assertEqual(len(keys2), len(set(keys2)))
@@ -584,21 +584,21 @@ class TestScopeCatalogResync(unittest.TestCase):
 			self.assertEqual(self._row_by_scope(q.name, "_RESYNC_A2").title, "A2 E2E")
 			# include_in_proposal conservado
 			self.assertEqual(self._row_by_scope(q.name, "_RESYNC_A1").include_in_proposal, 0)
-			# A5 presente (lo agregó el autosave append-only al guardar el paso 3),
-			# B1 removido por resync, fila manual intacta.
-			self.assertIn("_RESYNC_A5", codes)
+			# A5 NO aparece: el guardado ya no repuebla (ITEM_A no es un item nuevo) y el resync no
+			# agrega faltantes. B1 removido por resync (Item B quitado), fila manual intacta.
+			self.assertNotIn("_RESYNC_A5", codes)
 			self.assertNotIn("_RESYNC_B1", codes)
 			manuals = [r for r in rows if not r.auto_generated]
 			self.assertEqual(len(manuals), 1)
 			self.assertEqual(manuals[0].title, "MANUAL E2E")
-			# En el flujo real del botón el guardado (append-only) ya agregó A5, por eso
-			# resync reporta added=0; su aporte neto es update (A2) + remove (B1).
-			self.assertEqual(res["added"], 0)
+			# El resync ya no agrega; su aporte neto es update (A2) + remove (B1).
+			self.assertNotIn("added", res)
 			self.assertGreaterEqual(res["removed"], 1)
 			self.assertGreaterEqual(res["updated"], 1)
 			# idempotencia: segunda pasada en cero
 			res2 = resync_scope_from_catalog(q.name)
-			self.assertEqual((res2["added"], res2["removed"], res2["updated"]), (0, 0, 0))
+			self.assertNotIn("added", res2)
+			self.assertEqual((res2["removed"], res2["updated"]), (0, 0))
 		finally:
 			si2.title = orig2
 			si2.save(ignore_permissions=True)

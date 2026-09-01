@@ -147,6 +147,110 @@ class TestCatalogLoader(unittest.TestCase):
 				frappe.delete_doc("Proposal Phase", phase, force=True, ignore_permissions=True)
 			frappe.db.commit()  # nosemgrep — limpieza de fixtures de test
 
+	def test_scope_erpnext_items_n2m(self):
+		"""El loader administra la relación N:N `erpnext_items` del Scope Item: sincroniza exactamente
+		cuando la clave está presente (agrega/quita, sin duplicar), no toca si se omite, limpia con lista
+		vacía, respeta dry-run/update_content, no hace backfill del legacy, y rechaza un Item repetido.
+		Datos ficticios."""
+		import os
+		import tempfile
+
+		from erpnext_proposals.erpnext_proposals.tests.company import get_test_item_group
+
+		grp = get_test_item_group()
+		uom = "Nos" if frappe.db.exists("UOM", "Nos") else frappe.db.get_value("UOM", {}, "name")
+		A, B, C = "_N2M-ITEM-A", "_N2M-ITEM-B", "_N2M-ITEM-C"
+		SC, SCL, DUP = "_N2M-SCOPE", "_N2M-SCOPE-LEG", "_N2M-DUP"
+		phase = "FASE_N2M"
+
+		def _cat(scope_items):
+			return {
+				"version": "t",
+				"catalog": "n2m",
+				"phases": [{"phase_code": phase, "phase_name": phase, "sequence": 5}],
+				"sections": [],
+				"versioned": [],
+				"items": [
+					{
+						"item_code": c,
+						"item_name": c,
+						"item_group": grp,
+						"stock_uom": uom,
+						"is_stock_item": 0,
+						"is_sales_item": 1,
+					}
+					for c in (A, B, C)
+				],
+				"scope_items": scope_items,
+				"templates": [],
+			}
+
+		def _run(cat, dry_run=False, **kw):
+			fd, path = tempfile.mkstemp(suffix=".json")
+			try:
+				with os.fdopen(fd, "w", encoding="utf-8") as fh:
+					json.dump(cat, fh)
+				return catalog_loader.run(catalog_path=path, dry_run=dry_run, **kw)
+			finally:
+				os.remove(path)
+
+		def _items_of(code):
+			return set(
+				frappe.get_all(
+					"Scope Item ERPNext Item",
+					filters={"parenttype": "Scope Item", "parentfield": "erpnext_items", "parent": code},
+					pluck="item",
+				)
+			)
+
+		def _sc(items=None, legacy=None, code=SC):
+			d = {"code": code, "title": "S", "sequence": 10, "phase": phase}
+			if items is not None:
+				d["erpnext_items"] = items
+			if legacy is not None:
+				d["erpnext_item"] = legacy
+			return d
+
+		try:
+			# crear con 2 items
+			_run(_cat([_sc(items=[A, B])]))
+			self.assertEqual(_items_of(SC), {A, B})
+			# idempotente: segunda corrida no reporta update
+			rep = _run(_cat([_sc(items=[A, B])]), update_content=True)
+			self.assertEqual(_items_of(SC), {A, B})
+			self.assertFalse(any(SC in u for u in rep["updated"]))
+			# dry-run detecta la diferencia N:M pero NO modifica la BD
+			rep_dry = _run(_cat([_sc(items=[A])]), dry_run=True, update_content=True)
+			self.assertTrue(any(SC in u for u in rep_dry["updated"]))
+			self.assertEqual(_items_of(SC), {A, B})  # sin cambios reales
+			# A+B -> B+C con update_content
+			rep2 = _run(_cat([_sc(items=[B, C])]), update_content=True)
+			self.assertEqual(_items_of(SC), {B, C})
+			self.assertTrue(any(SC in u for u in rep2["updated"]))
+			# campo OMITIDO no modifica relaciones existentes
+			_run(_cat([_sc()]), update_content=True)
+			self.assertEqual(_items_of(SC), {B, C})
+			# lista vacía limpia relaciones
+			_run(_cat([_sc(items=[])]), update_content=True)
+			self.assertEqual(_items_of(SC), set())
+			# legacy solo con erpnext_item sigue funcionando; sin backfill a erpnext_items
+			_run(_cat([_sc(legacy=A, code=SCL)]))
+			self.assertEqual(frappe.db.get_value("Scope Item", SCL, "erpnext_item"), A)
+			self.assertEqual(_items_of(SCL), set())
+			# Item repetido en el JSON → catálogo inválido
+			with self.assertRaises(frappe.ValidationError):
+				_run(_cat([_sc(items=[A, A], code=DUP)]))
+		finally:
+			for c in (SC, SCL, DUP):
+				if frappe.db.exists("Scope Item", c):
+					frappe.delete_doc("Scope Item", c, force=True, ignore_permissions=True)
+			for c in (A, B, C):
+				if frappe.db.exists("Item", c):
+					frappe.delete_doc("Item", c, force=True, ignore_permissions=True)
+			if frappe.db.exists("Proposal Phase", phase):
+				frappe.delete_doc("Proposal Phase", phase, force=True, ignore_permissions=True)
+			frappe.db.commit()  # nosemgrep — limpieza de fixtures de test
+
 	def test_template_section_hide_title(self):
 		"""El loader genérico siembra y diffea hide_title en Proposal Template Section."""
 		import os

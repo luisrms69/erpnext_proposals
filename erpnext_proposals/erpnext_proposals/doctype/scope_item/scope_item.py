@@ -13,6 +13,18 @@ class ScopeItem(Document):
 		self._no_commercial_fields_guard()
 		self._validate_offset()
 		self._validate_dependencies()
+		self._validate_erpnext_items()
+
+	def _validate_erpnext_items(self):
+		"""La tabla `erpnext_items` (relación N:N con Item) no admite el mismo Item repetido en este
+		Scope Item. El `idx` nativo de la child table no tiene significado de negocio."""
+		seen = set()
+		for row in self.get("erpnext_items") or []:
+			if not row.item:
+				continue
+			if row.item in seen:
+				frappe.throw(_("El Item '{0}' ya está asociado a este Scope Item.").format(row.item))
+			seen.add(row.item)
 
 	def _validate_offset(self):
 		"""planned_start_offset_days es Data nullable: vacío/NULL = sin offset explícito; '0' = inicio

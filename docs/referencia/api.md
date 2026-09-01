@@ -1,7 +1,7 @@
 <!--
   ARCHIVO GENERADO AUTOMÁTICAMENTE. NO EDITAR MANUALMENTE.
   Regenerar con: python3 scripts/generate_reference.py
-  Fecha generación: 2026-07-30 21:45
+  Fecha generación: 2026-09-01 02:52
 -->
 
 
@@ -16,6 +16,8 @@ Accesibles desde el cliente JS con `frappe.call({method: '...'})` o desde Python
 - **erpnext_proposals/erpnext_proposals/utils/cost_matrix.py**
   - [`rebuild_cost_matrix`](#rebuild-cost-matrix)
 - **erpnext_proposals/erpnext_proposals/utils/print_format.py**
+  - [`get_proposal_print_formats`](#get-proposal-print-formats)
+  - [`get_print_format_status`](#get-print-format-status)
   - [`get_effective_commercial_print_format`](#get-effective-commercial-print-format)
   - [`download_commercial_draft_pdf`](#download-commercial-draft-pdf)
 - **erpnext_proposals/erpnext_proposals/utils/project.py**
@@ -24,6 +26,12 @@ Accesibles desde el cliente JS con `frappe.call({method: '...'})` o desde Python
   - [`create_new_proposal_version`](#create-new-proposal-version)
 - **erpnext_proposals/erpnext_proposals/utils/quotation.py**
   - [`resync_scope_from_catalog`](#resync-scope-from-catalog)
+  - [`add_missing_scope_items_from_items`](#add-missing-scope-items-from-items)
+  - [`get_template_optional_sections`](#get-template-optional-sections)
+  - [`get_proposal_documents_status`](#get-proposal-documents-status)
+- **erpnext_proposals/erpnext_proposals/utils/scope_item_links.py**
+  - [`get_scope_items_for_item`](#get-scope-items-for-item)
+  - [`set_scope_items_for_item`](#set-scope-items-for-item)
 
 
 ---
@@ -42,33 +50,32 @@ Rebuilds Proposal Cost Matrix from employee cost data.
 ## `erpnext_proposals/erpnext_proposals/utils/print_format.py`
 
 
+### `get_proposal_print_formats(doctype, txt, searchfield, start, page_len, filters)`
+
+**Módulo:** `erpnext_proposals.erpnext_proposals.utils.print_format`
+
+Query central del campo Link para elegir el Print Format de una propuesta.
+
+
+### `get_print_format_status(pf_name)`
+
+**Módulo:** `erpnext_proposals.erpnext_proposals.utils.print_format`
+
+Estado de elegibilidad de un Print Format referenciado (para el warning del cliente).
+
+
 ### `get_effective_commercial_print_format(quotation)`
 
 **Módulo:** `erpnext_proposals.erpnext_proposals.utils.print_format`
 
-Resuelve y devuelve el Print Format comercial **efectivo** de una Quotation (congelada → el congelado;
-Borrador → resolución dinámica). Valida permiso de lectura. Lo usa el botón *Imprimir Propuesta
-Comercial* (JS): con el nombre devuelto abre la **vista preliminar** `/printview` (revisión HTML). No
-genera ni descarga un PDF.
+Formato comercial efectivo de una Quotation (usado por el botón de impresión en JS).
 
 
 ### `download_commercial_draft_pdf(quotation)`
 
 **Módulo:** `erpnext_proposals.erpnext_proposals.utils.print_format`
 
-Descarga un PDF **BORRADOR** (no oficial) de la Propuesta Comercial, para revisión externa mientras la
-Quotation sigue en Borrador. Lo invoca el botón *Descargar PDF Borrador* (JS), disponible solo en Borrador.
-
-- **Argumento:** `quotation` — nombre de la Quotation.
-- **Permiso requerido:** lectura (`read`) sobre la Quotation.
-- **Comportamiento:** resuelve el Print Format efectivo en servidor (`resolve_commercial_print_format`)
-  y genera los bytes **exclusivamente** con `render_proposal_pdf()`, respetando el renderer profile
-  (`gotenberg-v1` o `legacy`, ver **ADR-0015**). **No** adjunta el PDF ni crea File, **no** congela,
-  **no** cambia `workflow_state`, **no** hace submit y **no** invoca `attach_proposal_pdfs` (el documento
-  formal se genera aparte al pasar a *En Revisión*).
-- **Respuesta:** descarga del archivo (`type="download"`, `content_type="application/pdf"`,
-  `filename="BORRADOR - Propuesta Comercial - <Quotation>.pdf"`) — el prefijo `BORRADOR` lo distingue del
-  documento oficial.
+Descarga un PDF **BORRADOR** (no oficial) de la Propuesta Comercial, para revisión externa
 
 
 ## `erpnext_proposals/erpnext_proposals/utils/project.py`
@@ -97,3 +104,41 @@ Create a new proposal version from a Rejected submitted Quotation.
 **Módulo:** `erpnext_proposals.erpnext_proposals.utils.quotation`
 
 Sincroniza explícitamente la tabla de alcance con el catálogo Scope Item.
+
+
+### `add_missing_scope_items_from_items(quotation_name)`
+
+**Módulo:** `erpnext_proposals.erpnext_proposals.utils.quotation`
+
+Acción MANUAL explícita: revisa TODOS los Items actuales de la Quotation y agrega únicamente las
+
+
+### `get_template_optional_sections(template)`
+
+**Módulo:** `erpnext_proposals.erpnext_proposals.utils.quotation`
+
+Secciones OPCIONALES de un Proposal Template para el selector `proposal_optional_sections`.
+
+
+### `get_proposal_documents_status(quotation)`
+
+**Módulo:** `erpnext_proposals.erpnext_proposals.utils.quotation`
+
+Comprobación REAL de que los documentos oficiales de la propuesta ya fueron generados/adjuntados.
+
+
+## `erpnext_proposals/erpnext_proposals/utils/scope_item_links.py`
+
+
+### `get_scope_items_for_item(item)`
+
+**Módulo:** `erpnext_proposals.erpnext_proposals.utils.scope_item_links`
+
+Scope Items asociados a un Item (child + legacy) para el diálogo desde el formulario Item.
+
+
+### `set_scope_items_for_item(item, scope_items)`
+
+**Módulo:** `erpnext_proposals.erpnext_proposals.utils.scope_item_links`
+
+Guarda la selección de Scope Items para UN Item (edición explícita del usuario, no migración):

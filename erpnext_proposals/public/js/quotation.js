@@ -212,6 +212,28 @@ frappe.ui.form.on("Quotation", {
 				() => confirm_and_resync(frm),
 				__("Propuesta")
 			);
+
+			// Acción manual EXPLÍCITA para recuperar/agregar Scope Items faltantes desde los Items de la
+			// cotización. Distinta del guardado (que nunca repuebla) y del resync (que nunca agrega).
+			frm.add_custom_button(
+				__("Agregar Scope Items desde Items"),
+				() => {
+					frappe
+						.call({
+							method: "erpnext_proposals.erpnext_proposals.utils.quotation.add_missing_scope_items_from_items",
+							args: { quotation_name: frm.doc.name },
+						})
+						.then((r) => {
+							const m = r.message || {};
+							frappe.show_alert({
+								message: __("Scope Items agregados: {0}.", [m.added || 0]),
+								indicator: "green",
+							});
+							frm.reload_doc();
+						});
+				},
+				__("Propuesta")
+			);
 		}
 
 		// PDF buttons — available in all states (including Borrador for preview)

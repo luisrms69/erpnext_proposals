@@ -2,6 +2,22 @@
 
 ## [No liberado]
 
+### Added — Relación N:M Item ↔ Scope Item (v0.15.0)
+- Relación **N:M** entre `Item` y `Scope Item`: child table `Scope Item.erpnext_items` (DocType
+  `Scope Item ERPNext Item`) + resolver central `resolve_scope_items_for_item` que une child y el Link
+  legacy `erpnext_item` (sin backfill ni patch, compatible en lectura). Un Scope Item puede aplicar a
+  varios Items y un Item tener varios Scope Items — ver ADR-0016.
+- Administración desde el formulario **Item** (botón *Scope Items* → `get/set_scope_items_for_item`):
+  solo selecciona Scope Items habilitados; aislamiento por Item al quitar.
+- El **loader de catálogos** carga la relación por set con `"erpnext_items": [...]` por Scope Item
+  (ausente=no toca, presente=sincroniza, vacía=limpia; valida duplicados; Items inexistentes → `pending`).
+- Generación de alcance en Quotation **solo para líneas de Item nuevas**; un guardado normal no repuebla;
+  acción manual *Agregar Scope Items desde Items* para recuperar faltantes; el resync ya **no** agrega.
+
+### Docs — N:M (v0.15.0)
+- `usuario/scope-items-reutilizables.md` (nueva), `usuario/crear-propuesta.md`, `tecnico/arquitectura.md`,
+  referencia autogenerada (`doctypes`, `api`, `hooks`), y **ADR-0016** (relación N:M lectura-compatible).
+
 ### Added
 - Impuesto automático en Quotation reutilizando **por import** (read-only) la resolución fiscal de
   `facturacion_mexico` (Centro de Costos → Branch → zona → STCT). Adapter exclusivo en

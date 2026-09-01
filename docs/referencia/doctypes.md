@@ -1,7 +1,7 @@
 <!--
   ARCHIVO GENERADO AUTOMÁTICAMENTE. NO EDITAR MANUALMENTE.
   Regenerar con: python3 scripts/generate_reference.py
-  Fecha generación: 2026-07-30 21:45
+  Fecha generación: 2026-09-01 02:52
 -->
 
 
@@ -52,6 +52,16 @@ Fuente: `erpnext_proposals/erpnext_proposals/doctype/proposal_cost_matrix_log/pr
 | `notes` | Notas | Small Text |  |  |
 
 
+### Proposal Optional Section _Child table_
+
+Fuente: `erpnext_proposals/erpnext_proposals/doctype/proposal_optional_section/proposal_optional_section.json`
+
+
+| Campo | Label | Tipo | Requerido | Opciones |
+|---|---|---|---|---|
+| `proposal_section` | Proposal Section | Link | ✅ | Proposal Section |
+
+
 ### Proposal Phase
 
 Fuente: `erpnext_proposals/erpnext_proposals/doctype/proposal_phase/proposal_phase.json`
@@ -89,6 +99,8 @@ Fuente: `erpnext_proposals/erpnext_proposals/doctype/proposal_template/proposal_
 | `template_name` | Template Name | Data | ✅ |  |
 | `description` | Description | Small Text |  |  |
 | `print_format` | Print Format | Link |  | Print Format |
+| `letter_head` | Letter Head | Link |  | Letter Head |
+| `separate_cover_page` | Portada separada (2 renders + merge) | Check |  |  |
 | `sections` | Sections | Table |  | Proposal Template Section |
 
 
@@ -103,6 +115,7 @@ Fuente: `erpnext_proposals/erpnext_proposals/doctype/proposal_template_section/p
 | `proposal_section` | Proposal Section | Link | ✅ | Proposal Section |
 | `custom_title` | Custom Title | Data |  |  |
 | `hide_title` | Hide Title | Check |  |  |
+| `page_break_before` | Page Break Before | Check |  |  |
 | `include_by_default` | Include by Default | Check |  |  |
 | `use_custom_content` | Use Custom Content | Check |  |  |
 | `custom_content` | Custom Content | Text Editor |  |  |
@@ -131,6 +144,11 @@ Fuente: `erpnext_proposals/erpnext_proposals/doctype/quotation_scope_item/quotat
 | `activity_type` | Activity Type | Link |  | Activity Type |
 | `designation` | Designation | Link |  | Designation |
 | `project_task` | Project Task | Link |  | Task |
+| `planned_start_offset_days` | Planned Start Offset (days) | Data |  |  |
+| `moment` | Moment | Data |  |  |
+| `planned_duration_days` | Planned Duration (days) | Int |  |  |
+| `is_milestone` | Is Milestone | Check |  |  |
+| `dependency_scope_item_codes` | Dependency Scope Item Codes | Small Text |  |  |
 | `costing_rate` | Tasa de costo | Currency |  |  |
 | `rate_source` | Fuente de tasa | Data |  |  |
 | `rate_locked` | Costo congelado | Check |  |  |
@@ -154,6 +172,32 @@ Fuente: `erpnext_proposals/erpnext_proposals/doctype/scope_item/scope_item.json`
 | `deliverable` | Deliverable | Text Editor |  |  |
 | `phase` | Phase | Link |  | Proposal Phase |
 | `erpnext_item` | ERPNext Item | Link |  | Item |
+| `erpnext_items` | ERPNext Items | Table |  | Scope Item ERPNext Item |
 | `estimated_hours` | Estimated Hours | Float |  |  |
 | `default_activity_type` | Default Activity Type | Link |  | Activity Type |
 | `default_designation` | Default Designation | Link |  | Designation |
+| `planned_start_offset_days` | Planned Start Offset (days) | Data |  |  |
+| `moment` | Moment | Data |  |  |
+| `planned_duration_days` | Planned Duration (days) | Int |  |  |
+| `is_milestone` | Is Milestone | Check |  |  |
+| `depends_on_scope_items` | Depends On (Scope Items) | Table |  | Scope Item Dependency |
+
+
+### Scope Item Dependency _Child table_
+
+Fuente: `erpnext_proposals/erpnext_proposals/doctype/scope_item_dependency/scope_item_dependency.json`
+
+
+| Campo | Label | Tipo | Requerido | Opciones |
+|---|---|---|---|---|
+| `depends_on` | Depends On | Link | ✅ | Scope Item |
+
+
+### Scope Item ERPNext Item _Child table_
+
+Fuente: `erpnext_proposals/erpnext_proposals/doctype/scope_item_erpnext_item/scope_item_erpnext_item.json`
+
+
+| Campo | Label | Tipo | Requerido | Opciones |
+|---|---|---|---|---|
+| `item` | Item | Link | ✅ | Item |

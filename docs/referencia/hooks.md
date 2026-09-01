@@ -1,7 +1,7 @@
 <!--
   ARCHIVO GENERADO AUTOMÁTICAMENTE. NO EDITAR MANUALMENTE.
   Regenerar con: python3 scripts/generate_reference.py
-  Fecha generación: 2026-07-30 21:45
+  Fecha generación: 2026-09-01 02:52
 -->
 
 
@@ -14,6 +14,14 @@ Hooks activos en el app. Fuente: `hooks.py`.
 
 | DocType | Evento | Handler |
 |---|---|---|
+| `File` | `on_trash` | `protect_official_document_on_trash` |
+|  |  | `erpnext_proposals.erpnext_proposals.utils.official_document_protection.protect_official_document_on_trash` |
+| `Print Format` | `validate` | `protect_historical_print_format_on_save` |
+|  |  | `erpnext_proposals.erpnext_proposals.utils.print_format_protection.protect_historical_print_format_on_save` |
+| `Print Format` | `on_trash` | `protect_historical_print_format_on_trash` |
+|  |  | `erpnext_proposals.erpnext_proposals.utils.print_format_protection.protect_historical_print_format_on_trash` |
+| `Print Format` | `before_rename` | `protect_historical_print_format_on_rename` |
+|  |  | `erpnext_proposals.erpnext_proposals.utils.print_format_protection.protect_historical_print_format_on_rename` |
 | `Quotation` | `before_insert` | `on_quotation_before_insert` |
 |  |  | `erpnext_proposals.erpnext_proposals.utils.quotation.on_quotation_before_insert` |
 | `Quotation` | `before_insert` | `set_proposal_contact` |
