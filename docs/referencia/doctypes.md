@@ -1,7 +1,7 @@
 <!--
   ARCHIVO GENERADO AUTOMÁTICAMENTE. NO EDITAR MANUALMENTE.
   Regenerar con: python3 scripts/generate_reference.py
-  Fecha generación: 2026-09-01 10:20
+  Fecha generación: 2026-09-01 23:55
 -->
 
 
@@ -73,6 +73,21 @@ Fuente: `erpnext_proposals/erpnext_proposals/doctype/proposal_phase/proposal_pha
 | `phase_name` | Phase Name | Data | ✅ |  |
 | `sequence` | Sequence | Int | ✅ |  |
 | `enabled` | Enabled | Check |  |  |
+
+
+### Proposal Required Item _Child table_
+
+Fuente: `erpnext_proposals/erpnext_proposals/doctype/proposal_required_item/proposal_required_item.json`
+
+
+| Campo | Label | Tipo | Requerido | Opciones |
+|---|---|---|---|---|
+| `item` | Item | Link | ✅ | Item |
+| `qty` | Qty | Float | ✅ |  |
+| `uom` | UOM | Link |  | UOM |
+| `frozen_cost_rate` | Frozen Cost Rate | Currency |  |  |
+| `frozen_cost_source` | Frozen Cost Source | Data |  |  |
+| `cost_locked` | Cost Locked | Check |  |  |
 
 
 ### Proposal Section

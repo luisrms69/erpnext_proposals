@@ -1,7 +1,7 @@
 # ADR-0002: Rentabilidad Estimada de Propuesta
 
 **Fecha:** 2026-05-19
-**Status:** Cerrado — implementado y mergeado (PR #7, 2026-05-20)
+**Status:** Cerrado — implementado y mergeado (PR #7, 2026-05-20). **Superseded in part by [ADR-0017](0017-required-items-modelo-economico-aditivo.md)** (costo externo de compras + snapshot económico congelado; ver §12 de ADR-0017). Siguen vigentes: cadena única de verdad, sin módulo paralelo, reporte interno, `billing_rate` no se usa como costo.
 **Rama:** feature/proposal-profitability → mergeado a version-16
 
 ---

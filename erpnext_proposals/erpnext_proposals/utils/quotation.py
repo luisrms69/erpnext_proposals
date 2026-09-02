@@ -240,24 +240,41 @@ def _append_scope_rows_for_item(doc, item_code: str, existing: set) -> int:
 	return added
 
 
+def _source_item_codes(doc) -> list:
+	"""item_codes de las líneas que aportan alcance a la propuesta: Items **vendidos** (`doc.items`) +
+	**Required Items** (`doc.required_items`, Item nativo no vendido), en ese orden, deduplicados. Ambas
+	fuentes usan el MISMO resolver N:M (ADR-0017). El Required Item referencia el Item en el campo `item`."""
+	codes = []
+	seen = set()
+	for it in doc.get("items") or []:
+		if it.item_code and it.item_code not in seen:
+			codes.append(it.item_code)
+			seen.add(it.item_code)
+	for ri in doc.get("required_items") or []:
+		if ri.item and ri.item not in seen:
+			codes.append(ri.item)
+			seen.add(ri.item)
+	return codes
+
+
 def _generate_scope_items(doc):
-	"""Autopoblado SOLO para líneas Quotation Item NUEVAS (un ``item_code`` que no existía en el
-	guardado previo). Un guardado normal NO repuebla: si el usuario borró una fila de alcance, no
+	"""Autopoblado SOLO para líneas NUEVAS (un ``item_code`` de Item vendido o Required Item que no existía
+	en el guardado previo). Un guardado normal NO repuebla: si el usuario borró una fila de alcance, no
 	reaparece; editar precio/cantidad/texto no reconstruye nada. La captura inicial (documento nuevo)
-	genera para todos los Items; agregar un Item nuevo genera solo el alcance de ese Item. Recuperar
+	genera para todos los Items; agregar un Item vendido o requerido nuevo genera solo su alcance. Recuperar
 	faltantes a posteriori es una acción MANUAL explícita (``add_missing_scope_items_from_items``)."""
 	before = doc.get_doc_before_save()
-	prev_item_codes = {i.item_code for i in (before.items if before else []) if i.item_code}
+	prev_item_codes = set(_source_item_codes(before)) if before else set()
 	existing = {
 		(row.item_code, row.scope_item)
 		for row in (doc.quotation_scope_items or [])
 		if row.item_code and row.scope_item
 	}
-	for item in doc.items or []:
-		# Sin item_code, o item_code que ya estaba en el guardado previo → no repoblar.
-		if not item.item_code or item.item_code in prev_item_codes:
+	for item_code in _source_item_codes(doc):
+		# item_code que ya estaba en el guardado previo → no repoblar.
+		if item_code in prev_item_codes:
 			continue
-		_append_scope_rows_for_item(doc, item.item_code, existing)
+		_append_scope_rows_for_item(doc, item_code, existing)
 
 
 # Contenido general del Item que se CONGELA en la línea nativa Quotation Item (bloque del servicio).
@@ -407,7 +424,7 @@ def resync_scope_from_catalog(quotation_name: str) -> dict:
 			)
 		)
 
-	item_codes = [it.item_code for it in (doc.items or []) if it.item_code]
+	item_codes = _source_item_codes(doc)
 	catalog = _catalog_rows_for_items(item_codes)
 
 	updated = 0
@@ -465,9 +482,8 @@ def add_missing_scope_items_from_items(quotation_name: str) -> dict:
 		(r.item_code, r.scope_item) for r in (doc.quotation_scope_items or []) if r.item_code and r.scope_item
 	}
 	added = 0
-	for it in doc.items or []:
-		if it.item_code:
-			added += _append_scope_rows_for_item(doc, it.item_code, existing)
+	for item_code in _source_item_codes(doc):
+		added += _append_scope_rows_for_item(doc, item_code, existing)
 	if added:
 		doc.save()
 	return {"added": added, "total": len(doc.quotation_scope_items)}
@@ -492,6 +508,7 @@ def freeze_proposal(doc) -> None:
 	# Snapshot: conservar el existente; crear solo si viene un Draft legacy sin snapshot.
 	_sync_sections_snapshot(doc)
 	_freeze_costing_rates(doc)
+	_freeze_item_costs(doc)
 
 
 def _sync_sections_snapshot(doc, force: bool = False) -> None:
@@ -625,6 +642,32 @@ def _freeze_costing_rates(doc) -> None:
 		row.rate_source = source
 		row.rate_locked = 1
 		row.rate_locked_on = now
+
+
+def _freeze_item_costs(doc) -> None:
+	"""Congela el COSTO EXTERNO por línea (Item vendido + Required Item) en Borrador → En Revisión.
+
+	Aditivo al costo laboral (que se congela en ``_freeze_costing_rates``). Idempotente por fila
+	(``cost_locked``). Resuelve en vivo con el pricing NATIVO (``resolve_external_cost``: gate
+	``is_purchase_item`` → Item Price de compra → last_purchase → valuation). Sin costo → rate 0,
+	source ``sin_costo``, locked=1: la propuesta histórica NO vuelve a consultar pricing vivo (ADR-0017)."""
+	from erpnext_proposals.erpnext_proposals.utils.item_cost import resolve_external_cost
+
+	txn = doc.get("transaction_date")
+	for row in doc.get("items") or []:
+		if row.get("proposal_cost_locked"):
+			continue  # already locked — never overwrite
+		rate, source = resolve_external_cost(row.item_code, row.get("uom"), txn)
+		row.proposal_frozen_cost_rate = flt(rate)
+		row.proposal_frozen_cost_source = source
+		row.proposal_cost_locked = 1
+	for row in doc.get("required_items") or []:
+		if row.get("cost_locked"):
+			continue
+		rate, source = resolve_external_cost(row.item, row.get("uom"), txn)
+		row.frozen_cost_rate = flt(rate)
+		row.frozen_cost_source = source
+		row.cost_locked = 1
 
 
 def attach_proposal_pdfs(doc) -> None:

@@ -2,6 +2,24 @@
 
 ## [No liberado]
 
+### Added — Items requeridos y modelo económico aditivo (v0.17.0)
+- **`Proposal Required Item`** (child de Quotation, campo `required_items`): Items **no vendidos** necesarios
+  para cumplir la propuesta (PMO, licencias internas, hardware, partner). Campos: `item`, `qty`, `uom` +
+  snapshot de costo interno. No generan ingreso ni línea comercial.
+- **Alcance desde ambas fuentes:** la generación / *Agregar Scope Items desde Items* / resync iteran
+  **Items vendidos ∪ Items requeridos** por el mismo resolver N:M; se conserva la clave de dedup
+  `(item_code, scope_item)`.
+- **Costo externo aditivo (ADR-0017):** independiente del costo laboral (se elimina el `covered_by_scope`
+  que anulaba el costo de items con Scope). Gate `Item.is_purchase_item`; resolución con pricing **nativo**
+  (`utils/item_cost.resolve_external_cost`: `get_item_price` de compra → `last_purchase_rate` →
+  `valuation_rate`). Supplier Quotation automática queda fuera.
+- **Freeze del costo externo** al pasar Borrador → En Revisión (`proposal_frozen_cost_rate/_source` +
+  `proposal_cost_locked` en Quotation Item; `frozen_cost_rate/_source` + `cost_locked` en Required Item);
+  el reporte lee el snapshot en documentos submitted → la rentabilidad histórica no cambia con pricing vivo.
+- **Rentabilidad:** ingresos − costo de compra (vendidos/requeridos comprables) − costo de esfuerzo.
+- Docs: `usuario/items-requeridos.md`, **ADR-0017** (supersede parcial de ADR-0002), arquitectura y
+  referencia regeneradas.
+
 ### Added — SOW como tercer documento oficial (v0.16.0)
 - **`Proposal Template.sow_print_format`** (Link → Print Format, opcional): define el Print Format del
   **SOW** (Statement of Work) de esa familia de propuesta. Vacío = no se genera SOW.

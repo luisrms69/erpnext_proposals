@@ -44,11 +44,6 @@ def get_profitability_data(quotation_name: str) -> dict:
 	def _is_costable(row):
 		return row.include_in_proposal or row.is_internal_cost_task
 
-	# Items that have Scope Items → costed by labor, not by purchase price
-	items_with_scope = {
-		row.item_code for row in quotation.quotation_scope_items if _is_costable(row) and row.item_code
-	}
-
 	# ── Labor cost ───────────────────────────────────────────────────────
 	scope_rows_raw = sorted(
 		[r for r in quotation.quotation_scope_items if _is_costable(r)],
@@ -113,58 +108,72 @@ def get_profitability_data(quotation_name: str) -> dict:
 			}
 		)
 
-	# ── Item cost ────────────────────────────────────────────────────────
+	# ── Costo externo de items (ADITIVO; ADR-0017) ───────────────────────
+	# El costo externo de compra es INDEPENDIENTE del costo laboral (ya NO se anula por tener Scope
+	# Items). Aplica a Items vendidos comprables y a Required Items comprables; el gate `is_purchase_item`
+	# vive en `resolve_external_cost`. En documentos submitted se lee el snapshot congelado; en Borrador
+	# se resuelve en vivo con el pricing nativo.
+	from erpnext_proposals.erpnext_proposals.utils.item_cost import resolve_external_cost
+
+	txn = quotation.get("transaction_date")
+
+	def _external(item_code, uom, locked, frozen_rate, frozen_source):
+		if is_submitted and locked:
+			return flt(frozen_rate), (frozen_source or "frozen")
+		return resolve_external_cost(item_code, uom, txn)
+
 	item_cost_rows = []
 	total_item_cost = 0.0
-	items_without_cost = []
 
 	for item in quotation.items:
-		if item.item_code in items_with_scope:
-			item_cost_rows.append(
-				{
-					"item_name": item.item_name,
-					"item_code": item.item_code,
-					"qty": flt(item.qty),
-					"cost_per_unit": 0.0,
-					"total_cost": 0.0,
-					"source": "scope",
-					"covered_by_scope": True,
-				}
-			)
-			continue
-
-		cost_per_unit, source = _get_item_cost(item.item_code)
+		rate, source = _external(
+			item.item_code,
+			item.get("uom"),
+			item.get("proposal_cost_locked"),
+			item.get("proposal_frozen_cost_rate"),
+			item.get("proposal_frozen_cost_source"),
+		)
 		qty = flt(item.qty)
-
-		if cost_per_unit is None:
-			items_without_cost.append(item.item_name)
-			item_cost_rows.append(
-				{
-					"item_name": item.item_name,
-					"item_code": item.item_code,
-					"qty": qty,
-					"cost_per_unit": 0.0,
-					"total_cost": 0.0,
-					"source": "sin_costo",
-					"covered_by_scope": False,
-				}
-			)
-			continue
-
-		item_total = flt(qty * cost_per_unit)
-		total_item_cost += item_total
-
+		total = flt(qty * rate)
+		total_item_cost += total
 		item_cost_rows.append(
 			{
+				"kind": "sold",
 				"item_name": item.item_name,
 				"item_code": item.item_code,
 				"qty": qty,
-				"cost_per_unit": cost_per_unit,
-				"total_cost": item_total,
+				"cost_per_unit": rate,
+				"total_cost": total,
 				"source": source,
-				"covered_by_scope": False,
 			}
 		)
+
+	for ri in quotation.get("required_items") or []:
+		rate, source = _external(
+			ri.item,
+			ri.get("uom"),
+			ri.get("cost_locked"),
+			ri.get("frozen_cost_rate"),
+			ri.get("frozen_cost_source"),
+		)
+		qty = flt(ri.qty)
+		total = flt(qty * rate)
+		total_item_cost += total
+		item_cost_rows.append(
+			{
+				"kind": "required",
+				"item_name": frappe.db.get_value("Item", ri.item, "item_name") or ri.item,
+				"item_code": ri.item,
+				"qty": qty,
+				"cost_per_unit": rate,
+				"total_cost": total,
+				"source": source,
+			}
+		)
+
+	# Items comprables (is_purchase_item) SIN ninguna fuente de costo → warning. Los `no_purchase`
+	# (servicios propios) no son un problema: su costo, si existe, es laboral.
+	items_sin_costo = [r["item_name"] for r in item_cost_rows if r["source"] == "sin_costo"]
 
 	# ── Sales rows ───────────────────────────────────────────────────────
 	sales_rows = [
@@ -232,11 +241,9 @@ def get_profitability_data(quotation_name: str) -> dict:
 		warnings.append(
 			_("{0} tarea(s) sin costing_rate — costo laboral calculado parcialmente.").format(missing_rate)
 		)
-	for name in items_without_cost:
+	for name in items_sin_costo:
 		warnings.append(
-			_(
-				"{0} — sin Supplier Quotation, Buying Item Price, last_purchase_rate ni valuation_rate."
-			).format(name)
+			_("{0} — comprable sin Buying Item Price, last_purchase_rate ni valuation_rate.").format(name)
 		)
 
 	# ── Q/C checks ───────────────────────────────────────────────────────
@@ -264,9 +271,9 @@ def get_profitability_data(quotation_name: str) -> dict:
 			"detail": str(missing_rate),
 		},
 		{
-			"label": _("Items sin costo estimable"),
-			"status": "ok" if not items_without_cost else "warning",
-			"detail": str(len(items_without_cost)),
+			"label": _("Items comprables sin costo estimable"),
+			"status": "ok" if not items_sin_costo else "warning",
+			"detail": str(len(items_sin_costo)),
 		},
 		{
 			"label": _("Moneda Quotation = moneda base Company"),
@@ -305,39 +312,6 @@ def get_profitability_data(quotation_name: str) -> dict:
 		"warnings": warnings,
 		"qc_checks": qc_checks,
 	}
-
-
-def _get_item_cost(item_code: str):
-	"""
-	Returns (cost_per_unit, source_label) from ERPNext native sources.
-	Priority: Supplier Quotation > Buying Item Price > last_purchase_rate > valuation_rate
-	"""
-	sq = frappe.db.get_value(
-		"Supplier Quotation Item",
-		{"item_code": item_code, "docstatus": 1},
-		"rate",
-		order_by="creation desc",
-	)
-	if sq:
-		return flt(sq), _("Supplier Quotation")
-
-	ip = frappe.db.get_value(
-		"Item Price",
-		{"item_code": item_code, "buying": 1, "selling": 0},
-		"price_list_rate",
-	)
-	if ip:
-		return flt(ip), _("Buying Item Price")
-
-	lpr = frappe.db.get_value("Item", item_code, "last_purchase_rate")
-	if lpr:
-		return flt(lpr), _("Último precio de compra")
-
-	vr = frappe.db.get_value("Item", item_code, "valuation_rate")
-	if vr:
-		return flt(vr), _("Valuation Rate")
-
-	return None, None
 
 
 def _build_report_rows(d: dict) -> list:
@@ -381,17 +355,19 @@ def _build_report_rows(d: dict) -> list:
 		}
 	)
 
-	# Items section — only items NOT covered by labor scope
+	# Costo de compra — Items vendidos comprables + Required Items (aditivo al costo laboral; ADR-0017).
+	# Se omiten los no comprables (`no_purchase`): su costo externo es 0 y solo aportan esfuerzo (arriba).
 	data.append(_spacer())
-	data.append(_section(_("ITEMS COMPRADOS / REVENDIDOS")))
+	data.append(_section(_("COSTO DE COMPRA (Items vendidos + requeridos)")))
 	for row in d["item_cost_rows"]:
-		if row["covered_by_scope"]:
-			continue  # cost already captured in labor section
-		elif row["source"] == "sin_costo":
+		if row["source"] == "no_purchase":
+			continue  # no comprable → sin costo externo (su costo, si aplica, es laboral)
+		tag = _("requerido") if row["kind"] == "required" else _("vendido")
+		if row["source"] == "sin_costo":
 			data.append(
 				{
 					"label": row["item_name"],
-					"notes": _("sin costo estimable"),
+					"notes": _("{0} — sin costo estimable").format(tag),
 					"currency": currency,
 					"indent": 1,
 				}
@@ -402,14 +378,16 @@ def _build_report_rows(d: dict) -> list:
 					"label": row["item_name"],
 					"costing_rate": row["cost_per_unit"],
 					"estimated_cost": row["total_cost"],
-					"notes": _("Fuente: {0} | Cant: {1}").format(row["source"], flt(row["qty"], 2)),
+					"notes": _("{0} | Fuente: {1} | Cant: {2}").format(
+						tag, row["source"], flt(row["qty"], 2)
+					),
 					"currency": currency,
 					"indent": 1,
 				}
 			)
 	data.append(
 		{
-			"label": _("Total costo items"),
+			"label": _("Total costo de compra"),
 			"estimated_cost": d["totals"]["item_cost"],
 			"currency": currency,
 			"bold": 1,
@@ -477,7 +455,7 @@ def _build_report_rows(d: dict) -> list:
 	)
 	data.append(
 		{
-			"label": _("Costo items comprados/revendidos"),
+			"label": _("Costo de compra (items + requeridos)"),
 			"estimated_cost": t["item_cost"],
 			"currency": currency,
 			"indent": 1,
