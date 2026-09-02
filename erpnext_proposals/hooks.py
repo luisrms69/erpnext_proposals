@@ -91,6 +91,7 @@ fixtures = [
 					"proposal_frozen_cost_rate",
 					"proposal_frozen_cost_source",
 					"proposal_cost_locked",
+					"proposal_skip_procurement",
 				],
 			],
 		],

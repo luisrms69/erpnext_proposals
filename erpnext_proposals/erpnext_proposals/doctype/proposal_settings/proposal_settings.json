@@ -1,0 +1,82 @@
+{
+ "actions": [],
+ "autoname": "field:company",
+ "creation": "2026-09-02 12:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "company",
+  "autoload_section",
+  "required_item_rules",
+  "procurement_section",
+  "default_procurement_scope_item"
+ ],
+ "fields": [
+  {
+   "description": "Compañía a la que aplica esta configuración. La resolución es estricta por Company: una Quotation usa únicamente el Proposal Settings de su propia Company; si no existe, no hay precarga ni abastecimiento automático (sin fallback global).",
+   "fieldname": "company",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Compañía",
+   "options": "Company",
+   "reqd": 1,
+   "unique": 1
+  },
+  {
+   "fieldname": "autoload_section",
+   "fieldtype": "Section Break",
+   "label": "Precarga de Items requeridos"
+  },
+  {
+   "description": "Reglas para precargar Items requeridos al agregar un Item vendido. Se resuelve por Item específico; si no hay, por su Item Group. Solo PRECARGA: la propuesta manda después (si el usuario borra un Item requerido, no vuelve a insertarse solo).",
+   "fieldname": "required_item_rules",
+   "fieldtype": "Table",
+   "label": "Reglas Item / Item Group → Items requeridos",
+   "options": "Proposal Required Item Rule"
+  },
+  {
+   "fieldname": "procurement_section",
+   "fieldtype": "Section Break",
+   "label": "Abastecimiento"
+  },
+  {
+   "description": "Scope Item genérico de gestión de abastecimiento. Si se define, se agrega automáticamente al alcance de cada Item COMPRABLE (is_purchase_item=1), vendido o requerido, salvo que el Item tenga marcado 'Omitir tarea de abastecimiento'. Vacío = no se genera abastecimiento automático.",
+   "fieldname": "default_procurement_scope_item",
+   "fieldtype": "Link",
+   "label": "Scope Item de abastecimiento por defecto",
+   "options": "Scope Item"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-09-02 15:30:00.000000",
+ "modified_by": "Administrator",
+ "module": "ERPNext Proposals",
+ "name": "Proposal Settings",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "print": 1,
+   "read": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "print": 1,
+   "read": 1,
+   "role": "Proposals Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

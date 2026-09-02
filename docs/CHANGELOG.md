@@ -17,8 +17,17 @@
   `proposal_cost_locked` en Quotation Item; `frozen_cost_rate/_source` + `cost_locked` en Required Item);
   el reporte lee el snapshot en documentos submitted → la rentabilidad histórica no cambia con pricing vivo.
 - **Rentabilidad:** ingresos − costo de compra (vendidos/requeridos comprables) − costo de esfuerzo.
-- Docs: `usuario/items-requeridos.md`, **ADR-0017** (supersede parcial de ADR-0002), arquitectura y
-  referencia regeneradas.
+- **Precarga por configuración, por Company (Fase 1 bis):** nuevo DocType **`Proposal Settings` — uno por
+  `Company`** (no Single; editable por `System Manager` / `Proposals Manager`; máximo uno por Company) con
+  reglas **`Proposal Required Item Rule`** (*Item/Item Group vendido → Item requerido*, con precedencia de
+  Item sobre Item Group) y **`default_procurement_scope_item`**. La Quotation resuelve la configuración de
+  forma **estricta por `quotation.company`**: sin settings para esa Company no hay precarga ni abastecimiento
+  y **no hay fallback global**. Al agregar Items vendidos **nuevos**, se precargan los Items requeridos
+  configurados (`auto_generated=1`) y sus Scope Items; todo Item **comprable** (vendido o requerido) suma el
+  Scope Item de **abastecimiento**, con opt-out por Item (**custom field `Item.proposal_skip_procurement`**).
+  Es solo precarga: no duplica, no repone borrados y se preserva en el resync.
+- Docs: `usuario/items-requeridos.md`, **ADR-0017** (supersede parcial de ADR-0002; sección Fase 1 bis),
+  arquitectura y referencia regeneradas.
 
 ### Added — SOW como tercer documento oficial (v0.16.0)
 - **`Proposal Template.sow_print_format`** (Link → Print Format, opcional): define el Print Format del

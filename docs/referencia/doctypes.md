@@ -1,7 +1,7 @@
 <!--
   ARCHIVO GENERADO AUTOMÁTICAMENTE. NO EDITAR MANUALMENTE.
   Regenerar con: python3 scripts/generate_reference.py
-  Fecha generación: 2026-09-01 23:55
+  Fecha generación: 2026-09-02 15:32
 -->
 
 
@@ -84,10 +84,23 @@ Fuente: `erpnext_proposals/erpnext_proposals/doctype/proposal_required_item/prop
 |---|---|---|---|---|
 | `item` | Item | Link | ✅ | Item |
 | `qty` | Qty | Float | ✅ |  |
-| `uom` | UOM | Link |  | UOM |
-| `frozen_cost_rate` | Frozen Cost Rate | Currency |  |  |
-| `frozen_cost_source` | Frozen Cost Source | Data |  |  |
-| `cost_locked` | Cost Locked | Check |  |  |
+| `uom` | Unidad | Link |  | UOM |
+| `auto_generated` | Auto Generated | Check |  |  |
+| `frozen_cost_rate` | Costo de compra (guardado) | Currency |  |  |
+| `frozen_cost_source` | Origen del costo | Data |  |  |
+| `cost_locked` | Costo ya guardado | Check |  |  |
+
+
+### Proposal Required Item Rule _Child table_
+
+Fuente: `erpnext_proposals/erpnext_proposals/doctype/proposal_required_item_rule/proposal_required_item_rule.json`
+
+
+| Campo | Label | Tipo | Requerido | Opciones |
+|---|---|---|---|---|
+| `source_type` | Aplicar a | Select | ✅ | Item… |
+| `source` | Item / Item Group | Dynamic Link | ✅ | source_type |
+| `required_item` | Item requerido | Link | ✅ | Item |
 
 
 ### Proposal Section
@@ -102,6 +115,18 @@ Fuente: `erpnext_proposals/erpnext_proposals/doctype/proposal_section/proposal_s
 | `title` | Display Title | Data |  |  |
 | `enabled` | Enabled | Check |  |  |
 | `content` | Content | Text Editor |  |  |
+
+
+### Proposal Settings
+
+Fuente: `erpnext_proposals/erpnext_proposals/doctype/proposal_settings/proposal_settings.json`
+
+
+| Campo | Label | Tipo | Requerido | Opciones |
+|---|---|---|---|---|
+| `company` | Compañía | Link | ✅ | Company |
+| `required_item_rules` | Reglas Item / Item Group → Items requeridos | Table |  | Proposal Required Item Rule |
+| `default_procurement_scope_item` | Scope Item de abastecimiento por defecto | Link |  | Scope Item |
 
 
 ### Proposal Template

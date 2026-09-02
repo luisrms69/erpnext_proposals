@@ -71,6 +71,49 @@ pricing **nativo** ERPNext; sumar aditivo al costo laboral. **Quitar** el zeroin
 **Valuación (§ Consecuencias):** el reporte distingue **Costo de compra / Costo de esfuerzo / Costo total** y
 suma Required Items comprables al costo externo.
 
+## 3 bis. Fase 1 bis — Precarga por configuración (UX, mismo ciclo)
+
+Fase 1 deja el modelo correcto pero exige que la preventa capture manualmente los Required Items y (para
+comprables) toda tarea de abastecimiento. Fase 1 bis agrega **precarga** para que la preventa seleccione
+sobre todo Items **vendidos** y el sistema proponga el resto. **Es solo precarga**: una vez materializada,
+la Quotation manda (mismo principio que la generación de alcance — lo borrado no reaparece; el usuario
+revisa, borra, agrega y define excepciones). **No** agrega botones ni diálogos.
+
+**Nuevo DocType `Proposal Settings` — uno por `Company`** (no Single; editable por `System Manager` y
+`Proposals Manager`):
+- `company` (Link → Company, **reqd, único**): autoname `field:company` + validación explícita
+  (`_assert_unique_per_company`) → **como máximo un Proposal Settings por Company**, genérico para
+  cualquier sitio multi-company.
+- `required_item_rules` (Table → **`Proposal Required Item Rule`**): mapeo `source_type` (`Item` |
+  `Item Group`) + `source` (Dynamic Link) → `required_item` (Link → Item).
+- `default_procurement_scope_item` (Link → Scope Item): Scope Item de abastecimiento por defecto.
+
+**Resolución estricta por Company** (`_proposal_settings(company)`): al procesar una Quotation se toma
+`quotation.company` y se usa **exclusivamente** el `Proposal Settings` de esa Company. Si esa Company no
+tiene settings: **no** se precargan Required Items, **no** se aplica abastecimiento y **no** hay fallback a
+otra Company ni a una configuración global. La configuración es un DocType de lista (una fila por Company);
+**no existe pantalla Single global**.
+
+**Autoload de Required Items** (`_autoload_required_items`, corre en `validate` **antes** de generar el
+alcance): al detectar Items **vendidos nuevos** (diff `get_doc_before_save`, mismo patrón que el alcance),
+resuelve los Required Items configurados y **agrega los que falten** marcándolos `auto_generated=1`. Cada
+Required Item precargado dispara normalmente sus Scope Items en la misma pasada.
+- **Precedencia:** reglas específicas de **Item** ganan sobre reglas de su **Item Group** (no se mezclan).
+- **No duplica** ni repone borrados (un guardado normal no trae Items vendidos nuevos), y **no** precarga
+  como requerido un Item que ya sea línea vendida (evita duplicar una reventa en `required_items`).
+
+**Scope de abastecimiento híbrido** (`_procurement_scope_for_item` + `_applicable_scope_items`): si hay
+`default_procurement_scope_item` configurado, todo Item **comprable** (`is_purchase_item=1`) —vendido o
+requerido— suma ese Scope Item a su alcance, salvo opt-out por Item (**custom field `Item.
+proposal_skip_procurement`**). El Scope Item de abastecimiento fluye como un Scope Item normal: se comparte
+en generación **y** resync (`_applicable_scope_items` se usa en ambos, por lo que el resync **no** lo
+elimina) y llega a Project/Tasks como cualquier otra actividad.
+
+**Additividad/compatibilidad:** una Company **sin** `Proposal Settings` se comporta **idéntico a Fase 1**
+(sin autoload, sin abastecimiento). `Proposal Required Item.auto_generated` es solo auditoría. Sin backfill:
+`Proposal Settings` no estaba publicado, se define directamente como DocType por Company (sin migración de
+un Single previo).
+
 ## 4. Fase 2 — Recurrencia económica (obligatoria de corto plazo; NO se implementa en este ciclo)
 
 Propuestas con ingresos/costos en distintos meses y recurrencias distintas (servicio administrado mensual,

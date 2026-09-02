@@ -36,6 +36,30 @@ Reglas de alcance (iguales para vendidos y requeridos):
 - dos Items distintos que apuntan al mismo Scope Item generan **dos filas** (dos esfuerzos); si es un solo
   esfuerzo compartido, elimina la fila sobrante manualmente.
 
+## Precarga automática (opcional)
+
+Para que la preventa capture sobre todo **Items vendidos** y no tenga que recordar todo lo requerido, el
+sistema puede **precargar** automáticamente. La precarga se configura en **Proposal Settings**
+(*Configuración de propuestas*) y solo la ven `System Manager` y `Proposals Manager`.
+
+**La configuración es por Compañía.** Cada `Company` tiene su propia fila de Proposal Settings (como máximo
+una): abres la lista y creas una por Compañía —Compañía A con sus reglas, Compañía B con reglas distintas,
+Compañía C sin configuración—. Al elaborar una propuesta, el sistema usa **solo** la configuración de la
+Compañía de esa Quotation; si esa Compañía no tiene configuración, no se precarga nada (no se hereda de
+otra Compañía).
+
+- **Reglas de Items requeridos** — mapeo *Item o Item Group vendido → Item requerido*. Al agregar un Item
+  vendido nuevo, sus Items requeridos configurados se agregan solos a la tabla **Items requeridos**. Una
+  regla específica de **Item** tiene prioridad sobre la de su **Item Group** (no se combinan).
+- **Scope Item de abastecimiento** — un Scope Item por defecto que se agrega al alcance de **todo Item
+  comprable** (vendido o requerido), para representar la tarea de comprar/aprovisionar. Se puede excluir un
+  Item concreto marcando en el Item **«Omitir tarea de abastecimiento»** (`proposal_skip_procurement`).
+
+La precarga es **solo un punto de partida**: una vez agregadas, las filas son de la propuesta. Puedes
+borrarlas, agregar otras o hacer excepciones; **lo que borras no reaparece** al guardar. Sin Proposal
+Settings para la Compañía de la propuesta, no hay precarga y todo se captura manualmente (comportamiento
+base).
+
 ## Costo de la propuesta (valuación económica)
 
 El reporte **Rentabilidad Estimada** (interno) suma de forma **aditiva**:

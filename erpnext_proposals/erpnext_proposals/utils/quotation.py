@@ -99,6 +99,9 @@ def on_quotation_validate(doc, method=None):
 	# Snapshot de Sections narrativas: se construye desde el Template solo si aún está vacío (generación
 	# inicial en Borrador); un guardado normal no lo regenera ni consulta maestros.
 	_sync_sections_snapshot(doc)
+	# Fase 1 bis: precargar Items requeridos configurados por los Items vendidos nuevos, ANTES de generar
+	# el alcance, para que sus Scope Items entren en la misma pasada.
+	_autoload_required_items(doc)
 	_generate_scope_items(doc)
 
 
@@ -186,14 +189,105 @@ _SCOPE_GEN_FIELDS = (
 )
 
 
+def _proposal_settings(company: str | None):
+	"""Proposal Settings **de la Company** dada (ADR-0017, Fase 1 bis). Separación estricta por Company:
+	sin fallback global. Devuelve el doc cacheado por request o ``None`` si esa Company no tiene settings."""
+	if not company:
+		return None
+	name = frappe.db.get_value("Proposal Settings", {"company": company}, "name")
+	if not name:
+		return None
+	return frappe.get_cached_doc("Proposal Settings", name)
+
+
+def _configured_required_items(item_code: str, company: str | None) -> list:
+	"""Items requeridos configurados para un Item vendido, por el Proposal Settings de la Company
+	(ADR-0017, Fase 1 bis). Precedencia: reglas específicas de Item; si no hay, reglas de su Item Group; si
+	ninguna, vacío. No se mezclan ambos niveles. Solo PRECARGA (la propuesta manda después)."""
+	settings = _proposal_settings(company)
+	if not settings:
+		return []
+	rules = settings.get("required_item_rules") or []
+	item_rules = [
+		r.required_item
+		for r in rules
+		if r.source_type == "Item" and r.source == item_code and r.required_item
+	]
+	if item_rules:
+		return list(dict.fromkeys(item_rules))
+	group = frappe.db.get_value("Item", item_code, "item_group")
+	if not group:
+		return []
+	group_rules = [
+		r.required_item
+		for r in rules
+		if r.source_type == "Item Group" and r.source == group and r.required_item
+	]
+	return list(dict.fromkeys(group_rules))
+
+
+def _procurement_scope_for_item(item_code: str, company: str | None):
+	"""Scope Item de abastecimiento aplicable a un Item COMPRABLE (default de la Company + opt-out por Item).
+	Devuelve el code del Scope Item o ``None``. Genérico: no depende de nombres de cliente."""
+	settings = _proposal_settings(company)
+	if not settings:
+		return None
+	proc = settings.get("default_procurement_scope_item")
+	if not proc:
+		return None
+	item = frappe.db.get_value(
+		"Item", item_code, ["is_purchase_item", "proposal_skip_procurement"], as_dict=True
+	)
+	if not item or not item.is_purchase_item or item.get("proposal_skip_procurement"):
+		return None
+	if not frappe.db.get_value("Scope Item", proc, "enabled"):
+		return None
+	return proc
+
+
+def _applicable_scope_items(item_code: str, company: str | None) -> list:
+	"""Scope Items que aplican a un item_code **en el contexto de una Company**: los de la relación N:M
+	(fuente única) MÁS, si el Item es comprable y la Company tiene abastecimiento configurado, el Scope Item
+	de abastecimiento. Compartido por la generación y el resync para que ambos vean el MISMO conjunto (el
+	resync no elimina el de compra)."""
+	from erpnext_proposals.erpnext_proposals.utils.scope_item_links import resolve_scope_items_for_item
+
+	codes = resolve_scope_items_for_item(item_code, enabled_only=True)
+	proc = _procurement_scope_for_item(item_code, company)
+	if proc and proc not in codes:
+		codes = [*list(codes), proc]
+	return codes
+
+
+def _autoload_required_items(doc) -> None:
+	"""Precarga Items requeridos configurados al agregar Items VENDIDOS nuevos (ADR-0017, Fase 1 bis).
+
+	Copia el patrón de la generación de alcance: solo para líneas vendidas **nuevas** (diff con
+	``get_doc_before_save``); agrega los Required Items configurados que falten (por Item), marcándolos
+	``auto_generated=1``. NO repone los que el usuario borró (un guardado normal no trae items nuevos), y
+	NO agrega un Item que ya sea línea vendida (evita duplicar una reventa en required_items)."""
+	company = doc.get("company")
+	before = doc.get_doc_before_save()
+	prev_sold = {i.item_code for i in (before.items if before else []) if i.item_code}
+	sold_now = {i.item_code for i in (doc.get("items") or []) if i.item_code}
+	present_required = {r.item for r in (doc.get("required_items") or []) if r.item}
+	for it in doc.get("items") or []:
+		if not it.item_code or it.item_code in prev_sold:
+			continue  # no es una línea vendida nueva → no precargar
+		for req in _configured_required_items(it.item_code, company):
+			if req in present_required or req in sold_now:
+				continue  # ya está como requerido, o ya es una línea vendida → no duplicar
+			doc.append("required_items", {"item": req, "qty": 1, "auto_generated": 1})
+			present_required.add(req)
+
+
 def _append_scope_rows_for_item(doc, item_code: str, existing: set) -> int:
 	"""Agrega a ``quotation_scope_items`` las filas FALTANTES de un ``item_code``, resolviendo
 	Item → Scope Items por la FUENTE ÚNICA (``resolve_scope_items_for_item``: child N:N + legacy,
 	habilitados). ``existing`` = pares (item_code, scope_item) ya presentes; se actualiza in situ.
-	No elimina ni actualiza filas existentes y no duplica. Devuelve cuántas filas se agregaron."""
-	from erpnext_proposals.erpnext_proposals.utils.scope_item_links import resolve_scope_items_for_item
-
-	names = resolve_scope_items_for_item(item_code, enabled_only=True)
+	No elimina ni actualiza filas existentes y no duplica. Devuelve cuántas filas se agregaron. Incluye el
+	Scope Item de abastecimiento si aplica (ver ``_applicable_scope_items``)."""
+	names = _applicable_scope_items(item_code, doc.get("company"))
 	if not names:
 		return 0
 	scope_items = frappe.get_all(
@@ -334,17 +428,16 @@ _CATALOG_CONTROLLED_FIELDS = (
 )
 
 
-def _catalog_rows_for_items(item_codes: list) -> dict:
+def _catalog_rows_for_items(item_codes: list, company: str | None) -> dict:
 	"""Scope Items de catálogo habilitados asociados a los item_codes, por la FUENTE ÚNICA
 	(``resolve_scope_items_for_item``: child N:N + legacy), mapeados a los campos del child con clave
-	(item_code, scope_item_name). Un mismo Scope Item puede aplicar a varios Items."""
-	from erpnext_proposals.erpnext_proposals.utils.scope_item_links import resolve_scope_items_for_item
-
+	(item_code, scope_item_name). Un mismo Scope Item puede aplicar a varios Items. Incluye el Scope Item
+	de abastecimiento de la Company (``_applicable_scope_items``) para que el resync NO lo elimine."""
 	result: dict = {}
 	codes = list({c for c in (item_codes or []) if c})
 	if not codes:
 		return result
-	per_item = {code: resolve_scope_items_for_item(code, enabled_only=True) for code in codes}
+	per_item = {code: _applicable_scope_items(code, company) for code in codes}
 	all_names = sorted({n for names in per_item.values() for n in names})
 	if not all_names:
 		return result
@@ -425,7 +518,7 @@ def resync_scope_from_catalog(quotation_name: str) -> dict:
 		)
 
 	item_codes = _source_item_codes(doc)
-	catalog = _catalog_rows_for_items(item_codes)
+	catalog = _catalog_rows_for_items(item_codes, doc.get("company"))
 
 	updated = 0
 	removed = 0

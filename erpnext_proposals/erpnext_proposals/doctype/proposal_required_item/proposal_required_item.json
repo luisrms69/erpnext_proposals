@@ -9,6 +9,7 @@
   "item",
   "qty",
   "uom",
+  "auto_generated",
   "cost_snapshot_section",
   "frozen_cost_rate",
   "frozen_cost_source",
@@ -43,6 +44,15 @@
    "in_list_view": 1,
    "label": "Unidad",
    "options": "UOM"
+  },
+  {
+   "default": "0",
+   "description": "1 = precargado automáticamente por una regla de configuración; 0 = agregado manualmente. Solo auditoría.",
+   "fieldname": "auto_generated",
+   "fieldtype": "Check",
+   "hidden": 1,
+   "label": "Auto Generated",
+   "read_only": 1
   },
   {
    "collapsible": 1,
