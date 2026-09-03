@@ -13,7 +13,10 @@
   "cost_snapshot_section",
   "frozen_cost_rate",
   "frozen_cost_source",
-  "cost_locked"
+  "cost_locked",
+  "economic_behavior",
+  "billing_interval",
+  "billing_interval_count"
  ],
  "fields": [
   {
@@ -83,6 +86,28 @@
    "fieldname": "cost_locked",
    "fieldtype": "Check",
    "label": "Costo ya guardado",
+   "read_only": 1
+  },
+  {
+   "allow_on_submit": 1,
+   "description": "Comportamiento económico efectivo congelado al pasar a En Revisión (one_time/recurring/infrastructure).",
+   "fieldname": "economic_behavior",
+   "fieldtype": "Data",
+   "label": "Comportamiento económico (congelado)",
+   "read_only": 1
+  },
+  {
+   "allow_on_submit": 1,
+   "fieldname": "billing_interval",
+   "fieldtype": "Data",
+   "label": "Intervalo de recurrencia (congelado)",
+   "read_only": 1
+  },
+  {
+   "allow_on_submit": 1,
+   "fieldname": "billing_interval_count",
+   "fieldtype": "Int",
+   "label": "Conteo de intervalo (congelado)",
    "read_only": 1
   }
  ],

@@ -18,6 +18,7 @@ required_apps = ["erpnext", "hrms", "facturacion_mexico"]
 jinja = {
 	"methods": [
 		"erpnext_proposals.erpnext_proposals.report.profitability_estimate.profitability_estimate.get_profitability_data",
+		"erpnext_proposals.erpnext_proposals.utils.economic_calendar.get_economic_evaluation",
 		"erpnext_proposals.erpnext_proposals.utils.printing.render_section_content",
 		"erpnext_proposals.erpnext_proposals.utils.printing.keep_headings_with_next",
 		"erpnext_proposals.erpnext_proposals.utils.printing.parse_json",
@@ -92,6 +93,12 @@ fixtures = [
 					"proposal_frozen_cost_source",
 					"proposal_cost_locked",
 					"proposal_skip_procurement",
+					"proposal_contract_term_months",
+					"proposal_economic_behavior",
+					"proposal_billing_interval",
+					"proposal_billing_interval_count",
+					"proposal_economic_tab",
+					"proposal_economic_evaluation_html",
 				],
 			],
 		],

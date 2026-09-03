@@ -1,0 +1,77 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2026-09-02 16:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "source_type",
+  "source",
+  "economic_behavior",
+  "interval",
+  "interval_count"
+ ],
+ "fields": [
+  {
+   "columns": 2,
+   "default": "Item",
+   "fieldname": "source_type",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Aplicar a",
+   "options": "Item\nItem Group",
+   "reqd": 1
+  },
+  {
+   "columns": 3,
+   "fieldname": "source",
+   "fieldtype": "Dynamic Link",
+   "in_list_view": 1,
+   "label": "Item / Item Group",
+   "options": "source_type",
+   "reqd": 1
+  },
+  {
+   "columns": 2,
+   "default": "one_time",
+   "description": "one_time = pago único (default). recurring = se repite (define intervalo). infrastructure = infraestructura; en Fase 2A se trata económicamente como one_time.",
+   "fieldname": "economic_behavior",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Comportamiento económico",
+   "options": "one_time\nrecurring\ninfrastructure",
+   "reqd": 1
+  },
+  {
+   "columns": 2,
+   "depends_on": "eval:doc.economic_behavior=='recurring'",
+   "fieldname": "interval",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Intervalo",
+   "options": "\nMonth\nYear\nWeek\nDay"
+  },
+  {
+   "columns": 1,
+   "default": "1",
+   "depends_on": "eval:doc.economic_behavior=='recurring'",
+   "description": "Cada cuántos intervalos se genera el cargo (p. ej. Month + 1 = mensual; Month + 3 = trimestral).",
+   "fieldname": "interval_count",
+   "fieldtype": "Int",
+   "label": "Cada N intervalos"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "istable": 1,
+ "links": [],
+ "modified": "2026-09-02 16:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "ERPNext Proposals",
+ "name": "Proposal Economic Behavior Rule",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

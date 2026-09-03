@@ -62,6 +62,9 @@ def on_quotation_validate(doc, method=None):
 	# Uses validate (not before_insert) because validate is confirmed to run in web context.
 	if not doc.get("proposal_version") and not doc.get("previous_proposal"):
 		doc.proposal_version = 1
+	# Fase 2A: precargar el plazo contractual desde el default de la Company SOLO en la creación y si está
+	# vacío. Nunca se reescribe después: si la preventa lo cambia (o lo deja vacío), se respeta.
+	_default_contract_term(doc)
 	# Banderas de alcance: una fila no puede ser vendible E interna a la vez.
 	_validate_internal_cost_flags(doc)
 	# Print Format comercial: al aplicar/cambiar la plantilla (o si el override está vacío), poblar
@@ -224,6 +227,47 @@ def _configured_required_items(item_code: str, company: str | None) -> list:
 		if r.source_type == "Item Group" and r.source == group and r.required_item
 	]
 	return list(dict.fromkeys(group_rules))
+
+
+ONE_TIME = "one_time"
+_ECONOMIC_BEHAVIORS = ("one_time", "recurring", "infrastructure")
+
+
+def _default_contract_term(doc) -> None:
+	"""Precarga `proposal_contract_term_months` desde el default de la Company (ADR-0018), solo al crear y si
+	está vacío. No reescribe un valor ya presente ni un cambio posterior de la preventa. Company sin default
+	(0/None) → se deja vacío (comportamiento seguro: sin proyección recurrente por defecto)."""
+	if not doc.is_new() or doc.get("proposal_contract_term_months"):
+		return
+	settings = _proposal_settings(doc.get("company"))
+	if not settings:
+		return
+	default_term = settings.get("default_contract_term_months")
+	if default_term:
+		doc.proposal_contract_term_months = int(default_term)
+
+
+def _economic_behavior_for_item(item_code: str, company: str | None) -> tuple:
+	"""Comportamiento económico efectivo de un Item, por el Proposal Settings de la Company (ADR-0018).
+
+	Devuelve ``(behavior, interval, interval_count)``. Precedencia idéntica a las demás reglas: regla
+	específica de **Item**; si no hay, regla de su **Item Group**; si ninguna, ``one_time`` (default
+	implícito). Resolución **estricta por Company**, sin fallback global. Solo clasifica: el importe siempre
+	sale de la propuesta (precio de la línea / costo externo), aquí NO hay precio."""
+	default = (ONE_TIME, None, None)
+	settings = _proposal_settings(company)
+	if not settings:
+		return default
+	rules = settings.get("economic_behavior_rules") or []
+	for r in rules:
+		if r.source_type == "Item" and r.source == item_code:
+			return (r.economic_behavior or ONE_TIME, r.interval, r.interval_count)
+	group = frappe.db.get_value("Item", item_code, "item_group")
+	if group:
+		for r in rules:
+			if r.source_type == "Item Group" and r.source == group:
+				return (r.economic_behavior or ONE_TIME, r.interval, r.interval_count)
+	return default
 
 
 def _procurement_scope_for_item(item_code: str, company: str | None):
@@ -602,6 +646,7 @@ def freeze_proposal(doc) -> None:
 	_sync_sections_snapshot(doc)
 	_freeze_costing_rates(doc)
 	_freeze_item_costs(doc)
+	_freeze_economic_behavior(doc)
 
 
 def _sync_sections_snapshot(doc, force: bool = False) -> None:
@@ -761,6 +806,31 @@ def _freeze_item_costs(doc) -> None:
 		row.frozen_cost_rate = flt(rate)
 		row.frozen_cost_source = source
 		row.cost_locked = 1
+
+
+def _freeze_economic_behavior(doc) -> None:
+	"""Congela el COMPORTAMIENTO ECONÓMICO efectivo por línea en Borrador → En Revisión (ADR-0018).
+
+	Snapshot mínimo (behavior/interval/interval_count) resuelto en vivo desde el Proposal Settings de la
+	Company al momento del freeze. Idempotente por fila (no sobrescribe si ya hay behavior congelado). Tras
+	En Revisión, la Evaluación Económica usa exclusivamente este snapshot: cambios posteriores en la
+	configuración NO alteran la propuesta histórica. El plazo efectivo es `proposal_contract_term_months`,
+	que ya vive en la Quotation y queda inmutable al someterse."""
+	company = doc.get("company")
+	for row in doc.get("items") or []:
+		if row.get("proposal_economic_behavior"):
+			continue
+		behavior, interval, count = _economic_behavior_for_item(row.item_code, company)
+		row.proposal_economic_behavior = behavior
+		row.proposal_billing_interval = interval or ""
+		row.proposal_billing_interval_count = int(count or 0)
+	for row in doc.get("required_items") or []:
+		if row.get("economic_behavior"):
+			continue
+		behavior, interval, count = _economic_behavior_for_item(row.item, company)
+		row.economic_behavior = behavior
+		row.billing_interval = interval or ""
+		row.billing_interval_count = int(count or 0)
 
 
 def attach_proposal_pdfs(doc) -> None:
