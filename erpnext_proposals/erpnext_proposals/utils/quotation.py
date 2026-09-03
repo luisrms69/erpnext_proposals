@@ -65,6 +65,8 @@ def on_quotation_validate(doc, method=None):
 	# Fase 2A: precargar el plazo contractual desde el default de la Company SOLO en la creación y si está
 	# vacío. Nunca se reescribe después: si la preventa lo cambia (o lo deja vacío), se respeta.
 	_default_contract_term(doc)
+	# Fase 2B: precargar plazo/tasa de financiamiento al ACTIVAR el financiamiento (transición 0→1).
+	_default_financing(doc)
 	# Banderas de alcance: una fila no puede ser vendible E interna a la vez.
 	_validate_internal_cost_flags(doc)
 	# Print Format comercial: al aplicar/cambiar la plantilla (o si el override está vacío), poblar
@@ -245,6 +247,25 @@ def _default_contract_term(doc) -> None:
 	default_term = settings.get("default_contract_term_months")
 	if default_term:
 		doc.proposal_contract_term_months = int(default_term)
+
+
+def _default_financing(doc) -> None:
+	"""Precarga plazo/tasa de financiamiento desde la Company **al ACTIVAR** el financiamiento (transición
+	0→1), no en cada guardado (ADR-0018 Fase 2B). Después el usuario controla los valores; no se reescriben.
+	El `financed_amount` lo precarga el cliente (= costo de adquisición CAPEX) y el motor aplica ese default
+	si queda vacío. Nunca infiere tasa/plazo en silencio durante el cálculo."""
+	if not doc.get("proposal_financing_enabled"):
+		return
+	before = doc.get_doc_before_save()
+	if before and before.get("proposal_financing_enabled"):
+		return  # ya estaba activado → no re-precargar (soberanía del usuario)
+	settings = _proposal_settings(doc.get("company"))
+	if not settings:
+		return
+	if not doc.get("proposal_financing_term_months") and settings.get("default_financing_term_months"):
+		doc.proposal_financing_term_months = int(settings.get("default_financing_term_months"))
+	if not doc.get("proposal_financing_annual_cost_rate") and settings.get("default_financing_cost_rate"):
+		doc.proposal_financing_annual_cost_rate = flt(settings.get("default_financing_cost_rate"))
 
 
 def _economic_behavior_for_item(item_code: str, company: str | None) -> tuple:

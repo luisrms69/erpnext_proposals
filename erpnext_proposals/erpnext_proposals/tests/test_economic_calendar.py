@@ -15,6 +15,7 @@ import unittest
 
 import frappe
 from frappe.model.workflow import apply_workflow
+from frappe.utils import flt
 
 from erpnext_proposals.erpnext_proposals.tests.company import (
 	get_test_company,
@@ -31,6 +32,7 @@ from erpnext_proposals.erpnext_proposals.utils.economic_calendar import (
 	_assert_recurring_valid,
 	_collapse_periods,
 	_distribute_over_months,
+	_effective_financing,
 	_labor_by_month,
 	_occurrence_periods,
 	_parse_offset_days,
@@ -53,7 +55,8 @@ IT_ONE = "_EC One"  # vendido no comprable, one_time
 IT_REC = "_EC Rec"  # vendido no comprable, recurring
 IT_REC_BUY = "_EC RecBuy"  # vendido comprable (buying 300), recurring → ingreso + costo externo recurrentes
 IT_REQ_REC = "_EC ReqRec"  # requerido comprable (buying 200), recurring → costo recurrente sin ingreso
-IT_INFRA = "_EC Infra"  # vendido en GROUP_INFRA (infrastructure)
+IT_INFRA = "_EC Infra"  # vendido en GROUP_INFRA (infrastructure), no comprable
+IT_CAPEX = "_EC CapexBuy"  # CAPEX comprable en GROUP_INFRA (adquisición 100000) → base financiable
 IT_LAB = "_EC Lab"  # vendido sin scope de catálogo (para timeline laboral manual)
 
 SC_MASTER = "_EC_SC_MASTER"  # scope maestro para filas de alcance manuales
@@ -198,19 +201,32 @@ class TestEconomicHardeningPure(unittest.TestCase):
 				"labor": 10.0,
 				"total_cost": 50.0,
 				"margin": 50.0,
+				"financial_cost": 0.0,
+				"total_cost_with_financing": 50.0,
+				"margin_after_financing": 50.0,
 				"revenue_components": [{"amount": 100.0}],
 				"external_components": [{"amount": 40.0}],
 				"labor_components": [{"amount": 10.0}],
 			}
 		]
 		return {
-			"totals": {"revenue": 100.0, "external": 40.0, "labor": 10.0, "total_cost": 50.0, "margin": 50.0},
+			"totals": {
+				"revenue": 100.0,
+				"external": 40.0,
+				"labor": 10.0,
+				"total_cost": 50.0,
+				"margin": 50.0,
+				"financial_cost": 0.0,
+				"total_cost_with_financing": 50.0,
+				"margin_after_financing": 50.0,
+			},
 			"groups": {
 				"NRC": {"revenue": 100.0, "external": 40.0, "labor": 10.0},
 				"MRC": {"revenue": 0.0, "external": 0.0, "labor": 0.0},
 				"CAPEX": {"revenue": 0.0, "external": 0.0, "labor": 0.0},
 			},
 			"periods": periods,
+			"financing": None,
 		}
 
 	def test_reconcile_ok(self):
@@ -370,6 +386,7 @@ class TestEconomicCalendar(unittest.TestCase):
 		_item(IT_REC_BUY, 1, 1, buy_price=300)
 		_item(IT_REQ_REC, 0, 1, buy_price=200)
 		_item(IT_INFRA, 1, 0, group=GROUP_INFRA)
+		_item(IT_CAPEX, 1, 1, group=GROUP_INFRA, buy_price=100000)
 		_item(IT_LAB, 1, 0)
 
 		if not frappe.db.exists("Proposal Template", TEMPLATE):
@@ -1042,6 +1059,506 @@ class TestEconomicCalendar(unittest.TestCase):
 		frappe.db.set_value("Item Price", ip, "price_list_rate", 300)  # restaurar
 		self.assertEqual(before, 3600.0)
 		self.assertEqual(after, 3600.0)  # histórico congelado
+
+	# ── Fase 2B: financiamiento CAPEX ────────────────────────────────────
+	def _make_capex(
+		self, enabled=0, financed=None, term=24, rate=12.0, fees=0.0, contract_term=None, extra=None
+	):
+		"""Quotation con un CAPEX comprable (adquisición 100000) + campos de financiamiento explícitos."""
+		self._set_econ(self.company_a, rules=[("Item Group", GROUP_INFRA, "infrastructure", None, None)])
+		lines = [(IT_CAPEX, 1, 300000)] + (extra or [])
+		q = self._make_q_custom(self.company_a, lines=lines, term=contract_term)
+		d = frappe.get_doc("Quotation", q.name)
+		d.proposal_financing_enabled = enabled
+		if enabled:
+			if financed is not None:
+				d.proposal_financed_amount = financed
+			d.proposal_financing_term_months = term
+			d.proposal_financing_annual_cost_rate = rate
+			d.proposal_financing_fees_amount = fees
+		d.save(ignore_permissions=True)
+		return d.name
+
+	def test_41_no_capex_no_financing_section(self):
+		# Sin CAPEX → financing None, cálculo 2A idéntico, claves aditivas neutras.
+		q = self._make_quotation(self.company_a, sold=[IT_ONE], term=12)
+		ev = get_economic_evaluation(q.name)
+		self.assertIsNone(ev["financing"])
+		self.assertEqual(ev["totals"]["financial_cost"], 0.0)
+		self.assertEqual(ev["totals"]["margin_after_financing"], ev["totals"]["margin"])
+
+	def test_42_capex_without_financing_identical(self):
+		name = self._make_capex(enabled=0)
+		ev = get_economic_evaluation(name)
+		self.assertIsNone(ev["financing"])
+		self.assertEqual(ev["groups"]["CAPEX"]["external"], 100000.0)  # base financiable disponible
+		self.assertEqual(ev["totals"]["financial_cost"], 0.0)
+		self.assertEqual(ev["totals"]["total_cost_with_financing"], ev["totals"]["total_cost"])
+
+	def test_43_capex_financed_positive_rate(self):
+		name = self._make_capex(enabled=1, financed=100000, term=24, rate=12.0, fees=0)
+		ev = get_economic_evaluation(name)
+		fin = ev["financing"]
+		self.assertEqual(fin["financed_amount"], 100000.0)
+		self.assertEqual(fin["term_months"], 24)
+		self.assertAlmostEqual(fin["payment"], 4707.35, places=2)
+		self.assertAlmostEqual(fin["total_interest"], 12976.34, places=1)
+		self.assertAlmostEqual(ev["totals"]["financial_cost"], 12976.34, places=1)
+		self.assertAlmostEqual(
+			ev["totals"]["margin_after_financing"], ev["totals"]["margin"] - 12976.34, places=1
+		)
+
+	def test_44_capex_financed_zero_rate(self):
+		name = self._make_capex(enabled=1, financed=24000, term=12, rate=0.0, fees=0)
+		ev = get_economic_evaluation(name)
+		fin = ev["financing"]
+		self.assertAlmostEqual(fin["payment"], 2000.0, places=2)  # lineal P/n
+		self.assertEqual(fin["total_interest"], 0.0)
+		self.assertEqual(ev["totals"]["financial_cost"], 0.0)  # sin interés ni fees
+
+	def test_45_fees_add_to_financial_cost(self):
+		name = self._make_capex(enabled=1, financed=24000, term=12, rate=0.0, fees=1500)
+		ev = get_economic_evaluation(name)
+		self.assertEqual(ev["totals"]["financial_cost"], 1500.0)  # solo comisiones (tasa 0)
+		self.assertEqual(ev["periods"][0]["financial_cost"], 1500.0)  # fees en Mes 0
+
+	def test_46_partial_financing(self):
+		name = self._make_capex(enabled=1, financed=80000, term=24, rate=12.0)
+		ev = get_economic_evaluation(name)
+		self.assertEqual(ev["financing"]["financed_amount"], 80000.0)
+		self.assertAlmostEqual(ev["financing"]["financed_pct"], 80.0, places=2)
+
+	def test_47_financed_equals_capex_default(self):
+		# financed_amount vacío → default = costo de adquisición CAPEX (100000).
+		name = self._make_capex(enabled=1, financed=None, term=24, rate=12.0)
+		ev = get_economic_evaluation(name)
+		self.assertEqual(ev["financing"]["financed_amount"], 100000.0)
+
+	def test_48_financed_over_capex_errors(self):
+		name = self._make_capex(enabled=1, financed=150000, term=24, rate=12.0)
+		with self.assertRaises(EconomicEvaluationError):
+			get_economic_evaluation(name)
+
+	def test_49_term_zero_errors(self):
+		name = self._make_capex(enabled=1, financed=100000, term=0, rate=12.0)
+		with self.assertRaises(EconomicEvaluationError):
+			get_economic_evaluation(name)
+
+	def test_50_financing_enabled_without_capex_errors(self):
+		q = self._make_q_custom(self.company_a, lines=[(IT_ONE, 1, 1000)], term=12)
+		d = frappe.get_doc("Quotation", q.name)
+		d.proposal_financing_enabled = 1
+		d.proposal_financing_term_months = 12
+		d.proposal_financing_annual_cost_rate = 10.0
+		d.save(ignore_permissions=True)
+		with self.assertRaises(EconomicEvaluationError):
+			get_economic_evaluation(d.name)
+
+	def test_51_amortization_reconciles(self):
+		name = self._make_capex(enabled=1, financed=100000, term=24, rate=12.0, fees=500)
+		ev = get_economic_evaluation(name)  # invariantes 2B corren dentro; si retorna, reconcilió
+		sched = ev["financing"]["schedule"]
+		self.assertAlmostEqual(sum(r["principal"] for r in sched), 100000.0, places=1)
+		self.assertAlmostEqual(sched[-1]["closing"], 0.0, places=2)  # última cuota cierra saldo
+		self.assertAlmostEqual(
+			sum(r["payment"] for r in sched), 100000.0 + ev["financing"]["total_interest"], places=1
+		)
+
+	def test_52_financing_extends_horizon_not_mrc(self):
+		# Contrato 12m con MRC + financiamiento 24m: horizonte se extiende a 24, MRC NO.
+		self._set_econ(
+			self.company_a,
+			rules=[
+				("Item Group", GROUP_INFRA, "infrastructure", None, None),
+				("Item", IT_REC, "recurring", "Month", 1),
+			],
+		)
+		q = self._make_q_custom(self.company_a, lines=[(IT_CAPEX, 1, 300000), (IT_REC, 1, 1000)], term=12)
+		d = frappe.get_doc("Quotation", q.name)
+		d.proposal_financing_enabled = 1
+		d.proposal_financed_amount = 100000
+		d.proposal_financing_term_months = 24
+		d.proposal_financing_annual_cost_rate = 12.0
+		d.save(ignore_permissions=True)
+		ev = get_economic_evaluation(d.name)
+		# Mes 0…Mes 24 (financiamiento 1..24) = 25 periodos; extendido más allá del plazo contractual 12.
+		self.assertEqual(ev["economic_horizon_months"], 25)
+		self.assertGreater(ev["economic_horizon_months"], ev["horizon"])
+		self.assertTrue([w for w in ev["warnings"] if w["code"] == "financing_extends_horizon"])
+		self.assertEqual(ev["totals"]["revenue"], 300000 + 12000)  # CAPEX una vez + MRC 12 meses
+		self.assertEqual(sum(1 for p in ev["periods"] if p["revenue"]), 12)  # MRC solo 12 periodos
+		self.assertGreater(ev["periods"][20]["financial_cost"], 0.0)  # costo financiero en Mes 20
+		self.assertEqual(ev["periods"][20]["revenue"], 0.0)  # sin ingreso fuera del plazo
+
+	def test_53_freeze_financing_ignores_settings_change(self):
+		# Congelar tasa/plazo desde Company; cambiar el default tras En Revisión no altera histórico.
+		self._set_econ(self.company_a, rules=[("Item Group", GROUP_INFRA, "infrastructure", None, None)])
+		s = frappe.get_doc("Proposal Settings", {"company": self.company_a})
+		s.default_financing_term_months = 24
+		s.default_financing_cost_rate = 12.0
+		s.flags.ignore_permissions = True
+		s.save(ignore_permissions=True)
+		q = self._make_q_custom(self.company_a, lines=[(IT_CAPEX, 1, 300000)], term=None)
+		d = frappe.get_doc("Quotation", q.name)
+		d.proposal_financing_enabled = 1  # activa → precarga term/rate desde Company (24 / 12%)
+		d.save(ignore_permissions=True)
+		self._transition(frappe.get_doc("Quotation", q.name))  # congela
+		before = get_economic_evaluation(q.name)["totals"]["financial_cost"]
+		# cambiar defaults de Company tras congelar
+		s2 = frappe.get_doc("Proposal Settings", {"company": self.company_a})
+		s2.default_financing_cost_rate = 30.0
+		s2.flags.ignore_permissions = True
+		s2.save(ignore_permissions=True)
+		after = get_economic_evaluation(q.name)["totals"]["financial_cost"]
+		self.assertAlmostEqual(before, after, places=2)  # histórico congelado
+		self.assertGreater(before, 0.0)
+
+	def test_54_financing_determinism_and_2A_intact(self):
+		name = self._make_capex(enabled=1, financed=100000, term=24, rate=12.0, fees=300)
+		a = json.dumps(get_economic_evaluation(name), sort_keys=True, default=str)
+		b = json.dumps(get_economic_evaluation(name), sort_keys=True, default=str)
+		self.assertEqual(a, b)  # determinismo con financiamiento
+		ev = get_economic_evaluation(name)
+		# invariantes 2A intactas: total_cost operativo NO incluye financiero
+		self.assertAlmostEqual(ev["totals"]["total_cost"], ev["totals"]["external"] + ev["totals"]["labor"])
+		self.assertGreater(ev["totals"]["financial_cost"], 0.0)
+
+	# ── Fase 2B: tasa 0% explícita es autoritativa (defaults de Company = solo precarga) ──────────────
+	def _fin_defaults(self, company, term=None, rate=None):
+		name = frappe.db.get_value("Proposal Settings", {"company": company}, "name")
+		s = frappe.get_doc("Proposal Settings", name) if name else frappe.new_doc("Proposal Settings")
+		s.company = company
+		if term is not None:
+			s.default_financing_term_months = term
+		if rate is not None:
+			s.default_financing_cost_rate = rate
+		s.flags.ignore_permissions = True
+		s.save(ignore_permissions=True)
+
+	def _stored_rate(self, name):
+		return flt(frappe.db.get_value("Quotation", name, "proposal_financing_annual_cost_rate"))
+
+	def test_55_explicit_zero_rate_honored_over_company_default(self):
+		# Default de Company 12%; la preventa fija 0% explícito + comisión → debe usarse 0% (sin fallback).
+		self._set_econ(self.company_a, rules=[("Item Group", GROUP_INFRA, "infrastructure", None, None)])
+		self._fin_defaults(self.company_a, term=12, rate=12.0)
+		q = self._make_q_custom(self.company_a, lines=[(IT_CAPEX, 1, 300000)], term=None)
+		# 1) activar → precarga la tasa de la Company (12%)
+		d = frappe.get_doc("Quotation", q.name)
+		d.proposal_financing_enabled = 1
+		d.save(ignore_permissions=True)
+		self.assertEqual(self._stored_rate(q.name), 12.0)  # precarga aplicada al activar
+		# 2) tras la precarga el documento es autoritativo: la preventa impone 0% + comisión 500
+		d = frappe.get_doc("Quotation", q.name)
+		d.proposal_financing_annual_cost_rate = 0
+		d.proposal_financing_fees_amount = 500
+		d.save(ignore_permissions=True)
+		self.assertEqual(self._stored_rate(q.name), 0.0)  # 0% explícito NO re-precargado
+		ev = get_economic_evaluation(q.name)
+		fin = ev["financing"]
+		self.assertEqual(fin["annual_cost_rate"], 0.0)  # 0% respetado, no 12%
+		self.assertEqual(fin["total_interest"], 0.0)  # interés total = 0
+		self.assertEqual(ev["totals"]["financial_cost"], 500.0)  # financial_cost = solo comisión
+		self.assertAlmostEqual(
+			sum(r["principal"] for r in fin["schedule"]), 100000.0, places=2
+		)  # principal amortizado
+		self.assertAlmostEqual(fin["schedule"][-1]["closing"], 0.0, places=2)  # saldo final 0
+		self.assertAlmostEqual(
+			ev["totals"]["margin_after_financing"], ev["totals"]["margin"] - 500.0, places=2
+		)
+
+	def test_56_zero_rate_pure_no_company_fallback(self):
+		# _effective_financing NO consulta la Company: 0% explícito se respeta aunque el default sea 12%.
+		self._fin_defaults(self.company_a, term=12, rate=12.0)
+		fin = _effective_financing(
+			frappe._dict(
+				proposal_financing_enabled=1,
+				proposal_financed_amount=100000,
+				proposal_financing_term_months=12,
+				proposal_financing_annual_cost_rate=0,
+				proposal_financing_fees_amount=500,
+			),
+			100000,
+			self.company_a,
+		)
+		self.assertEqual(fin["annual_cost_rate"], 0.0)
+		self.assertEqual(fin["total_interest"], 0.0)
+		self.assertEqual(fin["financial_cost_total"], 500.0)  # solo comisión
+		self.assertAlmostEqual(fin["payment"], 100000 / 12, places=2)  # amortización lineal
+
+	def test_57_freeze_preserves_explicit_zero_rate(self):
+		# Congelar con 0% explícito; cambiar después el default de Company NO altera la evaluación histórica.
+		self._set_econ(self.company_a, rules=[("Item Group", GROUP_INFRA, "infrastructure", None, None)])
+		self._fin_defaults(self.company_a, term=12, rate=12.0)
+		q = self._make_q_custom(self.company_a, lines=[(IT_CAPEX, 1, 300000)], term=None)
+		d = frappe.get_doc("Quotation", q.name)
+		d.proposal_financing_enabled = 1
+		d.save(ignore_permissions=True)  # precarga 12%
+		d = frappe.get_doc("Quotation", q.name)
+		d.proposal_financing_annual_cost_rate = 0  # 0% explícito antes de congelar
+		d.proposal_financing_fees_amount = 500
+		d.save(ignore_permissions=True)
+		self._transition(frappe.get_doc("Quotation", q.name))  # congela (submit)
+		before = get_economic_evaluation(q.name)["totals"]["financial_cost"]
+		self._fin_defaults(self.company_a, rate=30.0)  # cambiar default tras congelar
+		after = get_economic_evaluation(q.name)["totals"]["financial_cost"]
+		self.assertEqual(before, 500.0)  # 0% + comisión preservado
+		self.assertEqual(after, 500.0)  # cambiar el default de Company no afecta lo congelado
+
+	# ── Presentación: estructura fija de hojas + reconciliación por hoja (ADR-0018) ──────────────────
+	def _mixed(self):
+		"""Propuesta con NRC + MRC + CAPEX + esfuerzo + Required MRC → llena todas las hojas."""
+		self._set_econ(
+			self.company_a,
+			rules=[
+				("Item", IT_ONE, "one_time", None, None),
+				("Item", IT_REC, "recurring", "Month", 1),
+				("Item Group", GROUP_INFRA, "infrastructure", None, None),
+				("Item", IT_REQ_REC, "recurring", "Month", 1),
+			],
+		)
+		return self._make_q_custom(
+			self.company_a,
+			lines=[(IT_ONE, 1, 10000), (IT_REC, 1, 1000), (IT_CAPEX, 1, 300000)],
+			required=[IT_REQ_REC],
+			term=12,
+		)
+
+	def test_58_structure_always_has_all_groups(self):
+		# La estructura de salida SIEMPRE trae NRC/MRC/CAPEX (aunque vacíos) → hojas fijas en la presentación.
+		cases = {
+			"solo_nrc": (
+				[("Item", IT_ONE, "one_time", None, None)],
+				[(IT_ONE, 1, 10000)],
+				{"NRC": True, "MRC": False, "CAPEX": False},
+			),
+			"solo_mrc": (
+				[("Item", IT_REC, "recurring", "Month", 1)],
+				[(IT_REC, 1, 1000)],
+				{"NRC": False, "MRC": True, "CAPEX": False},
+			),
+			"solo_capex": (
+				[("Item Group", GROUP_INFRA, "infrastructure", None, None)],
+				[(IT_CAPEX, 1, 300000)],
+				{"NRC": False, "MRC": False, "CAPEX": True},
+			),
+		}
+		for _tag, (rules, lines, expect) in cases.items():
+			self._set_econ(self.company_a, rules=rules)
+			q = self._make_q_custom(self.company_a, lines=lines, term=12)
+			ev = get_economic_evaluation(q.name)
+			for gk in ("NRC", "MRC", "CAPEX"):  # las tres claves SIEMPRE presentes
+				self.assertIn(gk, ev["groups"])
+				self.assertEqual(ev["groups"][gk]["count"] > 0, expect[gk])
+			self.assertIsNone(ev["financing"])  # sin financiamiento activado → hoja "Sin financiamiento"
+
+	def test_59_group_subtotals_reconcile_totals(self):
+		ev = get_economic_evaluation(self._mixed().name)
+		g = ev["groups"]
+		self.assertAlmostEqual(sum(g[k]["revenue"] for k in g), ev["totals"]["revenue"], places=2)
+		self.assertAlmostEqual(sum(g[k]["external"] for k in g), ev["totals"]["external"], places=2)
+		self.assertAlmostEqual(sum(g[k]["labor"] for k in g), ev["totals"]["labor"], places=2)
+
+	def test_60_line_detail_reconciles_group_subtotal(self):
+		ev = get_economic_evaluation(self._mixed().name)
+		for gk, g in ev["groups"].items():
+			self.assertAlmostEqual(sum(x["revenue"] for x in g["lines"]), g["revenue"], places=2, msg=gk)
+			self.assertAlmostEqual(sum(x["external"] for x in g["lines"]), g["external"], places=2, msg=gk)
+			self.assertAlmostEqual(sum(x["labor"] for x in g["lines"]), g["labor"], places=2, msg=gk)
+
+	def test_61_effort_detail_reconciles_total(self):
+		ev = get_economic_evaluation(self._mixed().name)
+		self.assertAlmostEqual(sum(e["cost"] for e in ev["effort"]), ev["effort_totals"]["cost"], places=2)
+		self.assertAlmostEqual(ev["effort_totals"]["cost"], ev["totals"]["labor"], places=2)
+		self.assertAlmostEqual(sum(e["hours"] for e in ev["effort"]), ev["effort_totals"]["hours"], places=2)
+
+	def test_62_calendar_reconciles_totals(self):
+		ev = get_economic_evaluation(self._mixed().name)
+		for key in ("revenue", "external", "labor", "financial_cost"):
+			self.assertAlmostEqual(sum(p[key] for p in ev["periods"]), ev["totals"][key], places=2, msg=key)
+
+	def test_63_traceability_components_reconcile_period(self):
+		ev = get_economic_evaluation(self._mixed().name)
+		for p in ev["periods"]:
+			self.assertAlmostEqual(sum(c["amount"] for c in p["revenue_components"]), p["revenue"], places=2)
+			self.assertAlmostEqual(
+				sum(c["amount"] for c in p["external_components"]), p["external"], places=2
+			)
+			self.assertAlmostEqual(sum(c["amount"] for c in p["labor_components"]), p["labor"], places=2)
+
+	def test_64_financing_interest_plus_fees_and_principal(self):
+		name = self._make_capex(enabled=1, financed=100000, term=12, rate=12.0, fees=500)
+		ev = get_economic_evaluation(name)
+		fin = ev["financing"]
+		self.assertAlmostEqual(fin["financial_cost_total"], fin["total_interest"] + fin["fees"], places=2)
+		self.assertAlmostEqual(sum(s["principal"] for s in fin["schedule"]), fin["financed_amount"], places=2)
+
+	def test_65_descriptive_line_fields_present(self):
+		ev = get_economic_evaluation(self._mixed().name)
+		for g in ev["groups"].values():
+			for line in g["lines"]:
+				self.assertIn("unit_price", line)
+				self.assertIn("impact_label", line)
+				self.assertIn("financeable", line)
+		capex_lines = ev["groups"]["CAPEX"]["lines"]
+		self.assertTrue(all(line["financeable"] == (line["external"] > 0) for line in capex_lines))
+
+	# ── APU: integración por componente (costo integrado, esfuerzo detalle, pool no asignado) ─────────
+	def _apu_case(self):
+		"""NRC con 2 Scope Items (esfuerzo) + MRC comprable + CAPEX qty>1 + Required MRC (pool)."""
+		self._set_econ(
+			self.company_a,
+			rules=[
+				("Item", IT_ONE, "one_time", None, None),
+				("Item", IT_REC_BUY, "recurring", "Month", 1),
+				("Item Group", GROUP_INFRA, "infrastructure", None, None),
+				("Item", IT_REQ_REC, "recurring", "Month", 1),
+			],
+		)
+		return self._make_q_custom(
+			self.company_a,
+			lines=[(IT_ONE, 1, 10000), (IT_REC_BUY, 1, 2000), (IT_CAPEX, 3, 300000)],
+			required=[IT_REQ_REC],
+			term=12,
+			scope_rows=[
+				{
+					"scope_item": SC_MASTER,
+					"code": "_APU-1",
+					"item_code": IT_ONE,
+					"estimated_hours": 5,
+					"activity_type": ACT,
+					"include_in_proposal": 1,
+					"planned_start_offset_days": "0",
+					"planned_duration_days": 0,
+				},
+				{
+					"scope_item": SC_MASTER,
+					"code": "_APU-2",
+					"item_code": IT_ONE,
+					"estimated_hours": 3,
+					"activity_type": ACT,
+					"include_in_proposal": 1,
+					"planned_start_offset_days": "30",
+					"planned_duration_days": 0,
+				},
+			],
+		)
+
+	def _all_lines(self, ev):
+		return [line for g in ev["groups"].values() for line in g["lines"]]
+
+	def test_66_apu_capex_unit_reconciles(self):
+		# CAPEX qty>1: costo unitario x cantidad = costo externo total (reconstruible).
+		ev = get_economic_evaluation(self._apu_case().name)
+		cx = next(line for line in ev["groups"]["CAPEX"]["lines"] if line["item_code"] == IT_CAPEX)
+		self.assertEqual(cx["qty"], 3.0)
+		self.assertAlmostEqual(cx["external_unit_cost"] * cx["qty"], cx["external"], places=2)
+
+	def test_67_apu_effort_detail_sums_to_line_labor(self):
+		# NRC con múltiples Scope Items: la suma del detalle de esfuerzo = esfuerzo del componente.
+		ev = get_economic_evaluation(self._apu_case().name)
+		nrc = next(line for line in ev["groups"]["NRC"]["lines"] if line["item_code"] == IT_ONE)
+		self.assertEqual(len(nrc["effort"]), 2)
+		self.assertAlmostEqual(sum(e["cost"] for e in nrc["effort"]), nrc["labor"], places=2)
+		for e in nrc["effort"]:  # cada insumo laboral trae actividad/perfil/horas/tarifa/costo/periodos
+			for k in ("activity", "designation", "hours", "rate", "cost", "periods"):
+				self.assertIn(k, e)
+
+	def test_68_apu_mrc_per_period_reconciles(self):
+		# MRC: por-periodo x numero de periodos = contractual (ingreso y costo recurrente).
+		ev = get_economic_evaluation(self._apu_case().name)
+		mrc = next(line for line in ev["groups"]["MRC"]["lines"] if line["item_code"] == IT_REC_BUY)
+		self.assertAlmostEqual(mrc["revenue_per_period"] * mrc["occurrences"], mrc["revenue"], places=2)
+		self.assertAlmostEqual(mrc["external_per_period"] * mrc["occurrences"], mrc["external"], places=2)
+
+	def test_69_apu_integrated_and_pool_reconcile(self):
+		# Σ costo integrado de componentes vendidos + costos requeridos no asignados = costo operativo total.
+		ev = get_economic_evaluation(self._apu_case().name)
+		lines = self._all_lines(ev)
+		for line in lines:  # costo integrado = externo + esfuerzo; margen = ingreso - integrado
+			self.assertAlmostEqual(line["integrated_cost"], line["external"] + line["labor"], places=2)
+			self.assertAlmostEqual(line["margin"], line["revenue"] - line["integrated_cost"], places=2)
+		sold = sum(line["integrated_cost"] for line in lines if line["origin"] == "sold")
+		pool = sum(line["integrated_cost"] for line in lines if line["origin"] == "required")
+		self.assertAlmostEqual(sold + pool, ev["totals"]["total_cost"], places=2)
+		self.assertGreater(pool, 0.0)  # el Required MRC va al pool
+
+	def test_70_required_items_not_commercial_income(self):
+		# Ningún Required Item se presenta como ingreso comercial (ingreso 0); sin duplicar componentes.
+		ev = get_economic_evaluation(self._apu_case().name)
+		lines = self._all_lines(ev)
+		for line in lines:
+			if line["origin"] == "required":
+				self.assertEqual(line["revenue"], 0.0)
+		codes = [line["item_code"] for line in lines]
+		self.assertEqual(len(codes), len(set(codes)))  # cada componente aparece una sola vez
+
+	def test_71_line_effort_partitions_total_effort(self):
+		# El detalle de esfuerzo por línea particiona el esfuerzo total: sin pérdida ni duplicación.
+		ev = get_economic_evaluation(self._apu_case().name)
+		per_line = sum(e["cost"] for line in self._all_lines(ev) for e in line["effort"])
+		self.assertAlmostEqual(per_line, ev["totals"]["labor"], places=2)
+
+	def test_72_effort_by_profile_derived_from_detail(self):
+		# El resumen de esfuerzo por perfil se deriva del detalle: Σ costo por perfil = esfuerzo de la línea;
+		# las horas por perfil coinciden con agrupar el detalle por designation.
+		ev = get_economic_evaluation(self._apu_case().name)
+		nrc = next(line for line in ev["groups"]["NRC"]["lines"] if line["item_code"] == IT_ONE)
+		self.assertTrue(nrc["effort_by_profile"])
+		self.assertAlmostEqual(sum(p["cost"] for p in nrc["effort_by_profile"]), nrc["labor"], places=2)
+		hours = {}
+		for e in nrc["effort"]:
+			hours[e["designation"]] = hours.get(e["designation"], 0.0) + e["hours"]
+		for p in nrc["effort_by_profile"]:
+			self.assertAlmostEqual(p["hours"], hours[p["designation"]], places=2)
+
+	def test_73_apu_bridge_components_to_operating_margin(self):
+		# Puente: margen directo de vendidos menos costos requeridos no asignados = margen operativo.
+		ev = get_economic_evaluation(self._apu_case().name)
+		apu, t = ev["apu"], ev["totals"]
+		self.assertAlmostEqual(apu["sold_margin"] - apu["unassigned_cost"], t["margin"], places=2)
+		self.assertAlmostEqual(
+			apu["unassigned_external"] + apu["unassigned_labor"], apu["unassigned_cost"], places=2
+		)
+		# el margen operativo NO es igual a la suma de márgenes de vendidos (hay pool no asignado)
+		self.assertGreater(apu["unassigned_cost"], 0.0)
+		self.assertNotAlmostEqual(apu["sold_margin"], t["margin"], places=2)
+
+	def test_74_temporal_traceability_collapses_recurring(self):
+		# La matriz temporal colapsa lo recurrente en un rango mensual y da UNA fila por actividad de esfuerzo.
+		ev = get_economic_evaluation(self._apu_case().name)
+		temporal = ev["temporal"]
+		mrc_line = next(line for line in ev["groups"]["MRC"]["lines"] if line["item_code"] == IT_REC_BUY)
+		mrc_row = next(r for r in temporal if r["type"] == "Ingreso" and IT_REC_BUY in r["component"])
+		self.assertTrue(mrc_row["monthly"])  # etiqueta "/ mes"
+		self.assertEqual(mrc_row["from"], 0)
+		self.assertEqual(mrc_row["to"], mrc_line["occurrences"] - 1)  # rango, no una fila por mes
+		self.assertAlmostEqual(
+			mrc_row["amount"], mrc_line["revenue_per_period"], places=2
+		)  # mensual, no acumulado
+		# una fila por actividad de esfuerzo (no una por mes)
+		eff_rows = [r for r in temporal if r["type"] == "Esfuerzo"]
+		self.assertEqual(len(eff_rows), len(ev["effort"]))
+		# los patrones únicos (one-time) tienen Desde == Hasta
+		for r in temporal:
+			if r["frequency"] == "Único":
+				self.assertEqual(r["from"], r["to"])
+
+	def test_75_temporal_financing_summarized(self):
+		# El financiamiento se resume: comisión puntual + intereses en un rango (el detalle vive en amortización).
+		ev = get_economic_evaluation(
+			self._make_capex(enabled=1, financed=100000, term=12, rate=12.0, fees=500)
+		)
+		temporal = ev["temporal"]
+		interest = next(r for r in temporal if r["component"] == "Intereses")
+		self.assertEqual(interest["from"], 1)  # el interés arranca en M1 (vencido)
+		self.assertEqual(interest["to"], 12)
+		self.assertAlmostEqual(
+			interest["amount"], ev["financing"]["total_interest"], places=2
+		)  # total, no 12 filas
+		fee = next(r for r in temporal if r["component"] == "Comisión de apertura")
+		self.assertEqual((fee["from"], fee["to"]), (0, 0))
+		self.assertAlmostEqual(fee["amount"], 500.0, places=2)
 
 
 if __name__ == "__main__":

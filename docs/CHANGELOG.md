@@ -2,6 +2,93 @@
 
 ## [No liberado]
 
+### Changed — Reporte de Evaluación Económica: rediseño narrativo + retiro de la pestaña (v0.17.0, ADR-0018)
+- **Rediseño del Print Format `Rentabilidad Estimada` desde cero** (mismo flujo: «Vista previa/Descargar
+  rentabilidad» + adjunto oficial; **sin** nuevo PF ni flujo). Estructura orientada a **lectura humana** con
+  **paginación por contenido** (ya no una página forzada por sección): banda de título → **Resumen** (frase
+  narrativa «vendemos → cuesta → financiamos → margen» + tira compacta de KPIs) → **Composición económica**
+  (NRC, MRC, CAPEX en secuencia; cada categoría siempre presente, vacía = `Sin componentes …` en línea) →
+  **Esfuerzo y PMO** (agrupado por perfil con subtotales) → **Financiamiento CAPEX** (bloque compacto) →
+  **Evolución económica** (calendario Mes 0…N, columnas esenciales) → **Anexo** (amortización + composición por
+  periodo + controles de reconciliación). Nomenclatura de cliente NRC/MRC/CAPEX.
+- **Se retira la pestaña «Evaluación Económica»** de la Quotation (custom fields `proposal_economic_tab` +
+  `proposal_economic_evaluation_html` eliminados del fixture, del allowlist de `hooks.py` y de los sites dev;
+  eran solo-UI, sin datos). Se elimina el render HTML del cliente (`build_economic_html` y ayudantes). En
+  `quotation.js` **solo permanece** la UX de financiamiento (disclosure de la sección según haya CAPEX +
+  precarga del monto financiado). El reporte de lectura/aprobación es el PDF; no hay dos superficies para lo
+  mismo. `get_economic_evaluation` sigue siendo la **fuente única** (PF y Script Report lo consumen; sin
+  cálculos duplicados). El Script Report `Evaluacion Economica` se conserva.
+- **Composición como análisis de integración (APU) por componente vendido:** cada Item vendido muestra
+  precio → **insumos** (costo externo, con `unit × qty` reconstruible en CAPEX) → **esfuerzo** (cada actividad
+  con perfil · horas · tarifa · importe · temporalidad real; en MRC el esfuerzo puntual NO se vuelve
+  recurrente) → **costo integrado** → **margen**. Los **Required Items** dejan de presentarse como productos
+  con ingreso 0 y margen negativo: se muestran como **costos requeridos**; si los datos NO los ligan de forma
+  inequívoca a un componente vendido (los `Proposal Required Item` no guardan el Item que los originó), van a
+  un bloque **«Costos requeridos / indirectos no asignados»**. **Sin prorrateo ni atribución artificial.** El
+  financiamiento sigue separado del costo operativo integrado.
+- **Motor:** campos **descriptivos** por línea (`unit_price`, `impact_label`, `financeable`, `integrated_cost`,
+  `margin_pct`, `effort` = detalle de esfuerzo atribuible por `item_code`, `effort_by_profile` = resumen por
+  perfil) + `effort_totals` y un bloque `apu` (puente: `sold_margin`, `unassigned_external/labor/cost`) — **sin**
+  tocar totales ni el cálculo financiero. El esfuerzo se re-agrupa por el vínculo **demostrable** Scope Item →
+  `item_code`; Σ del detalle por línea = esfuerzo de la línea = total. Invariante nuevo:
+  `sold_margin − unassigned_cost = margen operativo`.
+- **Lectura del reporte (pase de presentación):** se elimina el párrafo narrativo del resumen (ahora
+  **data-driven**, solo KPIs + warnings del motor); cada APU con esfuerzo añade un **resumen por perfil**
+  (perfil · horas · costo); el título de la sección consolidada pasa a **«Costo de esfuerzo»** (PMO deja de ser
+  categoría de primer nivel); el anexo sustituye la composición por periodo **en prosa** por una **tabla
+  Detalle por periodo** (Tipo · Componente/actividad · Perfil/fuente · Importe, agrupada por mes); se añade el
+  **puente de márgenes** «Resultado integrado» (margen directo de vendidos − no asignados = operativo −
+  financiero = final) que explica por qué Σ márgenes de componentes ≠ margen operativo; y reglas CSS de
+  paginación (`page-break-inside/after`) para no separar títulos de sus tablas.
+- **Cierre de presentación:** el anexo sustituye la tabla «Detalle por periodo» (repetía las mismas líneas
+  cada mes) por una **matriz de trazabilidad temporal** compacta —una fila por patrón/componente: `Tipo ·
+  Componente · Desde · Hasta · Frecuencia/distribución · Importe`— que colapsa lo recurrente en un rango
+  (`M0–M11`, `/ mes`), marca el esfuerzo `Único`/`Distribuido` con su rango real y resume el financiamiento
+  (comisión puntual + intereses `M1–M12 · según amortización`; el detalle mes a mes sigue en la amortización).
+  Motor: proyección descriptiva `temporal` (`_temporal_rows`), sin recalcular nada. Se retiran textos técnicos
+  del reporte (explicaciones de modelo/arquitectura); las tablas explican el resultado. Documento de la
+  propuesta canónica: **8 páginas**, PDF Gotenberg limpio (sin URLs locales ni cromo del navegador).
+- **Render robusto:** KPIs en **tablas** (no flexbox) y se oculta la barra de acciones del print-view
+  (`.action-banner`, con su enlace local) → PDF limpio en wkhtmltopdf y Gotenberg. Validado con una **Quotation canónica** (NRC/MRC/CAPEX + Required MRC + PMO automático + financiamiento parcial):
+  PDF de 5 páginas. Tests de reconciliación por hoja y de estructura (solo-NRC/MRC/CAPEX/mixta): 8.
+
+### Added — Costo de financiamiento del CAPEX (v0.17.0, ADR-0018 Fase 2B)
+- **Capa aditiva, 2A intacto:** se conservan `total_cost` y `margin` de Fase 2A y se añaden `financial_cost`,
+  `total_cost_with_financing = total_cost + financial_cost` y `margin_after_financing = margin − financial_cost`
+  (+ su %). Es **nuestro costo de fondeo** de la adquisición del CAPEX (interés + comisiones), **no** una tasa
+  al cliente: el precio de la propuesta no cambia. El **principal no es costo** (se recupera).
+- **Configuración por Company:** `Proposal Settings.default_financing_term_months` +
+  `default_financing_cost_rate` (mantenidos por Finanzas, precargados al activar). Custom fields en Quotation:
+  `proposal_financing_enabled`, `proposal_financed_amount`, `proposal_financing_term_months`,
+  `proposal_financing_annual_cost_rate`, `proposal_financing_fees_amount` (+ Section Break
+  `proposal_financing_section`).
+- **Amortización PMT (vencido, mensual)** en `utils/economic_calendar.py` (`_amortize`/`_effective_financing`):
+  cuota fija (`P·r/(1−(1+r)⁻ⁿ)`, o `P/n` si tasa 0); la última cuota cierra el saldo en 0; comisiones como costo
+  en `Mes 0`; interés de cada cuota en su periodo. `financed_amount` por defecto = costo de adquisición del
+  CAPEX; **financiar más que ese costo es error**.
+- **Horizonte se extiende, MRC no:** si el financiamiento supera el plazo contractual,
+  `economic_horizon_months` crece para mostrar el costo financiero de esos meses (aviso
+  `financing_extends_horizon`); los ingresos MRC **no** se extienden.
+- **Fail-closed:** con financiamiento activo, `financed_amount ≤ 0`/`> CAPEX`, plazo `≤ 0`, tasa `< 0` o
+  comisiones `< 0`, y activar financiamiento **sin** CAPEX → `EconomicEvaluationError`. **Invariantes 2B** en
+  `_assert_reconciled` (Σ capital = financiado; Σ pago = financiado + Σ interés; saldo final = 0;
+  `financial_cost_total` = interés + comisiones; sumas del calendario).
+- **Defaults de Company = solo precarga; Quotation autoritativa:** los defaults (`default_financing_*`) se
+  precargan al **activar** el financiamiento (`_default_financing`) y no vuelven a aplicarse. El motor lee la
+  tasa/plazo **del documento tal cual** — una **tasa 0% explícita es válida** y no se reemplaza por la de la
+  Company (sin fallback silencioso). **Freeze por inmutabilidad:** los campos son `allow_on_submit=0`, así que
+  al pasar a En Revisión quedan fijos y la evaluación histórica es estable; cambiar `Proposal Settings` después
+  no la altera.
+- **UX (revelación progresiva):** la sección de financiamiento **solo aparece si hay CAPEX**; al activarla,
+  `financed_amount` se precarga con el costo de adquisición. Alertas **por excepción**. La pestaña añade
+  indicadores financieros, **memoria de financiamiento** (tabla de amortización mes a mes) y dos columnas en el
+  calendario. El Print Format `Rentabilidad Estimada` añade —solo si hay financiamiento— el KPI de costo
+  financiero / margen tras financiar y una línea de resumen.
+- **Fuera de 2B** (diferido a 2C): flujo de caja, VPN, TIR, payback, y capital propio vs. tercero.
+- Docs: `usuario/evaluacion-economica.md` (sección financiamiento), **ADR-0018 §7 ter**, arquitectura. Tests:
+  **14** nuevos en `test_economic_calendar.py` (amortización, tasa 0/>0, fees, financiado parcial/= /> CAPEX,
+  errores, horizonte vs MRC, freeze financiero, determinismo, invariantes 2A+2B).
+
 ### Added — Evaluación Económica por periodos (v0.17.0, ADR-0018 Fase 2A)
 - **Comportamiento económico en catálogo, por Company:** nueva child **`Proposal Economic Behavior Rule`** en
   `Proposal Settings` (*Item/Item Group → `one_time`/`recurring`/`infrastructure` + intervalo/conteo*), con
@@ -185,5 +272,5 @@
 - Scaffold inicial del app
 - Estructura de documentación (docs/adr/)
 - Configuración Claude Code (.claude/)
-- Site de desarrollo: proposals.dev
+- Site de desarrollo: el site de desarrollo
 - Site de tests: test-erpnext_proposals.localhost

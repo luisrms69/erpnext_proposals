@@ -22,7 +22,10 @@ from frappe.utils import cint, flt
 
 from erpnext_proposals.erpnext_proposals.utils.cost_matrix import get_designation_cost
 from erpnext_proposals.erpnext_proposals.utils.item_cost import resolve_external_cost
-from erpnext_proposals.erpnext_proposals.utils.quotation import ONE_TIME, _economic_behavior_for_item
+from erpnext_proposals.erpnext_proposals.utils.quotation import (
+	ONE_TIME,
+	_economic_behavior_for_item,
+)
 
 DAYS_PER_MONTH = 30
 # Tolerancia de reconciliación (moneda). Absorbe residuos de float en el reparto proporcional del esfuerzo;
@@ -250,6 +253,9 @@ def get_economic_calendar(quotation_name: str) -> dict:
 			"labor": p["labor"],
 			"total_cost": p["total_cost"],
 			"margin": p["margin"],
+			"financial_cost": p.get("financial_cost", 0.0),
+			"total_cost_with_financing": p.get("total_cost_with_financing", p["total_cost"]),
+			"margin_after_financing": p.get("margin_after_financing", p["margin"]),
 		}
 		for p in ev["periods"]
 	]
@@ -257,10 +263,90 @@ def get_economic_calendar(quotation_name: str) -> dict:
 		"currency": ev["currency"],
 		"term_months": ev["term_months"],
 		"horizon": ev["horizon"],
+		"economic_horizon_months": ev["economic_horizon_months"],
 		"is_frozen": ev["is_frozen"],
 		"periods": periods,
 		"totals": ev["totals"],
+		"financing": ev["financing"],
 	}
+
+
+def _temporal_rows(groups: dict, effort_rows: list, financing: dict | None) -> list:
+	"""Proyección DESCRIPTIVA de la trazabilidad temporal: **una fila por patrón/componente** (no por mes).
+	Colapsa la repetición mensual de MRC/recurrentes en un rango ``Desde…Hasta``; el esfuerzo distribuido lleva
+	su rango real; el financiamiento resume los intereses (el detalle mes a mes vive en la amortización). No
+	recalcula nada: solo re-expresa la temporalidad de datos ya calculados."""
+	rows = []
+	for gk in ("NRC", "MRC", "CAPEX"):
+		for line in groups[gk]["lines"]:
+			occ = line.get("impact_periods") or [0]
+			is_rec = line["behavior"] == "recurring"
+			freq = "Mensual" if is_rec else "Único"
+			if line["revenue"]:
+				rows.append(
+					{
+						"type": "Ingreso",
+						"component": f"{line['group']} · {line['label']}",
+						"from": occ[0],
+						"to": occ[-1],
+						"frequency": freq,
+						"amount": line["revenue_per_period"] if is_rec else line["revenue"],
+						"monthly": is_rec,
+					}
+				)
+			if line["external"]:
+				rows.append(
+					{
+						"type": "Costo requerido" if line["origin"] == "required" else "Costo externo",
+						"component": line["label"],
+						"from": occ[0],
+						"to": occ[-1],
+						"frequency": freq,
+						"amount": line["external_per_period"] if is_rec else line["external"],
+						"monthly": is_rec,
+					}
+				)
+	for er in effort_rows:
+		ps = er.get("periods") or [0]
+		rows.append(
+			{
+				"type": "Esfuerzo",
+				"component": er["activity"],
+				"item_code": er.get("item_code"),
+				"from": ps[0],
+				"to": ps[-1],
+				"frequency": "Único" if len(ps) == 1 else "Distribuido",
+				"amount": er["cost"],
+				"monthly": False,
+			}
+		)
+	if financing:
+		if flt(financing["fees"]):
+			rows.append(
+				{
+					"type": "Financiamiento",
+					"component": "Comisión de apertura",
+					"from": 0,
+					"to": 0,
+					"frequency": "Único",
+					"amount": financing["fees"],
+					"monthly": False,
+				}
+			)
+		int_periods = [s["period"] for s in financing["schedule"] if flt(s["interest"]) > 0]
+		if int_periods:
+			rows.append(
+				{
+					"type": "Financiamiento",
+					"component": "Intereses",
+					"from": min(int_periods),
+					"to": max(int_periods),
+					"frequency": "Según amortización",
+					"amount": financing["total_interest"],
+					"monthly": False,
+				}
+			)
+	return rows
 
 
 @frappe.whitelist()
@@ -339,23 +425,68 @@ def get_economic_evaluation(quotation_name: str) -> dict:
 		line_labor = flt(labor_by_item.get(item_code, 0.0))
 		contractual_rev = flt(revenue_amt) * n
 		contractual_ext = ext_amt * n
+		qty_f = flt(qty) or 0.0
+		# Campos DESCRIPTIVOS para las hojas NRC/MRC/CAPEX (no alteran totales ni el cálculo):
+		# precio unitario de venta, periodos donde impacta y etiqueta legible, y si participa en la base
+		# financiable (solo CAPEX con costo de adquisición > 0).
+		unit_price = (flt(revenue_amt) / qty_f) if qty_f else 0.0
+		impact_label = "—" if not occ else (f"Mes {occ[0]}" if len(occ) == 1 else f"Mes {occ[0]}…{occ[-1]}")
+		# Detalle de esfuerzo ATRIBUIBLE a esta línea (APU): las actividades de Scope cuyo `item_code` es el de
+		# esta línea — vínculo demostrable (la Quotation Scope Item guarda su item_code). Σ de estos costos ==
+		# `line_labor` (labor_by_item[item_code]); NO se recalcula ningún total, solo se re-agrupa lo que existe.
+		line_effort = [
+			{
+				"activity": er["activity"],
+				"designation": er["designation"],
+				"hours": er["hours"],
+				"rate": er["rate"],
+				"cost": er["cost"],
+				"periods": er["periods"],
+			}
+			for er in effort_rows
+			if er.get("item_code") == item_code
+		]
+		# Resumen del esfuerzo por PERFIL/designation dentro del componente (APU): "qué perfiles y cuánto de
+		# cada uno". Agregación descriptiva del mismo `line_effort`; Σ == line_labor (no recalcula totales).
+		_by_prof: dict = {}
+		for er in line_effort:
+			agg = _by_prof.setdefault(
+				er["designation"] or "—", {"designation": er["designation"], "hours": 0.0, "cost": 0.0}
+			)
+			agg["hours"] += flt(er["hours"])
+			agg["cost"] += flt(er["cost"])
+		effort_by_profile = list(_by_prof.values())
 		line = {
 			"item_code": item_code,
 			"label": label,
 			"origin": origin,  # "sold" (Quotation Item) | "required" (Proposal Required Item)
 			"qty": flt(qty),
+			"unit_price": unit_price,
 			"behavior": behavior,
 			"group": grp,
 			"cadence": _cadence_label(interval, count) if behavior == "recurring" else "—",
 			"occurrences": n,
+			"impact_periods": list(occ),
+			"impact_label": impact_label,
 			"revenue_per_period": flt(revenue_amt),
 			"external_per_period": ext_amt,
 			"external_unit_cost": flt(ext_rate),
 			"external_source": ext_source,
+			"financeable": grp == "CAPEX" and contractual_ext > 0,
+			"effort": line_effort,
+			"effort_by_profile": effort_by_profile,
 			"revenue": contractual_rev,
 			"external": contractual_ext,
 			"labor": line_labor,
+			# Costo integrado del componente (APU) = costo externo + esfuerzo atribuible. NO incluye
+			# financiamiento (se trata aparte). margin = ingreso - costo integrado (idéntico a external+labor).
+			"integrated_cost": contractual_ext + line_labor,
 			"margin": contractual_rev - contractual_ext - line_labor,
+			"margin_pct": (
+				(contractual_rev - contractual_ext - line_labor) / contractual_rev * 100.0
+				if contractual_rev
+				else 0.0
+			),
 		}
 		groups[grp]["lines"].append(line)
 		groups[grp]["revenue"] += contractual_rev
@@ -439,6 +570,7 @@ def get_economic_evaluation(quotation_name: str) -> dict:
 					}
 				)
 
+	# Resultado OPERATIVO por periodo (Fase 2A): total_cost = externo + esfuerzo; margen = ingreso - costo.
 	for p in periods:
 		p["total_cost"] = p["external"] + p["labor"]
 		p["margin"] = p["revenue"] - p["total_cost"]
@@ -455,12 +587,59 @@ def get_economic_evaluation(quotation_name: str) -> dict:
 	for g in groups.values():
 		g["count"] = len(g["lines"])
 
-	# Horizonte económico: plazo contractual != necesariamente horizonte. El plazo controla la RECURRENCIA
-	# (MRC); el horizonte se EXTIENDE por la ejecución (esfuerzo posterior al plazo), sin extender ingresos
-	# recurrentes. `economic_horizon_months` es DERIVADO (= nº de periodos), no un campo persistido.
-	economic_horizon_months = horizon
+	# Puente APU (descriptivo): margen DIRECTO de los componentes vendidos (Σ de sus márgenes) y el bloque de
+	# costos requeridos NO asignados. Identidad: sold_margin - unassigned_cost = margen operativo (los APU
+	# individuales no incluyen el pool no asignado; el puente explica esa diferencia sin frases sueltas).
+	_all_lines = [line for g in groups.values() for line in g["lines"]]
+	_req_lines = [line for line in _all_lines if line["origin"] == "required"]
+	apu = {
+		"sold_margin": sum(line["margin"] for line in _all_lines if line["origin"] == "sold"),
+		"unassigned_external": sum(line["external"] for line in _req_lines),
+		"unassigned_labor": sum(line["labor"] for line in _req_lines),
+		"unassigned_cost": sum(line["integrated_cost"] for line in _req_lines),
+	}
 
-	# Advertencias explícitas (no descartar costo en silencio, ADR-0018 §hardening).
+	# ── Fase 2B: costo de financiamiento CAPEX (capa ADITIVA; NO toca external/labor/total_cost/margin) ──
+	# Base financiable = costo de adquisición del CAPEX (nunca el precio de venta). El PRINCIPAL no es costo
+	# económico (ya está en `external`); solo entran interés + comisiones como `financial_cost`.
+	capex_external = groups["CAPEX"]["external"]
+	financing = _effective_financing(doc, capex_external, company)
+
+	# Horizonte económico: el plazo controla la RECURRENCIA (MRC); el horizonte se EXTIENDE por la ejecución
+	# (esfuerzo) y por el financiamiento, SIN extender los ingresos MRC (ya acotados por el plazo).
+	fin_last_month = financing["schedule"][-1]["period"] if financing and financing["schedule"] else 0
+	new_horizon = max(horizon, fin_last_month + 1)
+	while len(periods) < new_horizon:
+		periods.append(
+			{
+				"period": len(periods),
+				"revenue": 0.0,
+				"external": 0.0,
+				"labor": 0.0,
+				"total_cost": 0.0,
+				"margin": 0.0,
+				"revenue_components": [],
+				"external_components": [],
+				"labor_components": [],
+			}
+		)
+	economic_horizon_months = len(periods)
+
+	fin_by_month = financing["by_month"] if financing else {}
+	for p in periods:
+		fc = flt(fin_by_month.get(p["period"], 0.0))
+		p["financial_cost"] = fc
+		p["total_cost_with_financing"] = p["total_cost"] + fc
+		p["margin_after_financing"] = p["margin"] - fc
+
+	totals["financial_cost"] = flt(financing["financial_cost_total"]) if financing else 0.0
+	totals["total_cost_with_financing"] = totals["total_cost"] + totals["financial_cost"]
+	totals["margin_after_financing"] = totals["margin"] - totals["financial_cost"]
+	totals["margin_after_financing_pct"] = (
+		(totals["margin_after_financing"] / totals["revenue"] * 100.0) if totals["revenue"] else 0.0
+	)
+
+	# Advertencias explícitas (no descartar costo en silencio; solo por excepción).
 	warnings = []
 	max_labor_month = max(labor_by_month) if labor_by_month else 0
 	if term > 0 and max_labor_month >= term:
@@ -472,6 +651,16 @@ def get_economic_evaluation(quotation_name: str) -> dict:
 					"horizonte económico {1} meses (esfuerzo hasta el Mes {2}). El costo NO se descarta y "
 					"los ingresos recurrentes (MRC) NO se extienden más allá del plazo."
 				).format(term, economic_horizon_months, max_labor_month),
+			}
+		)
+	if financing and fin_last_month + 1 > horizon:
+		warnings.append(
+			{
+				"code": "financing_extends_horizon",
+				"message": _(
+					"El financiamiento extiende el horizonte económico hasta el Mes {0} "
+					"(plazo de financiamiento {1} meses). No extiende los ingresos MRC."
+				).format(economic_horizon_months - 1, financing["term_months"]),
 			}
 		)
 	unattributed = totals["labor"] - sum(g["labor"] for g in groups.values())
@@ -501,12 +690,133 @@ def get_economic_evaluation(quotation_name: str) -> dict:
 		"totals": totals,
 		"groups": groups,
 		"effort": effort_rows,
+		# Subtotal del esfuerzo para la hoja de Costo de esfuerzo (horas + costo; costo == totals.labor).
+		"effort_totals": {
+			"hours": sum(flt(er["hours"]) for er in effort_rows),
+			"cost": totals["labor"],
+		},
+		"apu": apu,  # puente margen directo de vendidos vs pool no asignado vs margen operativo
+		"financing": financing,  # None si no aplica (sin CAPEX o toggle apagado)
 		"periods": periods,
+		"temporal": _temporal_rows(groups, effort_rows, financing),  # trazabilidad temporal compacta (anexo)
 		"calendar_segments": _collapse_periods(periods),
 		"warnings": warnings,
 	}
 	_assert_reconciled(model)
 	return model
+
+
+def _amortize(principal: float, annual_rate_pct: float, term_months: int, fees: float) -> dict:
+	"""Amortización mensual **vencida** (arrears), estándar (ADR-0018 Fase 2B). Pagos a 2 decimales; la
+	última cuota absorbe el residuo de redondeo para cerrar el saldo en 0. `r=0` → cuota lineal `P/n`.
+	El **principal NO** es costo económico (ya está en el costo externo); solo interés + comisiones lo son."""
+	n = cint(term_months)
+	p0 = flt(principal)
+	r = flt(annual_rate_pct) / 100.0 / 12.0
+	payment = flt(p0 * r / (1 - (1 + r) ** (-n)), 2) if r > 0 else flt(p0 / n, 2)
+	schedule = []
+	opening = p0
+	total_interest = 0.0
+	for k in range(1, n + 1):
+		interest = flt(opening * r, 2)
+		if k == n:
+			principal_k = flt(opening, 2)  # cierra el saldo exactamente
+			pay_k = flt(principal_k + interest, 2)
+		else:
+			principal_k = flt(payment - interest, 2)
+			pay_k = payment
+		closing = flt(opening - principal_k, 2)
+		schedule.append(
+			{
+				"period": k,
+				"opening": opening,
+				"interest": interest,
+				"principal": principal_k,
+				"payment": pay_k,
+				"closing": closing,
+			}
+		)
+		total_interest += interest
+		opening = closing
+	return {"payment": payment, "total_interest": flt(total_interest, 2), "schedule": schedule}
+
+
+def _effective_financing(doc, capex_external: float, company) -> dict | None:
+	"""Resuelve los inputs financieros EFECTIVOS (fail-closed) y la amortización. Devuelve ``None`` si el
+	financiamiento no está activado. Defaults documentados: monto = costo de adquisición CAPEX; plazo/tasa =
+	defaults de la Company (Proposal Settings). Representa NUESTRO costo de fondeo, nunca una tasa al cliente."""
+	if not doc.get("proposal_financing_enabled"):
+		return None
+	if flt(capex_external) <= 0:
+		frappe.throw(
+			_(
+				"Financiamiento activado pero la propuesta no contiene CAPEX financiable "
+				"(costo de adquisición CAPEX = 0)."
+			),
+			EconomicEvaluationError,
+			title=_("Financiamiento sin CAPEX"),
+		)
+	# Los defaults de Company (Proposal Settings) son ÚNICAMENTE de precarga (`_default_financing`, al activar).
+	# A partir de ahí la Quotation es autoritativa: aquí NO se reinterpretan sus valores contra la Company. En
+	# particular una tasa **0% explícita es válida** y NO se sustituye por la tasa de la Company (sin fallback
+	# silencioso). Plazo/tasa/monto salen exclusivamente del documento.
+	financed = flt(doc.get("proposal_financed_amount")) or flt(capex_external)  # default = adquisición CAPEX
+	term = cint(doc.get("proposal_financing_term_months"))
+	rate = flt(doc.get("proposal_financing_annual_cost_rate"))
+	fees = flt(doc.get("proposal_financing_fees_amount"))
+
+	if financed <= 0:
+		frappe.throw(
+			_("El monto financiado debe ser mayor que 0."),
+			EconomicEvaluationError,
+			title=_("Financiamiento inválido"),
+		)
+	if financed > flt(capex_external) + _RECON_TOL:
+		frappe.throw(
+			_("El monto financiado ({0}) no puede exceder el costo de adquisición del CAPEX ({1}).").format(
+				f"{financed:.2f}", f"{flt(capex_external):.2f}"
+			),
+			EconomicEvaluationError,
+			title=_("Financiamiento inválido"),
+		)
+	if term <= 0:
+		frappe.throw(
+			_("El plazo de financiamiento debe ser mayor que 0 meses."),
+			EconomicEvaluationError,
+			title=_("Financiamiento inválido"),
+		)
+	if rate < 0:
+		frappe.throw(
+			_("El costo anual del financiamiento no puede ser negativo."),
+			EconomicEvaluationError,
+			title=_("Financiamiento inválido"),
+		)
+	if fees < 0:
+		frappe.throw(
+			_("Las comisiones no pueden ser negativas."),
+			EconomicEvaluationError,
+			title=_("Financiamiento inválido"),
+		)
+
+	amort = _amortize(financed, rate, term, fees)
+	fees = flt(fees, 2)
+	by_month = {0: fees} if fees else {}
+	for row in amort["schedule"]:
+		by_month[row["period"]] = by_month.get(row["period"], 0.0) + row["interest"]
+	return {
+		"enabled": True,
+		"financed_amount": flt(financed, 2),
+		"capex_external": flt(capex_external, 2),
+		"financed_pct": (financed / capex_external * 100.0) if capex_external else 0.0,
+		"term_months": term,
+		"annual_cost_rate": rate,
+		"fees": fees,
+		"payment": amort["payment"],
+		"total_interest": amort["total_interest"],
+		"financial_cost_total": flt(amort["total_interest"] + fees, 2),
+		"schedule": amort["schedule"],
+		"by_month": by_month,
+	}
 
 
 def _assert_reconciled(model: dict) -> None:
@@ -540,6 +850,55 @@ def _assert_reconciled(model: dict) -> None:
 		)
 		eq(sum(c["amount"] for c in p["labor_components"]), p["labor"], f"trazabilidad esfuerzo Mes {mp}")
 
+	# Puente APU: margen directo de componentes vendidos menos costos requeridos no asignados = margen operativo.
+	apu = model.get("apu")
+	if apu:
+		eq(apu["sold_margin"] - apu["unassigned_cost"], t["margin"], "puente APU: vendidos - no asignados")
+		eq(
+			apu["unassigned_external"] + apu["unassigned_labor"],
+			apu["unassigned_cost"],
+			"APU: pool no asignado",
+		)
+
+	# ── Invariantes de Fase 2B (financiamiento) — aditivas; NO debilitan las de 2A ──
+	# El principal NO es costo económico: financial_cost = interés + comisiones (nunca principal).
+	eq(
+		t["total_cost"] + t["financial_cost"],
+		t["total_cost_with_financing"],
+		"costo total con financiamiento",
+	)
+	eq(t["margin"] - t["financial_cost"], t["margin_after_financing"], "margen después de financiamiento")
+	eq(sum(p["financial_cost"] for p in periods), t["financial_cost"], "calendario: costo financiero")
+	eq(
+		sum(p["total_cost_with_financing"] for p in periods),
+		t["total_cost_with_financing"],
+		"calendario: costo total con financiamiento",
+	)
+	eq(
+		sum(p["margin_after_financing"] for p in periods),
+		t["margin_after_financing"],
+		"calendario: margen después de financiamiento",
+	)
+	fin = model.get("financing")
+	if fin:
+		sched = fin["schedule"]
+		eq(
+			sum(row["principal"] for row in sched),
+			fin["financed_amount"],
+			"amortización: Σ principal = monto financiado",
+		)
+		eq(
+			sum(row["payment"] for row in sched),
+			fin["financed_amount"] + fin["total_interest"],
+			"amortización: Σ pago = principal + interés",
+		)
+		eq(sched[-1]["closing"], 0.0, "amortización: saldo final = 0")
+		eq(
+			fin["financial_cost_total"],
+			fin["total_interest"] + fin["fees"],
+			"costo financiero = interés + comisiones",
+		)
+
 
 def _collapse_periods(periods: list) -> list:
 	"""Colapsa periodos **consecutivos idénticos** (mismos ingreso/externo/esfuerzo) en segmentos para una
@@ -547,7 +906,13 @@ def _collapse_periods(periods: list) -> list:
 	componentes del primer periodo del rango (representativos, por ser idénticos)."""
 	segments = []
 	for p in periods:
-		key = (round(p["revenue"], 4), round(p["external"], 4), round(p["labor"], 4))
+		# Incluye el costo financiero en la clave: periodos con distinto interés NO se agrupan.
+		key = (
+			round(p["revenue"], 4),
+			round(p["external"], 4),
+			round(p["labor"], 4),
+			round(p.get("financial_cost", 0.0), 4),
+		)
 		if segments and segments[-1]["_key"] == key:
 			segments[-1]["to"] = p["period"]
 			segments[-1]["months"] += 1
@@ -563,6 +928,9 @@ def _collapse_periods(periods: list) -> list:
 				"labor": p["labor"],
 				"total_cost": p["total_cost"],
 				"margin": p["margin"],
+				"financial_cost": p.get("financial_cost", 0.0),
+				"total_cost_with_financing": p.get("total_cost_with_financing", p["total_cost"]),
+				"margin_after_financing": p.get("margin_after_financing", p["margin"]),
 				"revenue_components": p["revenue_components"],
 				"external_components": p["external_components"],
 				"labor_components": p["labor_components"],

@@ -1,9 +1,9 @@
 # ADR-0018: Evaluación económica por periodos (comportamiento en catálogo, calendario relativo)
 
 **Fecha:** 2026-09-02
-**Status:** Aprobado — **Fase 2A implementada** en la rama `feat/required-items`. Fase 2B
-(CAPEX/financiamiento) y Fase 2C (cobros/FX/escalamiento/VAN-TIR/sensibilidad) quedan diferidas y **fuera de
-alcance** de este ADR.
+**Status:** Aprobado — **Fase 2A y Fase 2B implementadas** en la rama `feat/required-items` (ver §7 bis
+hardening 2A y §7 ter financiamiento 2B). Fase 2C (cobros/FX/escalamiento/VAN-TIR/sensibilidad) queda diferida
+y **fuera de alcance** de este ADR.
 **Rama:** feat/required-items → version-16
 **Relacionado:** continúa [ADR-0017](0017-required-items-modelo-economico-aditivo.md) (modelo económico
 aditivo + Items requeridos + precarga por Company); reutiliza el patrón de reglas por Company de Fase 1 bis.
@@ -215,6 +215,58 @@ determinista, reconciliable y auditable:
 - **CAPEX preparado para 2B.** `infrastructure` conserva identificación completa (línea, item, ingreso, costo de adquisición, grupo CAPEX) para que 2B añada financiamiento (monto financiado, plazo, tasa, PMT, propio vs tercero) **sin** cambiar la estructura del calendario.
 - **Estética del Print Format: pendiente.** El diseño visual del reporte ejecutivo **no** alcanza aún las referencias; queda explícitamente para un pase posterior. El hardening prioriza certeza del cálculo.
 
+## 7 ter. Fase 2B — Costo de financiamiento del CAPEX (implementada)
+
+Fase 2B añade **una sola cosa** sobre 2A: el **costo de que NOSOTROS financiemos la adquisición del CAPEX**.
+Es una capa **aditiva** que no toca ninguna cifra ni invariante de 2A.
+
+- **Separación tajante precio-cliente vs costo-nuestro.** El financiamiento modelado es **nuestro costo de
+  fondeo** (interés + comisiones del financiador). **No** es una tasa cobrada al cliente ni altera el precio de
+  la propuesta. El precio al cliente sigue siendo el de las líneas (el CAPEX se cobra como ingreso una vez, en
+  `Mes 0`, sin cambios respecto a 2A).
+- **El principal no es costo.** Se financia un monto (`financed_amount`) y se paga en cuotas; el **principal se
+  recupera** y por tanto **no** es costo. Solo el **interés + las comisiones** constituyen `financial_cost`.
+- **Modelo aditivo (2A intacto).** Se conservan `total_cost` (externo + esfuerzo) y `margin` de 2A. Se añaden:
+  `financial_cost`, `total_cost_with_financing = total_cost + financial_cost`,
+  `margin_after_financing = margin − financial_cost` y su `%`. Los KPI y el margen de 2A **no** cambian.
+- **Base financiable = costo de adquisición del CAPEX.** `financed_amount` por defecto = **costo externo del
+  grupo CAPEX** (adquisición). El usuario puede financiar **parcialmente** (menos), pero **`financed_amount`
+  mayor que el costo de adquisición del CAPEX es ERROR** (no se financia más de lo que cuesta adquirirlo).
+- **Amortización PMT (vencido, mensual).** Cuota fija `payment = P·r / (1 − (1+r)^−n)` con `r =` tasa anual/12
+  (si `r = 0` → `P/n` lineal). Por cuota: saldo inicial, interés (`saldo·r`), capital (`pago − interés`), pago,
+  saldo final; la **última cuota amortiza el capital restante** para cerrar el saldo exactamente en 0. Redondeo
+  a 2 decimales. Las **comisiones** entran como costo financiero en `Mes 0`; el **interés** de cada cuota entra
+  en su periodo.
+- **Horizonte se extiende, MRC NO.** Si el financiamiento dura más que el plazo contractual, el
+  `economic_horizon_months` se **extiende** para mostrar el costo financiero de todos los meses; los **ingresos
+  MRC no se extienden** (solo existen durante el plazo). Se emite `warnings: financing_extends_horizon`.
+- **Fail-closed (nunca números falsos).** Con financiamiento activo: `financed_amount ≤ 0`, `> CAPEX`, plazo
+  `≤ 0`, tasa `< 0` o comisiones `< 0` → `EconomicEvaluationError`. Activar financiamiento **sin** CAPEX en la
+  propuesta también es error. La configuración inválida se detiene, no se degrada.
+- **Invariantes 2B (en `_assert_reconciled`, además de las de 2A).** `total_cost + financial_cost =
+  total_cost_with_financing`; `margin − financial_cost = margin_after_financing`; el calendario suma a esos
+  totales; y sobre la amortización: `Σ capital = financed_amount`, `Σ pago = financed_amount + Σ interés`,
+  `saldo final de la última cuota = 0`, `financial_cost_total = Σ interés + comisiones`.
+- **Defaults de Company = SOLO precarga; la Quotation es autoritativa.** `Proposal Settings` añade
+  `default_financing_term_months` y `default_financing_cost_rate` (mantenidos por Finanzas). Se **precargan**
+  al **activar** el financiamiento (transición 0→1, `_default_financing`) y **nada más**. Después, los valores
+  guardados en la Quotation mandan: el motor (`_effective_financing`) los lee **tal cual**, sin volver a
+  consultar la Company. En particular, una **tasa 0% explícita es válida** y **no** se sustituye por la de la
+  Company — **no hay fallback silencioso** de 0% a la tasa de la Company (evita sobrestimar el costo financiero).
+- **Freeze financiero por inmutabilidad.** Los campos de financiamiento son `allow_on_submit=0`: al pasar a
+  **En Revisión** (submit) quedan fijos en el documento, y como el motor lee solo el documento, la evaluación
+  histórica es estable por construcción. Cambiar `Proposal Settings` después **no** la altera. No se
+  materializa nada desde defaults en el freeze (eso sobrescribiría un 0% explícito).
+- **UX de revelación progresiva (sin ruido).** La sección de financiamiento en la Quotation **solo aparece si la
+  propuesta contiene CAPEX**. Al activarla, `financed_amount` se precarga con el costo de adquisición del CAPEX.
+  Las alertas se muestran **por excepción** (MRC sin plazo, financiado > CAPEX, horizonte extendido, esfuerzo
+  fuera de plazo, errores financieros). La pestaña muestra la **memoria de financiamiento** (monto, %, plazo,
+  costo anual, mensualidad, interés total, comisiones + tabla de amortización mes a mes). El Print Format añade,
+  **solo si hay financiamiento**, el KPI de costo financiero / margen tras financiar y una línea de resumen.
+- **NO en 2B (queda a 2C).** No hay flujo de caja, VPN, TIR ni payback: el calendario 2B sigue siendo
+  **económico (devengado)**, no cash flow. Financiar con **capital propio vs. tercero** (costo de oportunidad
+  distinto) tampoco se distingue aún: 2B modela un único costo de fondeo por tasa.
+
 ## 8. Explícitamente fuera de Fase 2A
 
 Diferidos a 2B/2C, sobre un calendario que ya funciona: **Payment Terms / cash flow** (cobros/pagos), **CAPEX
@@ -283,6 +335,14 @@ payback**, **FX** y **escalamiento/sensibilidad**.
   (`economic_behavior`, `billing_interval`, `billing_interval_count`), todos read-only.
 - Motor `utils/economic_calendar.py` + Script Report **`Evaluacion Economica`** (no persiste calendario).
 
+**Inevitables (2B) — creados exactamente estos:**
+- En `Proposal Settings`: `default_financing_term_months` (Int) + `default_financing_cost_rate` (Percent).
+- Custom fields en Quotation: `proposal_financing_enabled` (Check), `proposal_financed_amount` (Currency),
+  `proposal_financing_term_months` (Int), `proposal_financing_annual_cost_rate` (Percent),
+  `proposal_financing_fees_amount` (Currency), más el Section Break `proposal_financing_section`.
+- Amortización + `financial_cost` como **cálculo on-demand** en `utils/economic_calendar.py` (no se persiste
+  ningún importe financiero; los inputs se congelan en el freeze de En Revisión).
+
 **NO se crean (duplicación / mala UX):** flags NRC/MRC/CAPEX por línea; Link a Subscription Plan por línea;
 cadencia por línea; plazo por línea; cualquier re-captura de precio/moneda en la configuración; parámetros
 financieros por línea; DocType de calendario persistido; snapshot de FX/moneda en 2A; configuración de handoff.
@@ -291,5 +351,6 @@ financieros por línea; DocType de calendario persistido; snapshot de FX/moneda 
 
 - **Fase 2A** (este ADR): comportamiento en catálogo + plazo default + calendario relativo Mes 0…N (ingreso /
   costo externo / costo laboral / margen), on-demand, con freeze mínimo.
-- **Fase 2B:** CAPEX / financiamiento (parámetros financieros de propuesta excepcionales, amortización).
+- **Fase 2B** (implementada, §7 ter): costo de financiar el CAPEX (nuestro fondeo) — amortización PMT, capa
+  aditiva `financial_cost` / `total_cost_with_financing` / `margin_after_financing`.
 - **Fase 2C:** cobros/pagos (Payment Terms), FX, escalamiento, VAN/TIR/payback, sensibilidad.

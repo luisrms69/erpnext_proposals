@@ -175,17 +175,22 @@ frappe.ui.form.on("Quotation", {
 		refresh_optional_sections(frm);
 	},
 
-	// Fase 2A: al cambiar el plazo contractual, refrescar la Evaluación Económica integrada.
-	proposal_contract_term_months(frm) {
-		render_economic_evaluation(frm);
+	// Fase 2B: activar financiamiento → precargar el monto financiado con el costo de adquisición del CAPEX
+	// y refrescar la visibilidad de la sección de financiamiento (disclosure según haya CAPEX).
+	proposal_financing_enabled(frm) {
+		if (frm.doc.proposal_financing_enabled && !frm.doc.proposal_financed_amount) {
+			const capex = frm.__eco && frm.__eco.groups && frm.__eco.groups.CAPEX;
+			if (capex && capex.external) frm.set_value("proposal_financed_amount", capex.external);
+		}
+		refresh_financing_ui(frm);
 	},
 
 	refresh(frm) {
 		// Issue #17: cubre las Quotations nuevas creadas desde Frappe CRM con crm_deal ya poblado.
 		autofill_proposal_group_from_crm_deal(frm);
 
-		// Fase 2A: render de la Evaluación Económica en su pestaña (parte de la Quotation, sin botones).
-		render_economic_evaluation(frm);
+		// Fase 2B: refrescar la UX de financiamiento CAPEX (disclosure de la sección según haya CAPEX).
+		refresh_financing_ui(frm);
 
 		// proposal_version and proposal_group are server-assigned — lock UI editing
 		frm.set_df_property("proposal_version", "read_only", 1);
@@ -624,224 +629,40 @@ frappe.ui.form.on("Quotation", {
 	};
 })();
 
-// ─────────────────────────── Evaluación Económica (Fase 2A) ───────────────────────────
-// Render integrado en la pestaña "Evaluación Económica" de la Quotation. Consume el modelo YA calculado
-// por el motor (get_economic_evaluation); no duplica lógica financiera en el cliente.
-
-function render_economic_evaluation(frm) {
-	const field = frm.fields_dict && frm.fields_dict.proposal_economic_evaluation_html;
-	if (!field) return;
-	const set = (html) => field.$wrapper.html(html);
-	if (!frm.doc.proposal_template) {
-		set(
-			`<div class="text-muted">${__(
-				"Asigna un Proposal Template para ver la evaluación."
-			)}</div>`
-		);
-		return;
-	}
-	if (frm.is_new()) {
-		set(
-			`<div class="text-muted">${__(
-				"Guarda la propuesta para calcular la Evaluación Económica."
-			)}</div>`
-		);
-		return;
-	}
-	set(`<div class="text-muted">${__("Calculando…")}</div>`);
+// ─────────────────────────── Financiamiento CAPEX — UX (Fase 2B) ───────────────────────────
+// La pestaña "Evaluación Económica" fue retirada: el reporte de lectura/aprobación es el PDF
+// «Rentabilidad» (Print Format), que consume get_economic_evaluation. En el cliente solo permanece la UX
+// del financiamiento: mostrar la sección solo si la propuesta contiene CAPEX y precargar el monto financiado.
+// No se renderiza ninguna memoria en la Quotation (get_economic_evaluation sigue siendo la fuente única).
+function refresh_financing_ui(frm) {
+	if (!frm.doc.proposal_template || frm.is_new()) return;
 	frappe.call({
 		method: "erpnext_proposals.erpnext_proposals.utils.economic_calendar.get_economic_evaluation",
 		args: { quotation_name: frm.doc.name },
 		callback: (r) => {
-			if (r && r.message) set(build_economic_html(r.message));
+			if (r && r.message) {
+				frm.__eco = r.message;
+				apply_financing_disclosure(frm, r.message);
+			}
 		},
 	});
 }
 
-function build_economic_html(ev) {
-	const cur = ev.currency;
-	const money = (v) => format_currency(v || 0, cur);
-	const esc = (s) => frappe.utils.escape_html(s == null ? "" : String(s));
-	const estado = ev.is_frozen ? __("Congelada (histórica)") : __("Borrador (proyección viva)");
-
-	const t = ev.totals;
-	const summary = `
-		<div style="display:flex;flex-wrap:wrap;gap:12px;margin-bottom:16px">
-			${card(__("Ingreso contractual"), money(t.revenue))}
-			${card(__("Costo externo"), money(t.external))}
-			${card(__("Costo de esfuerzo"), money(t.labor))}
-			${card(__("Costo total"), money(t.total_cost))}
-			${card(__("Margen"), money(t.margin), t.margin >= 0 ? "green" : "red")}
-			${card(__("Margen %"), (t.margin_pct || 0).toFixed(2) + " %", t.margin >= 0 ? "green" : "red")}
-		</div>`;
-
-	// Horizonte económico: plazo contractual != necesariamente horizonte (se extiende por ejecución/labor).
-	const horizon = cint_js(ev.economic_horizon_months || ev.horizon);
-	const term = cint_js(ev.term_months);
-	const horizonTxt =
-		horizon > term
-			? `&nbsp;·&nbsp; <b>${__("Horizonte económico")}:</b> ${horizon} ${__("meses")}`
-			: "";
-	const warns = (ev.warnings || [])
-		.map(
-			(w) =>
-				`<div class="text-warning" style="font-size:11px;margin-top:4px">⚠ ${esc(
-					w.message
-				)}</div>`
-		)
-		.join("");
-	const header = `<div style="margin-bottom:8px">
-		<b>${__("Plazo contractual")}:</b> ${term} ${__("meses")}${horizonTxt}
-		&nbsp;·&nbsp; <b>${__("Moneda")}:</b> ${esc(cur)}
-		&nbsp;·&nbsp; <span class="text-muted">${estado}</span>${warns}</div>`;
-
-	// NRC / CAPEX: pago único (columnas simples). MRC: recurrente (cadencia + acumulado).
-	const nrc = one_shot_table("NRC", ev.groups.NRC, money, esc);
-	const capex = one_shot_table(
-		"CAPEX",
-		ev.groups.CAPEX,
-		money,
-		esc,
-		__(
-			"El tratamiento financiero de CAPEX (inversión, plazo, tasa, mensualidad) se incorpora en Fase 2B."
-		)
-	);
-	const mrc = mrc_table(ev.groups.MRC, money, esc);
-	const effort = effort_table(ev.effort, money, esc);
-	const calendar = calendar_table(ev.periods, money, esc);
-
-	return `<div class="economic-evaluation">${header}${summary}${nrc}${mrc}${capex}${effort}${calendar}</div>`;
-}
-
-function card(label, value, color) {
-	const c = color === "green" ? "#198754" : color === "red" ? "#dc3545" : "inherit";
-	return `<div style="border:1px solid var(--border-color);border-radius:8px;padding:8px 12px;min-width:150px">
-		<div class="text-muted" style="font-size:11px">${label}</div>
-		<div style="font-size:16px;font-weight:600;color:${c}">${value}</div></div>`;
-}
-
-function section_title(txt, note) {
-	const n = note
-		? `<div class="text-muted" style="font-size:11px;margin-bottom:4px">${note}</div>`
-		: "";
-	return `<h5 style="margin-top:18px">${txt}</h5>${n}`;
-}
-
-function cint_js(v) {
-	return parseInt(v || 0, 10);
-}
-
-function one_shot_table(label, group, money, esc, note) {
-	if (!group || !group.lines.length) return "";
-	const rows = group.lines
-		.map(
-			(l) => `<tr><td>${esc(l.label)}</td><td class="text-right">${l.qty}</td>
-			<td class="text-right">${money(l.revenue)}</td><td class="text-right">${money(l.external)}</td>
-			<td class="text-right">${money(l.labor)}</td><td class="text-right">${money(l.margin)}</td></tr>`
-		)
-		.join("");
-	return `${section_title(label, note)}
-		<table class="table table-bordered table-sm"><thead><tr>
-		<th>${__("Componente")}</th><th class="text-right">${__("Cant")}</th>
-		<th class="text-right">${__("Ingreso")}</th><th class="text-right">${__("Costo externo")}</th>
-		<th class="text-right">${__("Costo esfuerzo")}</th><th class="text-right">${__("Margen")}</th>
-		</tr></thead><tbody>${rows}
-		<tr style="font-weight:600"><td>${__("Subtotal")}</td><td></td>
-		<td class="text-right">${money(group.revenue)}</td><td class="text-right">${money(
-		group.external
-	)}</td>
-		<td class="text-right">${money(group.labor)}</td><td class="text-right">${money(
-		group.margin
-	)}</td></tr>
-		</tbody></table>`;
-}
-
-function mrc_table(group, money, esc) {
-	if (!group || !group.lines.length) return "";
-	const rows = group.lines
-		.map(
-			(l) => `<tr><td>${esc(l.label)}</td><td class="text-right">${l.qty}</td><td>${esc(
-				l.cadence
-			)}</td>
-			<td class="text-right">${money(l.revenue_per_period)}</td><td class="text-right">${money(
-				l.external_per_period
-			)}</td>
-			<td class="text-right">${l.occurrences}</td><td class="text-right">${money(l.revenue)}</td>
-			<td class="text-right">${money(l.external)}</td><td class="text-right">${money(
-				l.margin
-			)}</td></tr>`
-		)
-		.join("");
-	return `${section_title("MRC")}
-		<table class="table table-bordered table-sm"><thead><tr>
-		<th>${__("Componente")}</th><th class="text-right">${__("Cant")}</th><th>${__("Cadencia")}</th>
-		<th class="text-right">${__("Ingreso/periodo")}</th><th class="text-right">${__(
-		"Costo ext/periodo"
-	)}</th>
-		<th class="text-right">${__("Periodos")}</th><th class="text-right">${__(
-		"Ingreso contractual"
-	)}</th>
-		<th class="text-right">${__("Costo contractual")}</th><th class="text-right">${__("Margen")}</th>
-		</tr></thead><tbody>${rows}
-		<tr style="font-weight:600"><td>${__("Subtotal")}</td><td></td><td></td><td></td><td></td><td></td>
-		<td class="text-right">${money(group.revenue)}</td><td class="text-right">${money(
-		group.external
-	)}</td>
-		<td class="text-right">${money(group.margin)}</td></tr></tbody></table>`;
-}
-
-function effort_table(effort, money, esc) {
-	if (!effort || !effort.length) return "";
-	const rows = effort
-		.map(
-			(e) => `<tr><td>${esc(e.activity)}</td><td>${esc(e.designation || "")}</td>
-			<td class="text-right">${e.hours || 0}</td><td class="text-right">${money(e.rate)}</td>
-			<td class="text-right">${money(e.cost)}</td><td class="text-right">${e.offset_days}</td>
-			<td class="text-right">${e.duration_days}</td><td>${(e.periods || [])
-				.map((m) => "Mes " + m)
-				.join(", ")}</td><td class="text-muted">${esc(e.item_code)}</td></tr>`
-		)
-		.join("");
-	return `${section_title(
-		__("Costo de esfuerzo (mano de obra)"),
-		__("¿De dónde sale el costo laboral? — actividad, perfil, horas, tarifa")
-	)}
-		<table class="table table-bordered table-sm"><thead><tr>
-		<th>${__("Actividad")}</th><th>${__("Perfil")}</th>
-		<th class="text-right">${__("Horas")}</th><th class="text-right">${__("Tarifa")}</th>
-		<th class="text-right">${__("Costo")}</th><th class="text-right">${__("Inicio (día)")}</th>
-		<th class="text-right">${__("Duración (día)")}</th><th>${__("Periodos")}</th><th>${__(
-		"Item origen"
-	)}</th>
-		</tr></thead><tbody>${rows}</tbody></table>`;
-}
-
-function calendar_table(periods, money, esc) {
-	if (!periods || !periods.length) return "";
-	const rows = periods
-		.map((p) => {
-			const traza = [
-				...p.revenue_components.map(
-					(c) => `+${money(c.amount)} ${esc(c.item_code)} (${c.group})`
-				),
-				...p.external_components.map((c) => `−${money(c.amount)} ${esc(c.item_code)}`),
-				...p.labor_components.map((c) => `−${money(c.amount)} ${esc(c.activity)}`),
-			].join(" · ");
-			return `<tr><td>Mes ${p.period}</td><td class="text-right">${money(p.revenue)}</td>
-			<td class="text-right">${money(p.external)}</td><td class="text-right">${money(p.labor)}</td>
-			<td class="text-right">${money(p.total_cost)}</td><td class="text-right">${money(p.margin)}</td>
-			<td class="text-muted" style="font-size:11px">${traza}</td></tr>`;
-		})
-		.join("");
-	return `${section_title(
-		__("Calendario económico"),
-		__("Cada cifra se explica por sus componentes (trazabilidad).")
-	)}
-		<table class="table table-bordered table-sm"><thead><tr>
-		<th>${__("Periodo")}</th><th class="text-right">${__("Ingreso")}</th><th class="text-right">${__(
-		"Costo externo"
-	)}</th>
-		<th class="text-right">${__("Costo esfuerzo")}</th><th class="text-right">${__("Costo total")}</th>
-		<th class="text-right">${__("Margen")}</th><th>${__("Trazabilidad")}</th>
-		</tr></thead><tbody>${rows}</tbody></table>`;
+// Fase 2B — Progressive disclosure del bloque de financiamiento:
+// la sección solo aparece si la propuesta contiene CAPEX. Sin CAPEX no hay nada que financiar.
+function apply_financing_disclosure(frm, ev) {
+	const has_capex = !!(ev && ev.groups && ev.groups.CAPEX && ev.groups.CAPEX.count > 0);
+	const fields = [
+		"proposal_financing_section",
+		"proposal_financing_enabled",
+		"proposal_financed_amount",
+		"proposal_financing_term_months",
+		"proposal_financing_annual_cost_rate",
+		"proposal_financing_fees_amount",
+	];
+	fields.forEach((f) => frm.toggle_display(f, has_capex));
+	// Si desaparece el CAPEX y el financiamiento quedó activo, apagarlo para no arrastrar costo huérfano.
+	if (!has_capex && frm.doc.proposal_financing_enabled) {
+		frm.set_value("proposal_financing_enabled", 0);
+	}
 }
