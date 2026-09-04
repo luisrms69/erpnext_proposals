@@ -1,8 +1,20 @@
 # CONTINUITY.md — erpnext_proposals
 
-**Fecha:** 2026-09-03
-**Rama activa:** `feat/required-items` (base `upstream/version-16` = v0.16.0; versión objetivo del PR **0.17.0**)
-**Tarea actual:** campaña **v0.17.0** publicada como **PR #56** (base `version-16`). CI *Frappe Linter* falló por
+**Fecha:** 2026-09-04
+**Rama activa:** `feat/catalog-loader-clear-fields` (base `upstream/version-16` = v0.17.0; versión objetivo **0.18.0**)
+**Tarea actual:** **`clear_fields` en `catalog_loader`** — mecanismo genérico, opt-in e idempotente para que un
+catálogo declare `"clear_fields": ["<campo>", ...]` y vacíe campos de un registro existente (nuevo
+`_seed_clear_fields`, `LOADER_CAPS_VERSION`→11). Resuelve que `update_content` no anulaba un campo que
+**desaparece** del catálogo (caso `Proposal Template.sow_print_format` del pack Actiglobal 1.10.0). Opt-in
+(ausencia ≠ borrar), valida campo (existe/no obligatorio/no sistema/no tabla), respeta `update_content`/`dry_run`.
+Tests `test_catalog_clear_fields.py` (7). Suite **591** verde; ruff/format/semgrep/mkdocs limpios.
+**Pendiente (siguiente paso, tras merge):** declarar `clear_fields:["sow_print_format"]` en el pack Actiglobal
+1.10.0 y aplicar en `proposals-acti.dev` para borrar el PF `SOW - Consultoría Microsoft`.
+
+---
+
+### Historial previo (v0.17.0, PR #56 mergeado, release v0.17.0)
+Campaña **v0.17.0** publicada como **PR #56** (base `version-16`). CI *Frappe Linter* falló por
 `frappe-translation-trailing-spaces` (espacio inicial dentro de `_()` en `economic_calendar.py:50`, introducido
 por `5fc3d52`); corregido moviendo el espacio fuera del `_()`. **Lección:** el preflight debe incluir **Semgrep
 diff-aware** además de ruff/format/prettier/mkdocs (documentado en `CLAUDE.md` · Antes de cada PR). Todo verde

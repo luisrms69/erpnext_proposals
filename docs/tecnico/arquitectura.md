@@ -223,8 +223,15 @@ repo (privado por cliente).
 - **`update_content`:** sin él, un registro que difiere del catálogo se reporta como **conflicto** (no
   se escribe); con `update_content=True`, se **actualiza** el contenido gestionado. Solo administra los
   campos provistos por el catálogo (`_managed_fields` / `_diff_managed`).
+- **`clear_fields` (vaciado explícito, opt-in):** un objeto del catálogo puede declarar
+  `"clear_fields": ["<campo>", ...]` para que esos campos de un registro **existente** queden vacíos. La
+  **ausencia** de un campo en el JSON **nunca** vacía nada (seguro para upgrades/catálogos parciales);
+  solo se vacía lo declarado. Genérico para los tipos soportados (Templates, Sections, Scope Items, Items,
+  Phases, Letter Heads), **idempotente** (si ya está vacío no hay cambio), respeta `update_content`/`dry_run`
+  y **valida** el campo (existe, no obligatorio, no de sistema/estructura ni tabla hija). Resuelve el hueco
+  de que `update_content` no podía anular un campo que **desaparece** del catálogo (`_seed_clear_fields`).
 - **`dry_run`:** previsualiza (Creados / Sin cambios / Actualizados / Conflictos) sin escribir.
-- **Nunca borra:** 0 `delete_doc` en el código.
+- **Nunca borra registros:** 0 `delete_doc` en el código (`clear_fields` solo vacía campos, no borra docs).
 - **Print Formats protegidos:** `Propuesta Comercial` y `Rentabilidad Estimada` (assets del repo
   público) están en `PROTECTED_PRINT_FORMATS`; el loader los reporta como conflicto y **nunca** los
   escribe (ADR-0005/0006).

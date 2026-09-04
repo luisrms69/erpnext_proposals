@@ -2,6 +2,23 @@
 
 ## [No liberado]
 
+### Added — `clear_fields`: vaciado explícito de campos en `catalog_loader` (v0.18.0)
+- Un objeto del catálogo puede declarar **`"clear_fields": ["<campo>", ...]`** para que esos campos de un
+  registro **existente** queden vacíos al cargar. **Opt-in:** la **ausencia** de un campo en el JSON
+  **nunca** vacía nada (seguro para upgrades y catálogos parciales); solo se vacía lo declarado.
+- **Genérico** para los tipos soportados (Proposal Templates, Sections, Scope Items, Items, Proposal
+  Phases, Letter Heads), **idempotente** (si el campo ya está vacío no hay cambio), respeta
+  **`update_content`** (sin él, un vaciado pendiente se reporta como **conflicto**) y **`dry_run`** (no
+  escribe pero reporta el documento como `updated` si hay algo que limpiar).
+- **Validación:** el campo debe existir, no ser obligatorio y no ser de sistema/estructura (`name`,
+  `owner`, `lft`, `parent`, `is_group`, …) ni tabla hija; en otro caso se reporta como conflicto y no se
+  toca nada.
+- Resuelve el hueco: `update_content` no podía **anular** un campo que **desaparece** del catálogo (caso
+  `Proposal Template.sow_print_format`). Nuevo `_seed_clear_fields`; `LOADER_CAPS_VERSION` → 11
+  (capacidad `clear_fields`). Tests: `test_catalog_clear_fields.py` (7).
+
+## v0.17.0
+
 ### Added — Color de Proposal Phase + rango de fase/Project autocalculado (Tema 3)
 - **`Proposal Phase.color`** (Color, Color Picker nativo): al generar el Project se **congela** en el campo
   **nativo** `Task.color` de la Task padre de fase (`is_group`) — snapshot operativo: cambiar el catálogo
