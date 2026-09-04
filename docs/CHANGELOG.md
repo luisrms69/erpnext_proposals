@@ -2,6 +2,16 @@
 
 ## [No liberado]
 
+### Fixed — El nombre del Project incluye el Proposal Group al final (Tema 2)
+- `create_project_from_quotation` construye el `project_name` con el **Grupo de propuesta al final**
+  (`_build_project_name`): base = `proposal_title` (o `<cliente> — <grupo>` si no hay título) **+ separador +
+  Grupo**. Si la base **ya termina** con el grupo como sufijo inequívoco (precedido de espacio/guion) **no se
+  duplica** (sin recortar palabras legítimas). **Sin** Proposal Group se conserva la base tal cual (sin guiones
+  vacíos, `None` ni espacios sobrantes). Respeta el límite del campo (`Project.project_name` es Data 140): si
+  excede, se trunca **solo la base** de forma determinista y se conserva el Grupo completo al final. La
+  **idempotencia no cambia** (se basa en `quotation.proposal_project`, no en el nombre). Tests:
+  `test_project_name.py` (unitarios de todos los casos + integración nombre+idempotencia).
+
 ### Fixed — Identidad de Scope Items por fila origen (Tema 1)
 - **Un Item repetido en varias filas de la Quotation ya no colapsa su alcance.** La identidad de cada
   `Quotation Scope Item` pasa de `(item_code, scope_item)` a **`(source_row, scope_item)`**: se materializa

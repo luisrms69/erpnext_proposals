@@ -55,6 +55,48 @@ def _copy_native_tags(src_dt: str, src_dn: str, dst_dt: str, dst_dn: str) -> int
 	return len(src_tags)
 
 
+# Nombre del Project: `Project.project_name` es Data (varchar 140), único.
+_PROJECT_NAME_MAXLEN = 140
+_PROJECT_NAME_SEP = " — "
+
+
+def _build_project_name(customer_name: str, proposal_title, proposal_group) -> str:
+	"""Nombre del Project con el **Proposal Group al FINAL** (Tema 2).
+
+	- Base = `proposal_title` si existe; si no, `<customer> — <group>` (regla previa).
+	- El Proposal Group se añade al final con el separador consistente de la app, salvo que la base **ya
+	  termine** con ese group como sufijo inequívoco (precedido de espacio/guion) → no se duplica ni se recorta
+	  ninguna palabra legítima.
+	- Sin Proposal Group: se conserva el nombre base tal cual (sin guiones vacíos, `None` ni espacios sobrantes).
+	- Respeta el límite del campo (140): si el nombre excede, se trunca **solo la base** de forma determinista,
+	  conservando el Proposal Group completo al final.
+	"""
+	group = (proposal_group or "").strip()
+	base = (proposal_title or "").strip()
+	if not base:
+		base = (
+			f"{customer_name}{_PROJECT_NAME_SEP}{group}".strip() if group else (customer_name or "").strip()
+		)
+	if not group:
+		return base[:_PROJECT_NAME_MAXLEN].rstrip() or "Proyecto"
+	# ¿el group ya está al final como sufijo inequívoco (con separador delante o siendo el nombre completo)?
+	already = base == group or (
+		base.endswith(group) and base[-len(group) - 1 : -len(group)] in {" ", "-", "—"}
+	)
+	if already:
+		if len(base) <= _PROJECT_NAME_MAXLEN:
+			return base
+		# Excede: conservar el group al final; truncar solo la cabecera.
+		head_max = _PROJECT_NAME_MAXLEN - len(group) - 1
+		head = base[: -len(group)].rstrip(" -—")
+		return (f"{head[:head_max]} " if head_max > 0 else "") + group
+	suffix = f"{_PROJECT_NAME_SEP}{group}"
+	keep = _PROJECT_NAME_MAXLEN - len(suffix)
+	if keep <= 0:
+		return group[:_PROJECT_NAME_MAXLEN].strip()
+	return f"{base[:keep].rstrip()}{suffix}"
+
+
 @frappe.whitelist()
 def create_project_from_quotation(quotation_name: str):
 	assert_can_manage_proposals()
@@ -98,7 +140,7 @@ def create_project_from_quotation(quotation_name: str):
 	else:
 		customer = quotation.party_name
 		customer_name = frappe.db.get_value("Customer", customer, "customer_name") or customer
-		project_name = quotation.proposal_title or f"{customer_name} — {quotation.proposal_group}"
+		project_name = _build_project_name(customer_name, quotation.proposal_title, quotation.proposal_group)
 		# Recovery: reutiliza si el Project existe pero la referencia no se guardó (fallo parcial).
 		if frappe.db.exists("Project", project_name):
 			project = frappe.get_doc("Project", project_name)

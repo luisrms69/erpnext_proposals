@@ -2,8 +2,17 @@
 
 **Fecha:** 2026-09-03
 **Rama activa:** `feat/required-items` (base `upstream/version-16` = v0.16.0; versión objetivo del PR **0.17.0**)
-**Tarea actual:** **Tema 1 — identidad de Scope Items por fila origen** commiteado sobre el checkpoint de la
-campaña de Evaluación Económica (`870ffcb`). Todo verde (**558** tests). **Sin push, sin PR.**
+**Tarea actual:** **Tema 2 — el nombre del Project incluye el Proposal Group al final** commiteado sobre Tema 1
+(`f14de4e`), sobre el checkpoint de la campaña de Evaluación Económica (`870ffcb`). Todo verde (**568** tests).
+**Sin push, sin PR.**
+
+## Tema 2 — nombre del Project con Proposal Group al final (hecho)
+
+`create_project_from_quotation` construye `project_name` con el **Grupo de propuesta al final**
+(`_build_project_name`): base = `proposal_title` (o `<cliente> — <grupo>`) + separador + Grupo; no duplica si
+la base ya termina con el grupo; sin grupo conserva la base; respeta el límite 140 (Data) truncando solo la
+base. La idempotencia se mantiene por `quotation.proposal_project` (no por el nombre). Tests:
+`test_project_name.py`.
 
 ## Tema 1 — identidad de Scope Items por fila origen (hecho)
 

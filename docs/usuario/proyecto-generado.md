@@ -24,7 +24,7 @@ Al presionar el botón, el sistema crea el proyecto y las tareas automáticament
 
 | Dato en el Proyecto | Origen en la propuesta |
 |---|---|
-| Nombre del proyecto | Título de la propuesta. Si no hay título, usa "Proyecto — {nombre del cliente}" |
+| Nombre del proyecto | Título de la propuesta **con el Grupo de propuesta al final** (`Título — Grupo`); si el título ya termina con el grupo, no se duplica. Si no hay título, usa `{nombre del cliente} — {Grupo de propuesta}`. Se respeta el límite del campo (140): si excede, se recorta solo la parte base y se conserva el Grupo al final |
 | Cliente | Cliente de la Cotización |
 | Centro de costo | Campo "Centro de costo" de la pestaña Propuesta |
 | Estado | Se crea en estado "Abierto" (Open) |
