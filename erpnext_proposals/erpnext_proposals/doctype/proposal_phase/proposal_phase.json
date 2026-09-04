@@ -11,7 +11,6 @@
   "phase_name",
   "sequence",
   "color",
-  "planned_duration_days",
   "enabled"
  ],
  "fields": [
@@ -45,13 +44,6 @@
    "fieldname": "color",
    "fieldtype": "Color",
    "label": "Color"
-  },
-  {
-   "description": "Duración planificada objetivo de la fase, en días (opcional). Al generar el Proyecto, la Task padre de la fase se expande para contener sus Tasks hijas; nunca las recorta. Vacío/0 = comportamiento por roll-up de las hijas.",
-   "fieldname": "planned_duration_days",
-   "fieldtype": "Int",
-   "label": "Duración planificada (días)",
-   "non_negative": 1
   },
   {
    "default": "1",

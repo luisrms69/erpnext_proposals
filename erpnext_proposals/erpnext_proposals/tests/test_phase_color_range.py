@@ -1,11 +1,12 @@
 # Copyright (c) 2026, Consultoria en Negocios y Aplicaciones and contributors
 # For license information, please see license.txt
 
-"""Tema 3 — color y duración planificada de Proposal Phase.
+"""Tema 3 (definitivo) — color de Proposal Phase + rango de fase/Project autocalculado.
 
-Al generar el Project, la Task padre de cada fase congela (snapshot) el `color` y la `duration` de la
-Proposal Phase en los campos NATIVOS de Task. La duración es un mínimo: la fase se expande para contener sus
-hijas pero nunca las recorta ni las mueve. Datos ficticios `_T3PD-*`."""
+`Proposal Phase.color` se congela (snapshot) en `Task.color` de la Task padre (`is_group`); las hijas no lo
+heredan. La **duración de fase NO se captura**: la ventana de la fase = envelope real de sus Tasks hijas
+(min inicio / max fin). El Project obtiene `expected_end_date` = fin más tardío del plan. Datos ficticios
+`_T3PD-*`."""
 
 import unittest
 
@@ -23,7 +24,7 @@ PH1, PH2, PHP = "_T3PD_PH1", "_T3PD_PH2", "_T3PD_PHP"
 COLOR1, COLOR2 = "#ff0000", "#00ff00"
 
 
-class TestPhaseColorDuration(unittest.TestCase):
+class TestPhaseColorRange(unittest.TestCase):
 	@classmethod
 	def setUpClass(cls):
 		super().setUpClass()
@@ -60,16 +61,13 @@ class TestPhaseColorDuration(unittest.TestCase):
 			frappe.get_doc(
 				{"doctype": "Proposal Template", "template_name": "_T3PD Template", "description": "T"}
 			).insert(ignore_permissions=True)
-		# Fases: PH1 (color rojo, dur 10), PH2 (color verde, dur 8), PHP (sin color, sin duración).
-		cls._phase(PH1, 10, COLOR1, 10)
-		cls._phase(PH2, 20, COLOR2, 8)
-		cls._phase(PHP, 30, None, 0)
-		# Items + scopes por escenario (cada scope ligado a UN item vía erpnext_items).
-		cls._item_scope("_T3PD-IMAIN", [("MS1", PH1, "0", 3, 0), ("MS2", PH2, "5", 2, 0)])
-		cls._item_scope("_T3PD-IEXCEED", [("E1", PH2, "0", 20, 0)])
-		cls._item_scope("_T3PD-INODUR", [("N1", PHP, "0", 3, 0)])
-		cls._item_scope("_T3PD-IUNDAT", [("U1", PH1, "", 3, 0)])  # sin offset → hija no fechable
-		cls._item_scope("_T3PD-ISEQ", [("Q1", PH1, "", 3, 0), ("Q2", PH2, "", 3, 0)])
+		cls._phase(PH1, 10, COLOR1)
+		cls._phase(PH2, 20, COLOR2)
+		cls._phase(PHP, 30, None)
+		# IMAIN: PH1 con 2 hijas (off 0/dur4, off 2/dur3) + PH2 con 1 hija (off 12/dur5).
+		cls._item_scope("_T3PD-IMAIN", [("MS1", PH1, "0", 4), ("MS2", PH1, "2", 3), ("MS3", PH2, "12", 5)])
+		cls._item_scope("_T3PD-INOCLR", [("NC", PHP, "0", 3)])  # fase sin color
+		cls._item_scope("_T3PD-INODAT", [("U1", PH1, "", 3)])  # hija sin offset → no fechable
 
 	@classmethod
 	def tearDownClass(cls):
@@ -100,7 +98,7 @@ class TestPhaseColorDuration(unittest.TestCase):
 		super().tearDownClass()
 
 	@classmethod
-	def _phase(cls, code, seq, color, dur):
+	def _phase(cls, code, seq, color):
 		if frappe.db.exists("Proposal Phase", {"phase_code": code}):
 			frappe.delete_doc("Proposal Phase", code, force=True, ignore_permissions=True)
 		frappe.get_doc(
@@ -111,7 +109,6 @@ class TestPhaseColorDuration(unittest.TestCase):
 				"sequence": seq,
 				"enabled": 1,
 				"color": color,
-				"planned_duration_days": dur,
 			}
 		).insert(ignore_permissions=True)
 
@@ -127,9 +124,10 @@ class TestPhaseColorDuration(unittest.TestCase):
 					"stock_uom": "Nos",
 					"is_stock_item": 0,
 					"is_sales_item": 1,
+					"is_purchase_item": 0,
 				}
 			).insert(ignore_permissions=True)
-		for code, phase, off, dur, ms in scopes:
+		for code, phase, off, dur in scopes:
 			full = "_T3PD-" + code
 			if frappe.db.exists("Scope Item", full):
 				frappe.delete_doc("Scope Item", full, force=True, ignore_permissions=True)
@@ -145,7 +143,6 @@ class TestPhaseColorDuration(unittest.TestCase):
 					"estimated_hours": 4,
 					"planned_start_offset_days": off,
 					"planned_duration_days": dur,
-					"is_milestone": ms,
 				}
 			)
 			sc.append("erpnext_items", {"item": item})
@@ -182,12 +179,15 @@ class TestPhaseColorDuration(unittest.TestCase):
 		return frappe.db.get_value(
 			"Task",
 			{"project": project, "proposal_phase": phase, "is_group": 1},
-			["name", "color", "duration", "exp_start_date", "exp_end_date"],
+			["name", "color", "exp_start_date", "exp_end_date"],
 			as_dict=True,
 		)
 
-	def _pstart(self, project):
-		return getdate(frappe.db.get_value("Project", project, "expected_start_date"))
+	def _pdates(self, project):
+		v = frappe.db.get_value(
+			"Project", project, ["expected_start_date", "expected_end_date"], as_dict=True
+		)
+		return getdate(v.expected_start_date), (getdate(v.expected_end_date) if v.expected_end_date else None)
 
 	# ── COLOR ──────────────────────────────────────────────────────────────
 	def test_1_parent_gets_phase_color(self):
@@ -201,88 +201,84 @@ class TestPhaseColorDuration(unittest.TestCase):
 			"Task", filters={"project": res["project"], "is_group": 0}, fields=["color"]
 		)
 		self.assertTrue(children)
-		self.assertTrue(all(not c.color for c in children))  # ninguna hija recibe color
+		self.assertTrue(all(not c.color for c in children))
 
 	def test_3_no_color_no_error(self):
-		_, res = self._project("_T3PD-INODUR")
-		self.assertFalse(self._parent(res["project"], PHP).color)  # sin color → generación normal
+		_, res = self._project("_T3PD-INOCLR")
+		self.assertFalse(self._parent(res["project"], PHP).color)
 
 	def test_4_color_is_snapshot_not_retroactive(self):
 		_, res = self._project("_T3PD-IMAIN")
 		self.assertEqual(self._parent(res["project"], PH1).color, COLOR1)
-		# cambiar el color del catálogo DESPUÉS no altera el Project ya creado (ni al re-generar).
 		frappe.db.set_value("Proposal Phase", PH1, "color", "#123456")
 		create_project_from_quotation(
 			frappe.db.get_value("Quotation", {"proposal_project": res["project"]}, "name")
 		)
 		self.assertEqual(self._parent(res["project"], PH1).color, COLOR1)
 
-	# ── DURACIÓN ────────────────────────────────────────────────────────────
-	def test_5_duration_is_minimum_window(self):
-		# PH1 dur 10; hija termina en +2 (< 10) → la ventana del padre dura al menos 10 días.
+	# ── RANGO DE FASE / PROJECT ─────────────────────────────────────────────
+	def test_5_phase_range_is_min_max_of_children(self):
+		# PH1: MS1 (off0 dur4 → +0..+3), MS2 (off2 dur3 → +2..+4) → inicio +0, fin +4.
 		_, res = self._project("_T3PD-IMAIN")
+		start = getdate(frappe.db.get_value("Project", res["project"], "expected_start_date"))
 		p = self._parent(res["project"], PH1)
-		start = self._pstart(res["project"])
-		self.assertEqual(p.duration, 10)  # snapshot congelado
 		self.assertEqual(getdate(p.exp_start_date), start)
-		self.assertEqual(getdate(p.exp_end_date), add_days(start, 9))  # start + dur - 1
+		self.assertEqual(getdate(p.exp_end_date), add_days(start, 4))
 
-	def test_6_child_beyond_duration_expands_phase(self):
-		# PH2 dur 8; hija dura 20 días → el padre se EXPANDE para contenerla (no la recorta).
-		_, res = self._project("_T3PD-IEXCEED")
-		p = self._parent(res["project"], PH2)
-		start = self._pstart(res["project"])
-		self.assertEqual(getdate(p.exp_end_date), add_days(start, 19))  # fin de la hija, no dur-1
+	def test_6_planned_duration_field_removed(self):
+		self.assertIsNone(frappe.get_meta("Proposal Phase").get_field("planned_duration_days"))
 
-	def test_7_no_duration_keeps_rollup(self):
-		# PHP sin duración → ventana = min/max de las hijas (comportamiento previo).
-		_, res = self._project("_T3PD-INODUR")
-		p = self._parent(res["project"], PHP)
-		start = self._pstart(res["project"])
-		self.assertEqual(p.duration, 0)
-		self.assertEqual(getdate(p.exp_start_date), start)
-		self.assertEqual(getdate(p.exp_end_date), add_days(start, 2))  # off0 dur3 → +2
-
-	def test_8_phase_without_dated_children_uses_duration(self):
-		# Hija no fechable (sin offset) + duración → la fase existe con ventana (inicio secuencial).
-		_, res = self._project("_T3PD-IUNDAT")
+	def test_7_phase_without_dated_children_has_no_dates(self):
+		_, res = self._project("_T3PD-INODAT")
 		p = self._parent(res["project"], PH1)
-		start = self._pstart(res["project"])
-		self.assertEqual(getdate(p.exp_start_date), start)  # primera fase arranca en el inicio del proyecto
-		self.assertEqual(getdate(p.exp_end_date), add_days(start, 9))  # dur 10
+		self.assertIsNone(p.exp_start_date)  # no se inventan fechas
+		self.assertIsNone(p.exp_end_date)
 
-	def test_9_sequential_phases_no_overlap(self):
-		# Dos fases con hijas no fechables + duración → PH2 arranca tras el fin de PH1 (sin solaparse).
-		_, res = self._project("_T3PD-ISEQ")
-		start = self._pstart(res["project"])
-		p1, p2 = self._parent(res["project"], PH1), self._parent(res["project"], PH2)
-		self.assertEqual(getdate(p1.exp_end_date), add_days(start, 9))  # PH1: start..+9 (dur 10)
-		self.assertEqual(getdate(p2.exp_start_date), add_days(start, 10))  # PH2 arranca en +10
-		self.assertEqual(getdate(p2.exp_end_date), add_days(start, 17))  # +10..+17 (dur 8)
-
-	def test_10_child_offsets_preserved(self):
-		# La duración de fase NO altera las fechas de las hijas (offset/dependencias intactos).
+	def test_8_each_phase_reflects_its_children(self):
 		_, res = self._project("_T3PD-IMAIN")
-		start = self._pstart(res["project"])
-		ms2 = frappe.db.get_value(
+		start = getdate(frappe.db.get_value("Project", res["project"], "expected_start_date"))
+		p2 = self._parent(res["project"], PH2)  # MS3: off12 dur5 → +12..+16
+		self.assertEqual(getdate(p2.exp_start_date), add_days(start, 12))
+		self.assertEqual(getdate(p2.exp_end_date), add_days(start, 16))
+
+	def test_9_project_start_contains_plan(self):
+		_, res = self._project("_T3PD-IMAIN")
+		pstart, _pend = self._pdates(res["project"])
+		child_starts = [
+			getdate(d)
+			for d in frappe.get_all(
+				"Task",
+				filters={"project": res["project"], "is_group": 0},
+				pluck="exp_start_date",
+			)
+			if d
+		]
+		self.assertLessEqual(pstart, min(child_starts))  # el inicio del Project no es posterior al plan
+
+	def test_10_project_end_contains_plan(self):
+		_, res = self._project("_T3PD-IMAIN")
+		start = getdate(frappe.db.get_value("Project", res["project"], "expected_start_date"))
+		_pstart, pend = self._pdates(res["project"])
+		self.assertEqual(pend, add_days(start, 16))  # fin más tardío del plan (MS3)
+
+	def test_11_child_offsets_preserved(self):
+		_, res = self._project("_T3PD-IMAIN")
+		start = getdate(frappe.db.get_value("Project", res["project"], "expected_start_date"))
+		ms3 = frappe.db.get_value(
 			"Task",
-			{
-				"project": res["project"],
-				"source_quotation_scope_item": ["is", "set"],
-				"subject": ["like", "%MS2%"],
-			},
+			{"project": res["project"], "subject": ["like", "%MS3%"]},
 			["exp_start_date", "exp_end_date"],
 			as_dict=True,
 		)
-		self.assertEqual(getdate(ms2.exp_start_date), add_days(start, 5))  # offset 5 respetado
-		self.assertEqual(getdate(ms2.exp_end_date), add_days(start, 6))  # dur 2
+		self.assertEqual(getdate(ms3.exp_start_date), add_days(start, 12))
+		self.assertEqual(getdate(ms3.exp_end_date), add_days(start, 16))
 
-	def test_11_idempotent(self):
+	def test_12_idempotent(self):
 		qn, res1 = self._project("_T3PD-IMAIN")
 		res2 = create_project_from_quotation(qn)
 		self.assertEqual(res2["project"], res1["project"])
 		self.assertEqual(res2["tasks_created"], 0)
-		self.assertEqual(self._parent(res1["project"], PH1).color, COLOR1)  # snapshot intacto
+		self.assertEqual(self._parent(res1["project"], PH1).color, COLOR1)
 
 
 if __name__ == "__main__":

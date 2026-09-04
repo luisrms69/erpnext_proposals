@@ -6,14 +6,13 @@
 (`4c66709`) / Tema 1 (`f14de4e`) / campaña Evaluación Económica (`870ffcb`). Todo verde (**579** tests).
 **Sin push, sin PR.**
 
-## Tema 3 — color y duración de Proposal Phase (hecho)
+## Tema 3 — color de fase + rango autocalculado (definitivo)
 
-`Proposal Phase` gana `color` (Color) + `planned_duration_days` (Int). Al generar el Project, la **Task padre
-de fase** los congela en los campos **nativos** de Task (`Task.color`, `Task.duration`) — snapshot: cambiar el
-catálogo después no altera Projects ya creados. El color no lo heredan las hijas. La duración es un **mínimo**:
-la fase se expande para contener sus hijas (`fin = max(fin de hijas, inicio + duración − 1)`), nunca las recorta;
-inicio secuencial para fases sin hijas fechadas. Sin duración → roll-up previo. No hay segundo scheduler (las
-fechas de las hijas por offset/deps no se recalculan). Tests: `test_phase_color_duration.py`.
+`Proposal Phase.color` (Color) se congela en `Task.color` de la Task padre (snapshot; las hijas no lo heredan).
+**`planned_duration_days` fue RECHAZADO y eliminado** (campo, código, ventana mínima, tests): el rango de la
+fase se **autocalcula** = envelope de sus hijas (`inicio=min`, `fin=max`); fase sin hijas fechadas → sin fechas.
+`Project.expected_end_date` = fin más tardío del plan; `expected_start_date` = ancla (fecha de la Cotización).
+Sin segundo scheduler ni auto-expansión posterior (eso es del app `pmo`). Tests: `test_phase_color_range.py`.
 
 ## Tema 2 — nombre del Project con Proposal Group al final (hecho)
 

@@ -27,6 +27,8 @@ Al presionar el botón, el sistema crea el proyecto y las tareas automáticament
 | Nombre del proyecto | Título de la propuesta **con el Grupo de propuesta al final** (`Título — Grupo`); si el título ya termina con el grupo, no se duplica. Si no hay título, usa `{nombre del cliente} — {Grupo de propuesta}`. Se respeta el límite del campo (140): si excede, se recorta solo la parte base y se conserva el Grupo al final |
 | Cliente | Cliente de la Cotización |
 | Centro de costo | Campo "Centro de costo" de la pestaña Propuesta |
+| Fecha de inicio esperada | Ancla del proyecto (fecha de la Cotización) |
+| Fecha de fin esperada | Fecha de fin más tardía del plan (envelope de las tareas generadas); vacía si ninguna actividad tiene fecha |
 | Estado | Se crea en estado "Abierto" (Open) |
 
 ### Tareas creadas
@@ -42,22 +44,22 @@ Por cada fila de alcance marcada como **"Incluir en propuesta"**, se crea una Ta
 
 Las tareas se crean en el mismo orden que aparecen en la tabla de alcance (por fase → secuencia → posición).
 
-### Fase: color y duración planificada
+### Fase: color y rango de fechas
 
-Cada **fase** se materializa como una **tarea de grupo** (padre) que contiene sus actividades. Esa tarea padre
-toma del catálogo **Proposal Phase**, al momento de crear el proyecto:
+Cada **fase** se materializa como una **tarea de grupo** (padre) que contiene sus actividades. Al crear el
+proyecto:
 
-- **Color** — el color configurado en la fase se copia al campo nativo *Color* de la tarea de grupo, para
-  identificarla visualmente. Las actividades hijas **no** heredan el color.
-- **Duración planificada (días)** — define la ventana objetivo de la fase. La fase **se expande** para contener
-  sus actividades (nunca las recorta ni las mueve): el fin de la fase es el mayor entre el fin de sus
-  actividades y el inicio + la duración configurada. Una fase sin actividades con fecha pero con duración
-  obtiene una ventana secuencial (la primera fase arranca en la fecha de inicio del proyecto; las siguientes,
-  tras el fin de la anterior). Si la fase no tiene duración, la ventana se calcula solo con las fechas de sus
-  actividades (comportamiento previo).
+- **Color** — el color configurado en la Proposal Phase se copia al campo nativo *Color* de la tarea de grupo,
+  para identificarla visualmente. Las actividades hijas **no** heredan el color. Es un **snapshot**: cambiar
+  después el color en el catálogo **no** modifica los proyectos ya creados.
+- **Rango de fechas** — la fase **no** tiene una duración capturada; su inicio y fin se **calculan
+  automáticamente** como el rango real de sus actividades (inicio = la fecha de inicio más temprana de sus
+  tareas; fin = la fecha de fin más tardía). Una fase cuyas actividades no tengan fecha queda **sin fechas**
+  (no se inventan).
 
-Estos valores son un **snapshot**: cambiar después el color o la duración en el catálogo **no** modifica los
-proyectos ya creados.
+El **proyecto** recibe además una **fecha de fin esperada** = la fecha de fin más tardía del plan, de modo que
+el rango del proyecto contenga todas las fases. La fecha de inicio del proyecto es su ancla (la fecha de la
+cotización).
 
 ---
 
