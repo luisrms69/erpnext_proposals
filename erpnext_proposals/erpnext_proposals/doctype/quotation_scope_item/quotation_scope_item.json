@@ -7,6 +7,8 @@
  "field_order": [
   "scope_item",
   "item_code",
+  "source_type",
+  "source_row",
   "sequence",
   "code",
   "title",
@@ -52,6 +54,20 @@
    "label": "Item Code",
    "read_only": 1,
    "description": "Item de Quotation del que proviene este alcance. Congelado al generarse."
+  },
+  {
+   "description": "Tipo de fila origen: 'sold' (Item vendido) o 'required' (Item requerido). Congelado al generarse.",
+   "fieldname": "source_type",
+   "fieldtype": "Data",
+   "label": "Origen (tipo)",
+   "read_only": 1
+  },
+  {
+   "description": "Nombre de la child row origen (Quotation Item o Proposal Required Item) que materializó este alcance. Distingue ocurrencias del mismo Item repetido. Vacío en snapshots legacy.",
+   "fieldname": "source_row",
+   "fieldtype": "Data",
+   "label": "Fila origen",
+   "read_only": 1
   },
   {
    "fieldname": "sequence",

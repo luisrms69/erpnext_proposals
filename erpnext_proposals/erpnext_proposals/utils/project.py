@@ -169,8 +169,11 @@ def create_project_from_quotation(quotation_name: str):
 
 	# Nodos contratados con su Task, para los pasos de dependencias y programación. Incluye Tasks
 	# reutilizadas de una corrida previa: un reintento completa deps/fechas faltantes sin duplicar.
-	contracted: list = []  # [{scope, task, parent, offset, duration, milestone, dep_codes}]
-	task_by_scope: dict = {}  # Scope Item name (== code) -> Task name
+	contracted: list = []  # [{scope, source_row, task, parent, offset, duration, milestone, dep_codes}]
+	# Resolución de dependencias por OCURRENCIA (Tema 1): (source_row, scope_code) -> Task; y todas las
+	# materializaciones de cada scope_code, para el fallback único (sin last-wins ni regla cross-item).
+	task_by_row_scope: dict = {}
+	task_by_scope_all: dict = {}
 
 	for row in exec_rows:
 		parent = _phase_parent_task(row.phase)
@@ -226,6 +229,7 @@ def create_project_from_quotation(quotation_name: str):
 		contracted.append(
 			{
 				"scope": row.scope_item or row.name,
+				"source_row": row.get("source_row"),
 				"task": task_name,
 				"parent": parent,
 				"offset": row.planned_start_offset_days,
@@ -235,10 +239,11 @@ def create_project_from_quotation(quotation_name: str):
 			}
 		)
 		if row.scope_item and task_name:
-			task_by_scope[row.scope_item] = task_name
+			task_by_row_scope[(row.get("source_row"), row.scope_item)] = task_name
+			task_by_scope_all.setdefault(row.scope_item, []).append(task_name)
 
 	# ── 2º paso idempotente: dependencias nativas (Task.depends_on / Task Depends On) ──
-	dep_edges = _resolve_native_dependencies(contracted, task_by_scope, counters)
+	dep_edges = _resolve_native_dependencies(contracted, task_by_row_scope, task_by_scope_all, counters)
 
 	# ── Programación de fechas (offset o propagación por predecesoras) ──
 	undatable = _schedule_tasks(project, contracted, dep_edges)
@@ -256,13 +261,25 @@ def create_project_from_quotation(quotation_name: str):
 		"tasks_created": counters["tasks_created"],
 		"tasks_skipped": counters["tasks_skipped"],
 		"dependencies_created": counters.get("deps_created", 0),
+		"dependencies_ambiguous": counters.get("deps_ambiguous", 0),
 		# Tasks realmente no fechables (sin offset y sin predecesora con fecha): no se inventan fechas.
 		"undatable_tasks": undatable,
 	}
 
 
-def _resolve_native_dependencies(contracted: list, task_by_scope: dict, counters: dict) -> dict:
-	"""Traduce los códigos congelados en dependencias nativas Task.depends_on. Idempotente.
+def _resolve_native_dependencies(
+	contracted: list, task_by_row_scope: dict, task_by_scope_all: dict, counters: dict
+) -> dict:
+	"""Traduce los códigos congelados en dependencias nativas Task.depends_on. Idempotente y **por
+	OCURRENCIA** (Tema 1):
+
+	1. Resuelve el predecesor dentro de la MISMA fila origen (misma ocurrencia comercial): si el Scope Item
+	   dependiente y su predecesor provienen de la misma ocurrencia, se enlaza `S1@fila → S2@fila`.
+	2. Si no hay materialización del predecesor en esa ocurrencia pero el predecesor es **único** en toda la
+	   propuesta, se usa esa única materialización (caso no repetido / intra-item de una sola ocurrencia).
+	3. Si el predecesor tiene **varias** materializaciones y ninguna en la ocurrencia actual (dependencia
+	   cross-ocurrencia ambigua), **NO** se elige arbitrariamente (se elimina el last-wins) → se omite y se
+	   cuenta en `deps_ambiguous`. No se inventa una regla cross-item.
 
 	- Solo crea la relación si AMBAS Tasks existen dentro del mismo Project (predecesora contratada).
 	- Omite predecesores no contratados y evita duplicar relaciones existentes.
@@ -270,10 +287,19 @@ def _resolve_native_dependencies(contracted: list, task_by_scope: dict, counters
 	Devuelve el grafo {task_sucesora: set(task_predecesora)} para la etapa de programación.
 	"""
 	dep_edges: dict = {}
+	ambiguous = 0
 	for node in contracted:
 		task = node["task"]
+		src_row = node.get("source_row")
 		for pcode in _parse_dep_codes(node["dep_codes"]):
-			ptask = task_by_scope.get(pcode)
+			ptask = task_by_row_scope.get((src_row, pcode))  # 1) misma ocurrencia
+			if not ptask:
+				cands = task_by_scope_all.get(pcode, [])
+				if len(cands) == 1:
+					ptask = cands[0]  # 2) predecesor único → sin ambigüedad
+				elif len(cands) > 1:
+					ambiguous += 1  # 3) cross-ocurrencia ambiguo → no inventar; omitir
+					continue
 			if not ptask or ptask == task:  # no contratada o auto-referencia → omitir
 				continue
 			dep_edges.setdefault(task, set()).add(ptask)
@@ -294,6 +320,7 @@ def _resolve_native_dependencies(contracted: list, task_by_scope: dict, counters
 		doc.save(ignore_permissions=True)
 		created += len(to_add)
 	counters["deps_created"] = created
+	counters["deps_ambiguous"] = ambiguous
 	return dep_edges
 
 

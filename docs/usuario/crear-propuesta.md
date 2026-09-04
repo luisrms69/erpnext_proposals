@@ -90,8 +90,15 @@ Al guardar, el sistema:
 3. Marca cada fila como "generada automáticamente"
 
 **Importante:** un guardado normal **no repuebla** el alcance. Si eliminas una fila y guardas, **no
-reaparece**; editar precio/cantidad tampoco vuelve a agregar filas. Solo un **ítem nuevo** genera su
+reaparece**; editar precio/cantidad tampoco vuelve a agregar filas. Solo una **fila de ítem nueva** genera su
 alcance al guardar. Para recuperar faltantes existe una acción manual explícita (ver abajo).
+
+**Ítems repetidos:** el alcance se genera **por cada fila** de la cotización, no por código de ítem. Si el
+mismo ítem aparece en **dos filas** distintas, cada fila genera sus propias actividades de alcance (y, al
+crear el Proyecto, sus propias Tasks); las dependencias entre actividades se mantienen dentro de cada
+ocurrencia. La **cantidad** de una fila **no** multiplica el alcance (una fila con `qty=5` genera una
+actividad de cada tipo, no cinco). Repetir el mismo ítem en varias filas requiere habilitar en ERPNext
+*Configuración de ventas → Permitir agregar el ítem varias veces en una transacción*.
 
 Si no hay coincidencias en el catálogo (porque los ítems no tienen alcances vinculados), la tabla queda vacía. Esto es normal si el catálogo no está configurado todavía.
 

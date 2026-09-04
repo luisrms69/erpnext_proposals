@@ -346,12 +346,47 @@ def _autoload_required_items(doc) -> None:
 			present_required.add(req)
 
 
-def _append_scope_rows_for_item(doc, item_code: str, existing: set) -> int:
-	"""Agrega a ``quotation_scope_items`` las filas FALTANTES de un ``item_code``, resolviendo
-	Item → Scope Items por la FUENTE ÚNICA (``resolve_scope_items_for_item``: child N:N + legacy,
-	habilitados). ``existing`` = pares (item_code, scope_item) ya presentes; se actualiza in situ.
-	No elimina ni actualiza filas existentes y no duplica. Devuelve cuántas filas se agregaron. Incluye el
-	Scope Item de abastecimiento si aplica (ver ``_applicable_scope_items``)."""
+def _source_rows(doc) -> list:
+	"""Filas que aportan alcance, **por OCURRENCIA** (no deduplicadas por item_code): cada Quotation Item
+	(``sold``) y cada Proposal Required Item (``required``), con el ``name`` estable de su child row. Dos
+	filas del MISMO Item son ocurrencias distintas y se materializan por separado (Tema 1). Frappe ya asignó
+	el ``name`` de cada child row antes de ``validate`` (``set_new_name``/``set_name_in_children``), así que
+	es un identificador estable disponible en la generación. La qty NO multiplica: 1 fila comercial → 1
+	materialización de cada Scope Item asociado."""
+	rows = []
+	for it in doc.get("items") or []:
+		if it.item_code:
+			rows.append({"source_type": "sold", "source_row": it.name, "item_code": it.item_code})
+	for ri in doc.get("required_items") or []:
+		if ri.item:
+			rows.append({"source_type": "required", "source_row": ri.name, "item_code": ri.item})
+	return rows
+
+
+def _existing_scope_keys(doc) -> set:
+	"""Claves de identidad de las filas de alcance ya presentes. Para filas con ``source_row`` (identidad
+	Tema 1): ``(source_row, scope_item)`` — distingue ocurrencias del mismo Item. Para snapshots LEGACY sin
+	``source_row``: ``("__legacy__", item_code, scope_item)`` — conserva la semántica anterior por item_code
+	(sin backfill; compatibilidad razonable)."""
+	keys = set()
+	for r in doc.get("quotation_scope_items") or []:
+		if not r.scope_item:
+			continue
+		if r.get("source_row"):
+			keys.add((r.source_row, r.scope_item))
+		elif r.item_code:
+			keys.add(("__legacy__", r.item_code, r.scope_item))
+	return keys
+
+
+def _append_scope_rows_for_row(doc, src: dict, existing: set) -> int:
+	"""Materializa en ``quotation_scope_items`` los Scope Items FALTANTES de UNA fila origen ``src``
+	(``{source_type, source_row, item_code}``), resolviendo Item → Scope Items por la FUENTE ÚNICA
+	(``resolve_scope_items_for_item``: child N:N + legacy, habilitados). La identidad es por **fila origen**:
+	no duplica dentro de la misma ocurrencia, pero SÍ materializa por separado dos ocurrencias del mismo
+	Item. Respeta snapshots legacy (no re-materializa un item_code ya cubierto por una fila sin source_row).
+	``existing`` se actualiza in situ. Incluye el Scope Item de abastecimiento si aplica."""
+	item_code = src["item_code"]
 	names = _applicable_scope_items(item_code, doc.get("company"))
 	if not names:
 		return 0
@@ -364,13 +399,16 @@ def _append_scope_rows_for_item(doc, item_code: str, existing: set) -> int:
 	dep_codes = _dependency_codes_map([si.name for si in scope_items])
 	added = 0
 	for si in scope_items:
-		if (item_code, si.name) in existing:
+		# Ya presente para ESTA ocurrencia, o cubierto por un snapshot legacy del mismo item_code.
+		if (src["source_row"], si.name) in existing or ("__legacy__", item_code, si.name) in existing:
 			continue
 		doc.append(
 			"quotation_scope_items",
 			{
 				"scope_item": si.name,
 				"item_code": item_code,
+				"source_type": src["source_type"],
+				"source_row": src["source_row"],
 				"sequence": si.sequence,
 				"code": si.code,
 				"title": si.title,
@@ -394,46 +432,38 @@ def _append_scope_rows_for_item(doc, item_code: str, existing: set) -> int:
 				"auto_generated": 1,
 			},
 		)
-		existing.add((item_code, si.name))
+		existing.add((src["source_row"], si.name))
 		added += 1
 	return added
 
 
 def _source_item_codes(doc) -> list:
-	"""item_codes de las líneas que aportan alcance a la propuesta: Items **vendidos** (`doc.items`) +
-	**Required Items** (`doc.required_items`, Item nativo no vendido), en ese orden, deduplicados. Ambas
-	fuentes usan el MISMO resolver N:M (ADR-0017). El Required Item referencia el Item en el campo `item`."""
+	"""item_codes (deduplicados) de las líneas que aportan alcance: Items **vendidos** (`doc.items`) +
+	**Required Items** (`doc.required_items`), en ese orden. Se usa solo donde importa el item_code y no la
+	ocurrencia (p. ej. traer el catálogo). Para materializar/identificar por ocurrencia usar ``_source_rows``."""
 	codes = []
 	seen = set()
-	for it in doc.get("items") or []:
-		if it.item_code and it.item_code not in seen:
-			codes.append(it.item_code)
-			seen.add(it.item_code)
-	for ri in doc.get("required_items") or []:
-		if ri.item and ri.item not in seen:
-			codes.append(ri.item)
-			seen.add(ri.item)
+	for src in _source_rows(doc):
+		if src["item_code"] not in seen:
+			codes.append(src["item_code"])
+			seen.add(src["item_code"])
 	return codes
 
 
 def _generate_scope_items(doc):
-	"""Autopoblado SOLO para líneas NUEVAS (un ``item_code`` de Item vendido o Required Item que no existía
-	en el guardado previo). Un guardado normal NO repuebla: si el usuario borró una fila de alcance, no
-	reaparece; editar precio/cantidad/texto no reconstruye nada. La captura inicial (documento nuevo)
-	genera para todos los Items; agregar un Item vendido o requerido nuevo genera solo su alcance. Recuperar
+	"""Autopoblado SOLO para FILAS ORIGEN nuevas (una ocurrencia de Item vendido o Required Item cuyo
+	``source_row`` no existía en el guardado previo). Un guardado normal NO repuebla: si el usuario borró una
+	fila de alcance, no reaparece; editar precio/cantidad/texto no reconstruye nada. La identidad es por fila
+	origen (Tema 1): dos filas del mismo Item se materializan por separado; ``qty`` no multiplica. Recuperar
 	faltantes a posteriori es una acción MANUAL explícita (``add_missing_scope_items_from_items``)."""
 	before = doc.get_doc_before_save()
-	prev_item_codes = set(_source_item_codes(before)) if before else set()
-	existing = {
-		(row.item_code, row.scope_item)
-		for row in (doc.quotation_scope_items or [])
-		if row.item_code and row.scope_item
-	}
-	for item_code in _source_item_codes(doc):
-		# item_code que ya estaba en el guardado previo → no repoblar.
-		if item_code in prev_item_codes:
+	prev_rows = {src["source_row"] for src in _source_rows(before)} if before else set()
+	existing = _existing_scope_keys(doc)
+	for src in _source_rows(doc):
+		# Ocurrencia (fila origen) que ya estaba en el guardado previo → no repoblar.
+		if src["source_row"] in prev_rows:
 			continue
-		_append_scope_rows_for_item(doc, item_code, existing)
+		_append_scope_rows_for_row(doc, src, existing)
 
 
 # Contenido general del Item que se CONGELA en la línea nativa Quotation Item (bloque del servicio).
@@ -584,6 +614,7 @@ def resync_scope_from_catalog(quotation_name: str) -> dict:
 
 	item_codes = _source_item_codes(doc)
 	catalog = _catalog_rows_for_items(item_codes, doc.get("company"))
+	current_rows = {src["source_row"] for src in _source_rows(doc)}
 
 	updated = 0
 	removed = 0
@@ -592,6 +623,11 @@ def resync_scope_from_catalog(quotation_name: str) -> dict:
 		if not row.auto_generated:
 			# Fila propiedad de la propuesta — nunca se toca ni elimina.
 			kept.append(row)
+			continue
+		# Identidad Tema 1: si la FILA ORIGEN (ocurrencia) ya no existe en la propuesta, quitar su snapshot.
+		# (Solo aplica a filas con source_row; los snapshots legacy siguen la regla por item_code de abajo.)
+		if row.get("source_row") and row.source_row not in current_rows:
+			removed += 1
 			continue
 		fields = catalog.get((row.item_code, row.scope_item))
 		if fields is None:
@@ -636,12 +672,10 @@ def add_missing_scope_items_from_items(quotation_name: str) -> dict:
 	if doc.docstatus != 0 or doc.get("workflow_state") != "Borrador":
 		frappe.throw(_("Solo disponible en una propuesta en Borrador."))
 
-	existing = {
-		(r.item_code, r.scope_item) for r in (doc.quotation_scope_items or []) if r.item_code and r.scope_item
-	}
+	existing = _existing_scope_keys(doc)
 	added = 0
-	for item_code in _source_item_codes(doc):
-		added += _append_scope_rows_for_item(doc, item_code, existing)
+	for src in _source_rows(doc):
+		added += _append_scope_rows_for_row(doc, src, existing)
 	if added:
 		doc.save()
 	return {"added": added, "total": len(doc.quotation_scope_items)}

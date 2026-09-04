@@ -2,9 +2,23 @@
 
 **Fecha:** 2026-09-03
 **Rama activa:** `feat/required-items` (base `upstream/version-16` = v0.16.0; versión objetivo del PR **0.17.0**)
-**Tarea actual:** **commit de control** de la campaña completa: Fase 2A (Evaluación Económica NRC/MRC/CAPEX) +
-hardening + **Fase 2B** (costo de financiamiento del CAPEX) + **rediseño del reporte** (APU por componente).
-Todo verde. **Sin push, sin PR.**
+**Tarea actual:** **Tema 1 — identidad de Scope Items por fila origen** commiteado sobre el checkpoint de la
+campaña de Evaluación Económica (`870ffcb`). Todo verde (**558** tests). **Sin push, sin PR.**
+
+## Tema 1 — identidad de Scope Items por fila origen (hecho)
+
+La identidad de `Quotation Scope Item` pasa de `(item_code, scope_item)` a **`(source_row, scope_item)`**:
+se materializa **por FILA ORIGEN** (cada `Quotation Item`/`Proposal Required Item`), no por `item_code`. Dos
+filas del mismo Item → materializaciones independientes; `qty` no multiplica; Item compartido → una por Item.
+Campos nuevos read-only en `Quotation Scope Item`: `source_type` (`sold`/`required`) + `source_row` (name de
+la child row origen; Frappe lo asigna antes de `validate`). Generación/add-missing/resync respetan la identidad
+por fila origen; snapshots **legacy** sin `source_row` conservan la semántica por `item_code` (sin backfill).
+`create_project_from_quotation` resuelve dependencias **por ocurrencia** (elimina el *last-wins* por
+`scope_code`): `S1@A1→S2@A1`, `S1@A2→S2@A2`; cross-ocurrencia ambigua → no se inventa regla, se omite y se
+reporta (`dependencies_ambiguous`). Task sigue 1 por Quotation Scope Item. Prerequisito para repetir un Item:
+`Selling Settings · Allow Item to Be Added Multiple Times`. Tests: `test_scope_item_row_identity.py` (10).
+
+## Campaña previa (Evaluación Económica, commit `870ffcb`)
 
 ---
 

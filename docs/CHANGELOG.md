@@ -2,6 +2,29 @@
 
 ## [No liberado]
 
+### Fixed — Identidad de Scope Items por fila origen (Tema 1)
+- **Un Item repetido en varias filas de la Quotation ya no colapsa su alcance.** La identidad de cada
+  `Quotation Scope Item` pasa de `(item_code, scope_item)` a **`(source_row, scope_item)`**: se materializa
+  **por FILA ORIGEN** (cada `Quotation Item`/`Proposal Required Item`), no por `item_code`. Dos filas del
+  mismo Item → dos materializaciones independientes (`S1@A1`, `S1@A2`); un Item **compartido** entre dos
+  Items distintos → una materialización por Item; **`qty` NO multiplica** (una fila comercial → una
+  materialización de cada Scope Item). Se añaden a `Quotation Scope Item` los campos read-only `source_type`
+  (`sold`/`required`) y `source_row` (name de la child row origen). Frappe asigna el `name` de las child rows
+  **antes** de `validate`, así que es un identificador estable en la generación.
+- **Generación / add-missing / resync respetan la identidad por fila origen.** Un guardado normal no
+  repuebla ocurrencias ya materializadas; *Agregar Scope Items desde Items* repone solo la ocurrencia
+  faltante; el resync elimina el snapshot cuando su **fila origen ya no existe** (además de las reglas de
+  catálogo). Sin backfill: los snapshots **legacy** sin `source_row` conservan la semántica anterior por
+  `item_code`.
+- **Dependencias por ocurrencia (Tasks del Project).** `create_project_from_quotation` resuelve
+  `dependency_scope_item_codes` **dentro de la misma fila origen** (elimina el *last-wins* por `scope_code`):
+  con un Item repetido, `S1@A1→S2@A1` y `S1@A2→S2@A2`, nunca cruzado. Predecesor único → se usa; predecesor
+  con varias materializaciones y ninguna en la ocurrencia (cross-ocurrencia ambigua) → no se inventa regla
+  cross-item, se omite y se reporta (`dependencies_ambiguous`). Task sigue siendo **1 por Quotation Scope
+  Item** (idempotencia por la fila snapshot). Prerequisito para repetir un Item: `Selling Settings ·
+  Allow Item to Be Added Multiple Times`. Tests: `test_scope_item_row_identity.py` (10 casos A–E + generator/
+  add-missing/delete/resync + 1 QSI→1 Task + dependencias por ocurrencia).
+
 ### Changed — Reporte de Evaluación Económica: rediseño narrativo + retiro de la pestaña (v0.17.0, ADR-0018)
 - **Rediseño del Print Format `Rentabilidad Estimada` desde cero** (mismo flujo: «Vista previa/Descargar
   rentabilidad» + adjunto oficial; **sin** nuevo PF ni flujo). Estructura orientada a **lectura humana** con
