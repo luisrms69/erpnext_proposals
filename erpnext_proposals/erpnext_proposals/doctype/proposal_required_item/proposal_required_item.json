@@ -1,0 +1,126 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2026-09-01 12:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "item",
+  "qty",
+  "uom",
+  "auto_generated",
+  "cost_snapshot_section",
+  "frozen_cost_rate",
+  "frozen_cost_source",
+  "cost_locked",
+  "economic_behavior",
+  "billing_interval",
+  "billing_interval_count"
+ ],
+ "fields": [
+  {
+   "columns": 4,
+   "fieldname": "item",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Item",
+   "options": "Item",
+   "reqd": 1
+  },
+  {
+   "columns": 1,
+   "default": "1",
+   "fieldname": "qty",
+   "fieldtype": "Float",
+   "in_list_view": 1,
+   "label": "Qty",
+   "reqd": 1
+  },
+  {
+   "columns": 2,
+   "description": "Unidad de medida. Se toma del Item; cámbiala solo si lo compras en otra unidad.",
+   "fetch_from": "item.stock_uom",
+   "fetch_if_empty": 1,
+   "fieldname": "uom",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Unidad",
+   "options": "UOM"
+  },
+  {
+   "default": "0",
+   "description": "1 = precargado automáticamente por una regla de configuración; 0 = agregado manualmente. Solo auditoría.",
+   "fieldname": "auto_generated",
+   "fieldtype": "Check",
+   "hidden": 1,
+   "label": "Auto Generated",
+   "read_only": 1
+  },
+  {
+   "collapsible": 1,
+   "description": "Se llena solo cuando la propuesta pasa a revisión. No necesitas editar nada aquí.",
+   "fieldname": "cost_snapshot_section",
+   "fieldtype": "Section Break",
+   "label": "Costo de compra (guardado automático)"
+  },
+  {
+   "allow_on_submit": 1,
+   "description": "Costo de compra por unidad, guardado automáticamente cuando la propuesta pasa a revisión.",
+   "fieldname": "frozen_cost_rate",
+   "fieldtype": "Currency",
+   "label": "Costo de compra (guardado)",
+   "read_only": 1
+  },
+  {
+   "allow_on_submit": 1,
+   "description": "De dónde se tomó el costo (precio de compra, último precio, etc.).",
+   "fieldname": "frozen_cost_source",
+   "fieldtype": "Data",
+   "label": "Origen del costo",
+   "read_only": 1
+  },
+  {
+   "allow_on_submit": 1,
+   "default": "0",
+   "fieldname": "cost_locked",
+   "fieldtype": "Check",
+   "label": "Costo ya guardado",
+   "read_only": 1
+  },
+  {
+   "allow_on_submit": 1,
+   "description": "Comportamiento económico efectivo congelado al pasar a En Revisión (one_time/recurring/infrastructure).",
+   "fieldname": "economic_behavior",
+   "fieldtype": "Data",
+   "label": "Comportamiento económico (congelado)",
+   "read_only": 1
+  },
+  {
+   "allow_on_submit": 1,
+   "fieldname": "billing_interval",
+   "fieldtype": "Data",
+   "label": "Intervalo de recurrencia (congelado)",
+   "read_only": 1
+  },
+  {
+   "allow_on_submit": 1,
+   "fieldname": "billing_interval_count",
+   "fieldtype": "Int",
+   "label": "Conteo de intervalo (congelado)",
+   "read_only": 1
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "istable": 1,
+ "links": [],
+ "modified": "2026-09-01 12:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "ERPNext Proposals",
+ "name": "Proposal Required Item",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

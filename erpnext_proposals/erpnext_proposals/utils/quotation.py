@@ -62,6 +62,11 @@ def on_quotation_validate(doc, method=None):
 	# Uses validate (not before_insert) because validate is confirmed to run in web context.
 	if not doc.get("proposal_version") and not doc.get("previous_proposal"):
 		doc.proposal_version = 1
+	# Fase 2A: precargar el plazo contractual desde el default de la Company SOLO en la creación y si está
+	# vacío. Nunca se reescribe después: si la preventa lo cambia (o lo deja vacío), se respeta.
+	_default_contract_term(doc)
+	# Fase 2B: precargar plazo/tasa de financiamiento al ACTIVAR el financiamiento (transición 0→1).
+	_default_financing(doc)
 	# Banderas de alcance: una fila no puede ser vendible E interna a la vez.
 	_validate_internal_cost_flags(doc)
 	# Print Format comercial: al aplicar/cambiar la plantilla (o si el override está vacío), poblar
@@ -99,6 +104,9 @@ def on_quotation_validate(doc, method=None):
 	# Snapshot de Sections narrativas: se construye desde el Template solo si aún está vacío (generación
 	# inicial en Borrador); un guardado normal no lo regenera ni consulta maestros.
 	_sync_sections_snapshot(doc)
+	# Fase 1 bis: precargar Items requeridos configurados por los Items vendidos nuevos, ANTES de generar
+	# el alcance, para que sus Scope Items entren en la misma pasada.
+	_autoload_required_items(doc)
 	_generate_scope_items(doc)
 
 
@@ -186,14 +194,200 @@ _SCOPE_GEN_FIELDS = (
 )
 
 
-def _append_scope_rows_for_item(doc, item_code: str, existing: set) -> int:
-	"""Agrega a ``quotation_scope_items`` las filas FALTANTES de un ``item_code``, resolviendo
-	Item → Scope Items por la FUENTE ÚNICA (``resolve_scope_items_for_item``: child N:N + legacy,
-	habilitados). ``existing`` = pares (item_code, scope_item) ya presentes; se actualiza in situ.
-	No elimina ni actualiza filas existentes y no duplica. Devuelve cuántas filas se agregaron."""
+def _proposal_settings(company: str | None):
+	"""Proposal Settings **de la Company** dada (ADR-0017, Fase 1 bis). Separación estricta por Company:
+	sin fallback global. Devuelve el doc cacheado por request o ``None`` si esa Company no tiene settings."""
+	if not company:
+		return None
+	name = frappe.db.get_value("Proposal Settings", {"company": company}, "name")
+	if not name:
+		return None
+	return frappe.get_cached_doc("Proposal Settings", name)
+
+
+def _configured_required_items(item_code: str, company: str | None) -> list:
+	"""Items requeridos configurados para un Item vendido, por el Proposal Settings de la Company
+	(ADR-0017, Fase 1 bis). Precedencia: reglas específicas de Item; si no hay, reglas de su Item Group; si
+	ninguna, vacío. No se mezclan ambos niveles. Solo PRECARGA (la propuesta manda después)."""
+	settings = _proposal_settings(company)
+	if not settings:
+		return []
+	rules = settings.get("required_item_rules") or []
+	item_rules = [
+		r.required_item
+		for r in rules
+		if r.source_type == "Item" and r.source == item_code and r.required_item
+	]
+	if item_rules:
+		return list(dict.fromkeys(item_rules))
+	group = frappe.db.get_value("Item", item_code, "item_group")
+	if not group:
+		return []
+	group_rules = [
+		r.required_item
+		for r in rules
+		if r.source_type == "Item Group" and r.source == group and r.required_item
+	]
+	return list(dict.fromkeys(group_rules))
+
+
+ONE_TIME = "one_time"
+_ECONOMIC_BEHAVIORS = ("one_time", "recurring", "infrastructure")
+
+
+def _default_contract_term(doc) -> None:
+	"""Precarga `proposal_contract_term_months` desde el default de la Company (ADR-0018), solo al crear y si
+	está vacío. No reescribe un valor ya presente ni un cambio posterior de la preventa. Company sin default
+	(0/None) → se deja vacío (comportamiento seguro: sin proyección recurrente por defecto)."""
+	if not doc.is_new() or doc.get("proposal_contract_term_months"):
+		return
+	settings = _proposal_settings(doc.get("company"))
+	if not settings:
+		return
+	default_term = settings.get("default_contract_term_months")
+	if default_term:
+		doc.proposal_contract_term_months = int(default_term)
+
+
+def _default_financing(doc) -> None:
+	"""Precarga la **tasa** de financiamiento desde la Company **al ACTIVAR** el financiamiento (transición
+	0→1), no en cada guardado (ADR-0018 Fase 2B). Después el usuario controla el valor; no se reescribe.
+	El **plazo** NO se precarga aquí: el financiamiento usa el plazo contractual único de la propuesta
+	(`proposal_contract_term_months`, precargado por `_default_contract_term`), sin plazo financiero propio.
+	El `financed_amount` lo precarga el cliente (= costo de adquisición CAPEX) y el motor aplica ese default
+	si queda vacío. Nunca infiere tasa en silencio durante el cálculo."""
+	if not doc.get("proposal_financing_enabled"):
+		return
+	before = doc.get_doc_before_save()
+	if before and before.get("proposal_financing_enabled"):
+		return  # ya estaba activado → no re-precargar (soberanía del usuario)
+	settings = _proposal_settings(doc.get("company"))
+	if not settings:
+		return
+	if not doc.get("proposal_financing_annual_cost_rate") and settings.get("default_financing_cost_rate"):
+		doc.proposal_financing_annual_cost_rate = flt(settings.get("default_financing_cost_rate"))
+
+
+def _economic_behavior_for_item(item_code: str, company: str | None) -> tuple:
+	"""Comportamiento económico efectivo de un Item, por el Proposal Settings de la Company (ADR-0018).
+
+	Devuelve ``(behavior, interval, interval_count)``. Precedencia idéntica a las demás reglas: regla
+	específica de **Item**; si no hay, regla de su **Item Group**; si ninguna, ``one_time`` (default
+	implícito). Resolución **estricta por Company**, sin fallback global. Solo clasifica: el importe siempre
+	sale de la propuesta (precio de la línea / costo externo), aquí NO hay precio."""
+	default = (ONE_TIME, None, None)
+	settings = _proposal_settings(company)
+	if not settings:
+		return default
+	rules = settings.get("economic_behavior_rules") or []
+	for r in rules:
+		if r.source_type == "Item" and r.source == item_code:
+			return (r.economic_behavior or ONE_TIME, r.interval, r.interval_count)
+	group = frappe.db.get_value("Item", item_code, "item_group")
+	if group:
+		for r in rules:
+			if r.source_type == "Item Group" and r.source == group:
+				return (r.economic_behavior or ONE_TIME, r.interval, r.interval_count)
+	return default
+
+
+def _procurement_scope_for_item(item_code: str, company: str | None):
+	"""Scope Item de abastecimiento aplicable a un Item COMPRABLE (default de la Company + opt-out por Item).
+	Devuelve el code del Scope Item o ``None``. Genérico: no depende de nombres de cliente."""
+	settings = _proposal_settings(company)
+	if not settings:
+		return None
+	proc = settings.get("default_procurement_scope_item")
+	if not proc:
+		return None
+	item = frappe.db.get_value(
+		"Item", item_code, ["is_purchase_item", "proposal_skip_procurement"], as_dict=True
+	)
+	if not item or not item.is_purchase_item or item.get("proposal_skip_procurement"):
+		return None
+	if not frappe.db.get_value("Scope Item", proc, "enabled"):
+		return None
+	return proc
+
+
+def _applicable_scope_items(item_code: str, company: str | None) -> list:
+	"""Scope Items que aplican a un item_code **en el contexto de una Company**: los de la relación N:M
+	(fuente única) MÁS, si el Item es comprable y la Company tiene abastecimiento configurado, el Scope Item
+	de abastecimiento. Compartido por la generación y el resync para que ambos vean el MISMO conjunto (el
+	resync no elimina el de compra)."""
 	from erpnext_proposals.erpnext_proposals.utils.scope_item_links import resolve_scope_items_for_item
 
-	names = resolve_scope_items_for_item(item_code, enabled_only=True)
+	codes = resolve_scope_items_for_item(item_code, enabled_only=True)
+	proc = _procurement_scope_for_item(item_code, company)
+	if proc and proc not in codes:
+		codes = [*list(codes), proc]
+	return codes
+
+
+def _autoload_required_items(doc) -> None:
+	"""Precarga Items requeridos configurados al agregar Items VENDIDOS nuevos (ADR-0017, Fase 1 bis).
+
+	Copia el patrón de la generación de alcance: solo para líneas vendidas **nuevas** (diff con
+	``get_doc_before_save``); agrega los Required Items configurados que falten (por Item), marcándolos
+	``auto_generated=1``. NO repone los que el usuario borró (un guardado normal no trae items nuevos), y
+	NO agrega un Item que ya sea línea vendida (evita duplicar una reventa en required_items)."""
+	company = doc.get("company")
+	before = doc.get_doc_before_save()
+	prev_sold = {i.item_code for i in (before.items if before else []) if i.item_code}
+	sold_now = {i.item_code for i in (doc.get("items") or []) if i.item_code}
+	present_required = {r.item for r in (doc.get("required_items") or []) if r.item}
+	for it in doc.get("items") or []:
+		if not it.item_code or it.item_code in prev_sold:
+			continue  # no es una línea vendida nueva → no precargar
+		for req in _configured_required_items(it.item_code, company):
+			if req in present_required or req in sold_now:
+				continue  # ya está como requerido, o ya es una línea vendida → no duplicar
+			doc.append("required_items", {"item": req, "qty": 1, "auto_generated": 1})
+			present_required.add(req)
+
+
+def _source_rows(doc) -> list:
+	"""Filas que aportan alcance, **por OCURRENCIA** (no deduplicadas por item_code): cada Quotation Item
+	(``sold``) y cada Proposal Required Item (``required``), con el ``name`` estable de su child row. Dos
+	filas del MISMO Item son ocurrencias distintas y se materializan por separado (Tema 1). Frappe ya asignó
+	el ``name`` de cada child row antes de ``validate`` (``set_new_name``/``set_name_in_children``), así que
+	es un identificador estable disponible en la generación. La qty NO multiplica: 1 fila comercial → 1
+	materialización de cada Scope Item asociado."""
+	rows = []
+	for it in doc.get("items") or []:
+		if it.item_code:
+			rows.append({"source_type": "sold", "source_row": it.name, "item_code": it.item_code})
+	for ri in doc.get("required_items") or []:
+		if ri.item:
+			rows.append({"source_type": "required", "source_row": ri.name, "item_code": ri.item})
+	return rows
+
+
+def _existing_scope_keys(doc) -> set:
+	"""Claves de identidad de las filas de alcance ya presentes. Para filas con ``source_row`` (identidad
+	Tema 1): ``(source_row, scope_item)`` — distingue ocurrencias del mismo Item. Para snapshots LEGACY sin
+	``source_row``: ``("__legacy__", item_code, scope_item)`` — conserva la semántica anterior por item_code
+	(sin backfill; compatibilidad razonable)."""
+	keys = set()
+	for r in doc.get("quotation_scope_items") or []:
+		if not r.scope_item:
+			continue
+		if r.get("source_row"):
+			keys.add((r.source_row, r.scope_item))
+		elif r.item_code:
+			keys.add(("__legacy__", r.item_code, r.scope_item))
+	return keys
+
+
+def _append_scope_rows_for_row(doc, src: dict, existing: set) -> int:
+	"""Materializa en ``quotation_scope_items`` los Scope Items FALTANTES de UNA fila origen ``src``
+	(``{source_type, source_row, item_code}``), resolviendo Item → Scope Items por la FUENTE ÚNICA
+	(``resolve_scope_items_for_item``: child N:N + legacy, habilitados). La identidad es por **fila origen**:
+	no duplica dentro de la misma ocurrencia, pero SÍ materializa por separado dos ocurrencias del mismo
+	Item. Respeta snapshots legacy (no re-materializa un item_code ya cubierto por una fila sin source_row).
+	``existing`` se actualiza in situ. Incluye el Scope Item de abastecimiento si aplica."""
+	item_code = src["item_code"]
+	names = _applicable_scope_items(item_code, doc.get("company"))
 	if not names:
 		return 0
 	scope_items = frappe.get_all(
@@ -205,13 +399,16 @@ def _append_scope_rows_for_item(doc, item_code: str, existing: set) -> int:
 	dep_codes = _dependency_codes_map([si.name for si in scope_items])
 	added = 0
 	for si in scope_items:
-		if (item_code, si.name) in existing:
+		# Ya presente para ESTA ocurrencia, o cubierto por un snapshot legacy del mismo item_code.
+		if (src["source_row"], si.name) in existing or ("__legacy__", item_code, si.name) in existing:
 			continue
 		doc.append(
 			"quotation_scope_items",
 			{
 				"scope_item": si.name,
 				"item_code": item_code,
+				"source_type": src["source_type"],
+				"source_row": src["source_row"],
 				"sequence": si.sequence,
 				"code": si.code,
 				"title": si.title,
@@ -235,29 +432,38 @@ def _append_scope_rows_for_item(doc, item_code: str, existing: set) -> int:
 				"auto_generated": 1,
 			},
 		)
-		existing.add((item_code, si.name))
+		existing.add((src["source_row"], si.name))
 		added += 1
 	return added
 
 
+def _source_item_codes(doc) -> list:
+	"""item_codes (deduplicados) de las líneas que aportan alcance: Items **vendidos** (`doc.items`) +
+	**Required Items** (`doc.required_items`), en ese orden. Se usa solo donde importa el item_code y no la
+	ocurrencia (p. ej. traer el catálogo). Para materializar/identificar por ocurrencia usar ``_source_rows``."""
+	codes = []
+	seen = set()
+	for src in _source_rows(doc):
+		if src["item_code"] not in seen:
+			codes.append(src["item_code"])
+			seen.add(src["item_code"])
+	return codes
+
+
 def _generate_scope_items(doc):
-	"""Autopoblado SOLO para líneas Quotation Item NUEVAS (un ``item_code`` que no existía en el
-	guardado previo). Un guardado normal NO repuebla: si el usuario borró una fila de alcance, no
-	reaparece; editar precio/cantidad/texto no reconstruye nada. La captura inicial (documento nuevo)
-	genera para todos los Items; agregar un Item nuevo genera solo el alcance de ese Item. Recuperar
+	"""Autopoblado SOLO para FILAS ORIGEN nuevas (una ocurrencia de Item vendido o Required Item cuyo
+	``source_row`` no existía en el guardado previo). Un guardado normal NO repuebla: si el usuario borró una
+	fila de alcance, no reaparece; editar precio/cantidad/texto no reconstruye nada. La identidad es por fila
+	origen (Tema 1): dos filas del mismo Item se materializan por separado; ``qty`` no multiplica. Recuperar
 	faltantes a posteriori es una acción MANUAL explícita (``add_missing_scope_items_from_items``)."""
 	before = doc.get_doc_before_save()
-	prev_item_codes = {i.item_code for i in (before.items if before else []) if i.item_code}
-	existing = {
-		(row.item_code, row.scope_item)
-		for row in (doc.quotation_scope_items or [])
-		if row.item_code and row.scope_item
-	}
-	for item in doc.items or []:
-		# Sin item_code, o item_code que ya estaba en el guardado previo → no repoblar.
-		if not item.item_code or item.item_code in prev_item_codes:
+	prev_rows = {src["source_row"] for src in _source_rows(before)} if before else set()
+	existing = _existing_scope_keys(doc)
+	for src in _source_rows(doc):
+		# Ocurrencia (fila origen) que ya estaba en el guardado previo → no repoblar.
+		if src["source_row"] in prev_rows:
 			continue
-		_append_scope_rows_for_item(doc, item.item_code, existing)
+		_append_scope_rows_for_row(doc, src, existing)
 
 
 # Contenido general del Item que se CONGELA en la línea nativa Quotation Item (bloque del servicio).
@@ -317,17 +523,16 @@ _CATALOG_CONTROLLED_FIELDS = (
 )
 
 
-def _catalog_rows_for_items(item_codes: list) -> dict:
+def _catalog_rows_for_items(item_codes: list, company: str | None) -> dict:
 	"""Scope Items de catálogo habilitados asociados a los item_codes, por la FUENTE ÚNICA
 	(``resolve_scope_items_for_item``: child N:N + legacy), mapeados a los campos del child con clave
-	(item_code, scope_item_name). Un mismo Scope Item puede aplicar a varios Items."""
-	from erpnext_proposals.erpnext_proposals.utils.scope_item_links import resolve_scope_items_for_item
-
+	(item_code, scope_item_name). Un mismo Scope Item puede aplicar a varios Items. Incluye el Scope Item
+	de abastecimiento de la Company (``_applicable_scope_items``) para que el resync NO lo elimine."""
 	result: dict = {}
 	codes = list({c for c in (item_codes or []) if c})
 	if not codes:
 		return result
-	per_item = {code: resolve_scope_items_for_item(code, enabled_only=True) for code in codes}
+	per_item = {code: _applicable_scope_items(code, company) for code in codes}
 	all_names = sorted({n for names in per_item.values() for n in names})
 	if not all_names:
 		return result
@@ -407,8 +612,9 @@ def resync_scope_from_catalog(quotation_name: str) -> dict:
 			)
 		)
 
-	item_codes = [it.item_code for it in (doc.items or []) if it.item_code]
-	catalog = _catalog_rows_for_items(item_codes)
+	item_codes = _source_item_codes(doc)
+	catalog = _catalog_rows_for_items(item_codes, doc.get("company"))
+	current_rows = {src["source_row"] for src in _source_rows(doc)}
 
 	updated = 0
 	removed = 0
@@ -417,6 +623,11 @@ def resync_scope_from_catalog(quotation_name: str) -> dict:
 		if not row.auto_generated:
 			# Fila propiedad de la propuesta — nunca se toca ni elimina.
 			kept.append(row)
+			continue
+		# Identidad Tema 1: si la FILA ORIGEN (ocurrencia) ya no existe en la propuesta, quitar su snapshot.
+		# (Solo aplica a filas con source_row; los snapshots legacy siguen la regla por item_code de abajo.)
+		if row.get("source_row") and row.source_row not in current_rows:
+			removed += 1
 			continue
 		fields = catalog.get((row.item_code, row.scope_item))
 		if fields is None:
@@ -461,13 +672,10 @@ def add_missing_scope_items_from_items(quotation_name: str) -> dict:
 	if doc.docstatus != 0 or doc.get("workflow_state") != "Borrador":
 		frappe.throw(_("Solo disponible en una propuesta en Borrador."))
 
-	existing = {
-		(r.item_code, r.scope_item) for r in (doc.quotation_scope_items or []) if r.item_code and r.scope_item
-	}
+	existing = _existing_scope_keys(doc)
 	added = 0
-	for it in doc.items or []:
-		if it.item_code:
-			added += _append_scope_rows_for_item(doc, it.item_code, existing)
+	for src in _source_rows(doc):
+		added += _append_scope_rows_for_row(doc, src, existing)
 	if added:
 		doc.save()
 	return {"added": added, "total": len(doc.quotation_scope_items)}
@@ -492,6 +700,8 @@ def freeze_proposal(doc) -> None:
 	# Snapshot: conservar el existente; crear solo si viene un Draft legacy sin snapshot.
 	_sync_sections_snapshot(doc)
 	_freeze_costing_rates(doc)
+	_freeze_item_costs(doc)
+	_freeze_economic_behavior(doc)
 
 
 def _sync_sections_snapshot(doc, force: bool = False) -> None:
@@ -625,6 +835,57 @@ def _freeze_costing_rates(doc) -> None:
 		row.rate_source = source
 		row.rate_locked = 1
 		row.rate_locked_on = now
+
+
+def _freeze_item_costs(doc) -> None:
+	"""Congela el COSTO EXTERNO por línea (Item vendido + Required Item) en Borrador → En Revisión.
+
+	Aditivo al costo laboral (que se congela en ``_freeze_costing_rates``). Idempotente por fila
+	(``cost_locked``). Resuelve en vivo con el pricing NATIVO (``resolve_external_cost``: gate
+	``is_purchase_item`` → Item Price de compra → last_purchase → valuation). Sin costo → rate 0,
+	source ``sin_costo``, locked=1: la propuesta histórica NO vuelve a consultar pricing vivo (ADR-0017)."""
+	from erpnext_proposals.erpnext_proposals.utils.item_cost import resolve_external_cost
+
+	txn = doc.get("transaction_date")
+	for row in doc.get("items") or []:
+		if row.get("proposal_cost_locked"):
+			continue  # already locked — never overwrite
+		rate, source = resolve_external_cost(row.item_code, row.get("uom"), txn)
+		row.proposal_frozen_cost_rate = flt(rate)
+		row.proposal_frozen_cost_source = source
+		row.proposal_cost_locked = 1
+	for row in doc.get("required_items") or []:
+		if row.get("cost_locked"):
+			continue
+		rate, source = resolve_external_cost(row.item, row.get("uom"), txn)
+		row.frozen_cost_rate = flt(rate)
+		row.frozen_cost_source = source
+		row.cost_locked = 1
+
+
+def _freeze_economic_behavior(doc) -> None:
+	"""Congela el COMPORTAMIENTO ECONÓMICO efectivo por línea en Borrador → En Revisión (ADR-0018).
+
+	Snapshot mínimo (behavior/interval/interval_count) resuelto en vivo desde el Proposal Settings de la
+	Company al momento del freeze. Idempotente por fila (no sobrescribe si ya hay behavior congelado). Tras
+	En Revisión, la Evaluación Económica usa exclusivamente este snapshot: cambios posteriores en la
+	configuración NO alteran la propuesta histórica. El plazo efectivo es `proposal_contract_term_months`,
+	que ya vive en la Quotation y queda inmutable al someterse."""
+	company = doc.get("company")
+	for row in doc.get("items") or []:
+		if row.get("proposal_economic_behavior"):
+			continue
+		behavior, interval, count = _economic_behavior_for_item(row.item_code, company)
+		row.proposal_economic_behavior = behavior
+		row.proposal_billing_interval = interval or ""
+		row.proposal_billing_interval_count = int(count or 0)
+	for row in doc.get("required_items") or []:
+		if row.get("economic_behavior"):
+			continue
+		behavior, interval, count = _economic_behavior_for_item(row.item, company)
+		row.economic_behavior = behavior
+		row.billing_interval = interval or ""
+		row.billing_interval_count = int(count or 0)
 
 
 def attach_proposal_pdfs(doc) -> None:

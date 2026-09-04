@@ -175,9 +175,27 @@ frappe.ui.form.on("Quotation", {
 		refresh_optional_sections(frm);
 	},
 
+	// Fase 2B: activar financiamiento → precargar el monto financiado con el costo de adquisición del CAPEX
+	// y refrescar la visibilidad de la sección de financiamiento (disclosure según haya CAPEX).
+	proposal_financing_enabled(frm) {
+		if (frm.doc.proposal_financing_enabled && !frm.doc.proposal_financed_amount) {
+			const capex = frm.__eco && frm.__eco.groups && frm.__eco.groups.CAPEX;
+			if (capex && capex.external) frm.set_value("proposal_financed_amount", capex.external);
+		}
+		refresh_financing_ui(frm);
+	},
+
+	// El plazo contractual es el plazo único del financiamiento: al cambiarlo, refrescar la pista derivada.
+	proposal_contract_term_months(frm) {
+		refresh_financing_ui(frm);
+	},
+
 	refresh(frm) {
 		// Issue #17: cubre las Quotations nuevas creadas desde Frappe CRM con crm_deal ya poblado.
 		autofill_proposal_group_from_crm_deal(frm);
+
+		// Fase 2B: refrescar la UX de financiamiento CAPEX (disclosure de la sección según haya CAPEX).
+		refresh_financing_ui(frm);
 
 		// proposal_version and proposal_group are server-assigned — lock UI editing
 		frm.set_df_property("proposal_version", "read_only", 1);
@@ -615,3 +633,48 @@ frappe.ui.form.on("Quotation", {
 		}
 	};
 })();
+
+// ─────────────────────────── Financiamiento CAPEX — UX (Fase 2B) ───────────────────────────
+// La pestaña "Evaluación Económica" fue retirada: el reporte de lectura/aprobación es el PDF
+// «Rentabilidad» (Print Format), que consume get_economic_evaluation. En el cliente solo permanece la UX
+// del financiamiento: mostrar la sección solo si la propuesta contiene CAPEX y precargar el monto financiado.
+// No se renderiza ninguna memoria en la Quotation (get_economic_evaluation sigue siendo la fuente única).
+function refresh_financing_ui(frm) {
+	if (!frm.doc.proposal_template || frm.is_new()) return;
+	frappe.call({
+		method: "erpnext_proposals.erpnext_proposals.utils.economic_calendar.get_economic_evaluation",
+		args: { quotation_name: frm.doc.name },
+		callback: (r) => {
+			if (r && r.message) {
+				frm.__eco = r.message;
+				apply_financing_disclosure(frm, r.message);
+			}
+		},
+	});
+}
+
+// Fase 2B — Progressive disclosure del bloque de financiamiento:
+// la sección solo aparece si la propuesta contiene CAPEX. Sin CAPEX no hay nada que financiar.
+function apply_financing_disclosure(frm, ev) {
+	const has_capex = !!(ev && ev.groups && ev.groups.CAPEX && ev.groups.CAPEX.count > 0);
+	const fields = [
+		"proposal_financing_section",
+		"proposal_financing_enabled",
+		"proposal_financed_amount",
+		"proposal_financing_annual_cost_rate",
+		"proposal_financing_fees_amount",
+	];
+	fields.forEach((f) => frm.toggle_display(f, has_capex));
+	// El financiamiento usa el plazo contractual único (proposal_contract_term_months). No hay input de plazo
+	// financiero: se muestra el plazo DERIVADO como pista read-only en la sección.
+	const term = cint(frm.doc.proposal_contract_term_months);
+	const hint =
+		term > 0
+			? __("Plazo: {0} meses (plazo contractual)", [term])
+			: __("El financiamiento requiere un plazo contractual (meses) mayor que 0.");
+	frm.set_df_property("proposal_financing_section", "description", hint);
+	// Si desaparece el CAPEX y el financiamiento quedó activo, apagarlo para no arrastrar costo huérfano.
+	if (!has_capex && frm.doc.proposal_financing_enabled) {
+		frm.set_value("proposal_financing_enabled", 0);
+	}
+}

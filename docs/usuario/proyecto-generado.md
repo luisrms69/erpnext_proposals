@@ -24,9 +24,11 @@ Al presionar el botón, el sistema crea el proyecto y las tareas automáticament
 
 | Dato en el Proyecto | Origen en la propuesta |
 |---|---|
-| Nombre del proyecto | Título de la propuesta. Si no hay título, usa "Proyecto — {nombre del cliente}" |
+| Nombre del proyecto | Título de la propuesta **con el Grupo de propuesta al final** (`Título — Grupo`); si el título ya termina con el grupo, no se duplica. Si no hay título, usa `{nombre del cliente} — {Grupo de propuesta}`. Se respeta el límite del campo (140): si excede, se recorta solo la parte base y se conserva el Grupo al final |
 | Cliente | Cliente de la Cotización |
 | Centro de costo | Campo "Centro de costo" de la pestaña Propuesta |
+| Fecha de inicio esperada | Ancla del proyecto (fecha de la Cotización) |
+| Fecha de fin esperada | Fecha de fin más tardía del plan (envelope de las tareas generadas); vacía si ninguna actividad tiene fecha |
 | Estado | Se crea en estado "Abierto" (Open) |
 
 ### Tareas creadas
@@ -41,6 +43,23 @@ Por cada fila de alcance marcada como **"Incluir en propuesta"**, se crea una Ta
 | Estado | Open |
 
 Las tareas se crean en el mismo orden que aparecen en la tabla de alcance (por fase → secuencia → posición).
+
+### Fase: color y rango de fechas
+
+Cada **fase** se materializa como una **tarea de grupo** (padre) que contiene sus actividades. Al crear el
+proyecto:
+
+- **Color** — el color configurado en la Proposal Phase se copia al campo nativo *Color* de la tarea de grupo,
+  para identificarla visualmente. Las actividades hijas **no** heredan el color. Es un **snapshot**: cambiar
+  después el color en el catálogo **no** modifica los proyectos ya creados.
+- **Rango de fechas** — la fase **no** tiene una duración capturada; su inicio y fin se **calculan
+  automáticamente** como el rango real de sus actividades (inicio = la fecha de inicio más temprana de sus
+  tareas; fin = la fecha de fin más tardía). Una fase cuyas actividades no tengan fecha queda **sin fechas**
+  (no se inventan).
+
+El **proyecto** recibe además una **fecha de fin esperada** = la fecha de fin más tardía del plan, de modo que
+el rango del proyecto contenga todas las fases. La fecha de inicio del proyecto es su ancla (la fecha de la
+cotización).
 
 ---
 

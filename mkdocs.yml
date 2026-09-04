@@ -12,6 +12,8 @@ nav:
     - Campos principales: usuario/campos-principales.md
     - Cómo crear una propuesta: usuario/crear-propuesta.md
     - Scope Items reutilizables entre Items: usuario/scope-items-reutilizables.md
+    - Items requeridos y costo de la propuesta: usuario/items-requeridos.md
+    - Evaluación Económica (recurrencia y calendario): usuario/evaluacion-economica.md
     - Generar y enviar al cliente: usuario/generar-enviar-propuesta.md
     - SOW (Statement of Work): usuario/documento-sow.md
     - Versionar formatos de propuesta: usuario/versionar-print-formats.md
@@ -48,6 +50,8 @@ nav:
     - ADR-0014 Render de portada separada + merge: adr/0014-render-portada-separada-merge.md
     - ADR-0015 Renderer PDF desacoplado y versionado: adr/0015-renderer-pdf-desacoplado-versionado.md
     - ADR-0016 Relación N:M Item ↔ Scope Item: adr/0016-relacion-nm-item-scope-item.md
+    - ADR-0017 Items requeridos y modelo económico aditivo: adr/0017-required-items-modelo-economico-aditivo.md
+    - ADR-0018 Evaluación económica por periodos: adr/0018-evaluacion-economica-por-periodos.md
 
 theme:
   name: material

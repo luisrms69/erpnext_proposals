@@ -188,7 +188,9 @@ bench --site test-erpnext_proposals.localhost run-tests --app erpnext_proposals
   Reglas comunes que bloquean CI:
   - `frappe-manual-commit` → `frappe.db.commit()` sin justificación (usar `# nosemgrep` si es necesario en tests)
   - `frappe-missing-translate-function-python` → `frappe.throw("...")` sin `_()`
+  - `frappe-translation-trailing-spaces` → espacio inicial/final DENTRO de `_("…")`; poner el espacio FUERA (`" " + _("…")`)
   - `security.missing-argument-type-hint` → funciones sin type hints
+  **CI es diff-aware** (baseline = `upstream/version-16`): solo escanea archivos cambiados por la rama. Correr Semgrep sobre los `.py` del diff es parte del preflight, no solo ruff/format/prettier/mkdocs.
 - [ ] Fixtures exportados si hubo cambios de Custom Fields, Roles, Workspaces
 - [ ] Patch creado si hay cambios de esquema — **requiere autorización explícita**
 - [ ] `bench --site proposals.dev migrate` limpio

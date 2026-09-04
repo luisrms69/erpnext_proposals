@@ -1,7 +1,7 @@
 <!--
   ARCHIVO GENERADO AUTOMÁTICAMENTE. NO EDITAR MANUALMENTE.
   Regenerar con: python3 scripts/generate_reference.py
-  Fecha generación: 2026-09-01 10:20
+  Fecha generación: 2026-09-02 21:50
 -->
 
 
@@ -15,6 +15,8 @@ Accesibles desde el cliente JS con `frappe.call({method: '...'})` o desde Python
 
 - **erpnext_proposals/erpnext_proposals/utils/cost_matrix.py**
   - [`rebuild_cost_matrix`](#rebuild-cost-matrix)
+- **erpnext_proposals/erpnext_proposals/utils/economic_calendar.py**
+  - [`get_economic_evaluation`](#get-economic-evaluation)
 - **erpnext_proposals/erpnext_proposals/utils/print_format.py**
   - [`get_proposal_print_formats`](#get-proposal-print-formats)
   - [`get_print_format_status`](#get-print-format-status)
@@ -48,6 +50,16 @@ Accesibles desde el cliente JS con `frappe.call({method: '...'})` o desde Python
 **Módulo:** `erpnext_proposals.erpnext_proposals.utils.cost_matrix`
 
 Rebuilds Proposal Cost Matrix from employee cost data.
+
+
+## `erpnext_proposals/erpnext_proposals/utils/economic_calendar.py`
+
+
+### `get_economic_evaluation(quotation_name)`
+
+**Módulo:** `erpnext_proposals.erpnext_proposals.utils.economic_calendar`
+
+Modelo RICO de la Evaluación Económica para presentación (ADR-0018 Fase 2A): resumen, composición por
 
 
 ## `erpnext_proposals/erpnext_proposals/utils/print_format.py`

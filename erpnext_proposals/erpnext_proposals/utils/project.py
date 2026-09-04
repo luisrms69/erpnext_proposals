@@ -55,6 +55,48 @@ def _copy_native_tags(src_dt: str, src_dn: str, dst_dt: str, dst_dn: str) -> int
 	return len(src_tags)
 
 
+# Nombre del Project: `Project.project_name` es Data (varchar 140), único.
+_PROJECT_NAME_MAXLEN = 140
+_PROJECT_NAME_SEP = " — "
+
+
+def _build_project_name(customer_name: str, proposal_title, proposal_group) -> str:
+	"""Nombre del Project con el **Proposal Group al FINAL** (Tema 2).
+
+	- Base = `proposal_title` si existe; si no, `<customer> — <group>` (regla previa).
+	- El Proposal Group se añade al final con el separador consistente de la app, salvo que la base **ya
+	  termine** con ese group como sufijo inequívoco (precedido de espacio/guion) → no se duplica ni se recorta
+	  ninguna palabra legítima.
+	- Sin Proposal Group: se conserva el nombre base tal cual (sin guiones vacíos, `None` ni espacios sobrantes).
+	- Respeta el límite del campo (140): si el nombre excede, se trunca **solo la base** de forma determinista,
+	  conservando el Proposal Group completo al final.
+	"""
+	group = (proposal_group or "").strip()
+	base = (proposal_title or "").strip()
+	if not base:
+		base = (
+			f"{customer_name}{_PROJECT_NAME_SEP}{group}".strip() if group else (customer_name or "").strip()
+		)
+	if not group:
+		return base[:_PROJECT_NAME_MAXLEN].rstrip() or "Proyecto"
+	# ¿el group ya está al final como sufijo inequívoco (con separador delante o siendo el nombre completo)?
+	already = base == group or (
+		base.endswith(group) and base[-len(group) - 1 : -len(group)] in {" ", "-", "—"}
+	)
+	if already:
+		if len(base) <= _PROJECT_NAME_MAXLEN:
+			return base
+		# Excede: conservar el group al final; truncar solo la cabecera.
+		head_max = _PROJECT_NAME_MAXLEN - len(group) - 1
+		head = base[: -len(group)].rstrip(" -—")
+		return (f"{head[:head_max]} " if head_max > 0 else "") + group
+	suffix = f"{_PROJECT_NAME_SEP}{group}"
+	keep = _PROJECT_NAME_MAXLEN - len(suffix)
+	if keep <= 0:
+		return group[:_PROJECT_NAME_MAXLEN].strip()
+	return f"{base[:keep].rstrip()}{suffix}"
+
+
 @frappe.whitelist()
 def create_project_from_quotation(quotation_name: str):
 	assert_can_manage_proposals()
@@ -98,7 +140,7 @@ def create_project_from_quotation(quotation_name: str):
 	else:
 		customer = quotation.party_name
 		customer_name = frappe.db.get_value("Customer", customer, "customer_name") or customer
-		project_name = quotation.proposal_title or f"{customer_name} — {quotation.proposal_group}"
+		project_name = _build_project_name(customer_name, quotation.proposal_title, quotation.proposal_group)
 		# Recovery: reutiliza si el Project existe pero la referencia no se guardó (fallo parcial).
 		if frappe.db.exists("Project", project_name):
 			project = frappe.get_doc("Project", project_name)
@@ -132,8 +174,10 @@ def create_project_from_quotation(quotation_name: str):
 	def _phase_parent_task(phase_code: str) -> str:
 		"""Task-fase: una por (Project, Proposal Phase). Idempotente.
 
-		Tras crear/resolver la Task padre, materializa en ella los Tags NATIVOS de su Proposal Phase
-		(mecanismo nativo, idempotente). Solo la Task padre: nunca las Tasks hijas ni otros documentos.
+		Al CREARLA (no al reutilizarla) congela como **snapshot operativo** el `color` de la Proposal Phase en
+		el campo NATIVO `Task.color`: cambiar después el catálogo NO altera el Project ya generado. La ventana de
+		la fase (inicio/fin) NO se captura: se autocalcula como el rango real de sus Tasks hijas (ver
+		`_rollup_phase_dates`). Tras crear/resolver la Task padre, materializa sus Tags NATIVOS.
 		"""
 		if phase_code in phase_task_by_code:
 			return phase_task_by_code[phase_code]
@@ -144,6 +188,7 @@ def create_project_from_quotation(quotation_name: str):
 			counters["parent_reused"] += 1
 			name = existing
 		else:
+			color = frappe.db.get_value("Proposal Phase", phase_code, "color")
 			parent = frappe.get_doc(
 				{
 					"doctype": "Task",
@@ -154,6 +199,8 @@ def create_project_from_quotation(quotation_name: str):
 					"status": "Open",
 					"proposal_phase": phase_code,
 					"source_quotation": quotation.name,
+					# Snapshot operativo del color de la fase (campo nativo de Task). Solo al crear.
+					"color": color or None,
 				}
 			)
 			parent.insert(ignore_permissions=True)
@@ -169,8 +216,11 @@ def create_project_from_quotation(quotation_name: str):
 
 	# Nodos contratados con su Task, para los pasos de dependencias y programación. Incluye Tasks
 	# reutilizadas de una corrida previa: un reintento completa deps/fechas faltantes sin duplicar.
-	contracted: list = []  # [{scope, task, parent, offset, duration, milestone, dep_codes}]
-	task_by_scope: dict = {}  # Scope Item name (== code) -> Task name
+	contracted: list = []  # [{scope, source_row, task, parent, offset, duration, milestone, dep_codes}]
+	# Resolución de dependencias por OCURRENCIA (Tema 1): (source_row, scope_code) -> Task; y todas las
+	# materializaciones de cada scope_code, para el fallback único (sin last-wins ni regla cross-item).
+	task_by_row_scope: dict = {}
+	task_by_scope_all: dict = {}
 
 	for row in exec_rows:
 		parent = _phase_parent_task(row.phase)
@@ -226,6 +276,7 @@ def create_project_from_quotation(quotation_name: str):
 		contracted.append(
 			{
 				"scope": row.scope_item or row.name,
+				"source_row": row.get("source_row"),
 				"task": task_name,
 				"parent": parent,
 				"offset": row.planned_start_offset_days,
@@ -235,16 +286,17 @@ def create_project_from_quotation(quotation_name: str):
 			}
 		)
 		if row.scope_item and task_name:
-			task_by_scope[row.scope_item] = task_name
+			task_by_row_scope[(row.get("source_row"), row.scope_item)] = task_name
+			task_by_scope_all.setdefault(row.scope_item, []).append(task_name)
 
 	# ── 2º paso idempotente: dependencias nativas (Task.depends_on / Task Depends On) ──
-	dep_edges = _resolve_native_dependencies(contracted, task_by_scope, counters)
+	dep_edges = _resolve_native_dependencies(contracted, task_by_row_scope, task_by_scope_all, counters)
 
 	# ── Programación de fechas (offset o propagación por predecesoras) ──
 	undatable = _schedule_tasks(project, contracted, dep_edges)
 
-	# ── Roll-up de fechas de las Task padre de fase (min inicio / max fin de sus hijas) ──
-	_rollup_phase_dates(contracted)
+	# ── Rango de cada Task padre de fase (envelope de sus hijas) + rango del Project ──
+	_rollup_phase_dates(contracted, project)
 
 	frappe.db.commit()  # nosemgrep
 
@@ -256,13 +308,25 @@ def create_project_from_quotation(quotation_name: str):
 		"tasks_created": counters["tasks_created"],
 		"tasks_skipped": counters["tasks_skipped"],
 		"dependencies_created": counters.get("deps_created", 0),
+		"dependencies_ambiguous": counters.get("deps_ambiguous", 0),
 		# Tasks realmente no fechables (sin offset y sin predecesora con fecha): no se inventan fechas.
 		"undatable_tasks": undatable,
 	}
 
 
-def _resolve_native_dependencies(contracted: list, task_by_scope: dict, counters: dict) -> dict:
-	"""Traduce los códigos congelados en dependencias nativas Task.depends_on. Idempotente.
+def _resolve_native_dependencies(
+	contracted: list, task_by_row_scope: dict, task_by_scope_all: dict, counters: dict
+) -> dict:
+	"""Traduce los códigos congelados en dependencias nativas Task.depends_on. Idempotente y **por
+	OCURRENCIA** (Tema 1):
+
+	1. Resuelve el predecesor dentro de la MISMA fila origen (misma ocurrencia comercial): si el Scope Item
+	   dependiente y su predecesor provienen de la misma ocurrencia, se enlaza `S1@fila → S2@fila`.
+	2. Si no hay materialización del predecesor en esa ocurrencia pero el predecesor es **único** en toda la
+	   propuesta, se usa esa única materialización (caso no repetido / intra-item de una sola ocurrencia).
+	3. Si el predecesor tiene **varias** materializaciones y ninguna en la ocurrencia actual (dependencia
+	   cross-ocurrencia ambigua), **NO** se elige arbitrariamente (se elimina el last-wins) → se omite y se
+	   cuenta en `deps_ambiguous`. No se inventa una regla cross-item.
 
 	- Solo crea la relación si AMBAS Tasks existen dentro del mismo Project (predecesora contratada).
 	- Omite predecesores no contratados y evita duplicar relaciones existentes.
@@ -270,10 +334,19 @@ def _resolve_native_dependencies(contracted: list, task_by_scope: dict, counters
 	Devuelve el grafo {task_sucesora: set(task_predecesora)} para la etapa de programación.
 	"""
 	dep_edges: dict = {}
+	ambiguous = 0
 	for node in contracted:
 		task = node["task"]
+		src_row = node.get("source_row")
 		for pcode in _parse_dep_codes(node["dep_codes"]):
-			ptask = task_by_scope.get(pcode)
+			ptask = task_by_row_scope.get((src_row, pcode))  # 1) misma ocurrencia
+			if not ptask:
+				cands = task_by_scope_all.get(pcode, [])
+				if len(cands) == 1:
+					ptask = cands[0]  # 2) predecesor único → sin ambigüedad
+				elif len(cands) > 1:
+					ambiguous += 1  # 3) cross-ocurrencia ambiguo → no inventar; omitir
+					continue
 			if not ptask or ptask == task:  # no contratada o auto-referencia → omitir
 				continue
 			dep_edges.setdefault(task, set()).add(ptask)
@@ -294,6 +367,7 @@ def _resolve_native_dependencies(contracted: list, task_by_scope: dict, counters
 		doc.save(ignore_permissions=True)
 		created += len(to_add)
 	counters["deps_created"] = created
+	counters["deps_ambiguous"] = ambiguous
 	return dep_edges
 
 
@@ -407,10 +481,22 @@ def _schedule_tasks(project, contracted: list, dep_edges: dict) -> list:
 	return undatable
 
 
-def _rollup_phase_dates(contracted: list) -> None:
-	"""Actualiza cada Task padre de fase con el mínimo inicio y máximo fin de sus hijas fechadas."""
+def _rollup_phase_dates(contracted: list, project) -> None:
+	"""Rango de cada Task padre de fase = **envelope real de sus Tasks hijas** (inicio = `min(inicio de
+	hijas fechadas)`, fin = `max(fin de hijas fechadas)`). NO usa una duración configurada ni un segundo
+	scheduler: la ventana se deriva únicamente de las fechas ya calculadas de las hijas. Una fase sin hijas
+	fechadas **no** recibe fechas (no se inventan).
+
+	Además fija el **fin del Project** (`expected_end_date`) como el fin más tardío del plan, de modo que el
+	rango del Project contenga todas las fases/Tasks generadas. El inicio del Project se mantiene como su
+	ancla (`expected_start_date` = fecha de la Cotización), que es la base de los offsets y ≤ el inicio de
+	cualquier hija con offset ≥ 0.
+	"""
 	by_parent: dict = {}
+	all_ends: list = []
 	for node in contracted:
+		if node.get("_end"):
+			all_ends.append(node["_end"])
 		if node.get("parent"):
 			by_parent.setdefault(node["parent"], []).append(node)
 	for parent, children in by_parent.items():
@@ -423,3 +509,8 @@ def _rollup_phase_dates(contracted: list) -> None:
 				{"exp_start_date": min(starts), "exp_end_date": max(ends)},
 				update_modified=False,
 			)
+	# Fin del Project = fin más tardío del plan (contiene todas las fases). Solo si hay fechas.
+	if all_ends:
+		frappe.db.set_value(
+			"Project", project.name, {"expected_end_date": max(all_ends)}, update_modified=False
+		)

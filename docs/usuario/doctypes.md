@@ -168,7 +168,7 @@ Estos documentos son generados por el módulo como resultado del proceso.
 - Cuando el usuario presiona el botón "Crear Proyecto desde Propuesta" en la Cotización Submitted
 
 **Qué viene de la propuesta:**
-- Nombre del proyecto (desde el Título de propuesta o el nombre del cliente)
+- Nombre del proyecto (Título de propuesta —o nombre del cliente— con el **Grupo de propuesta al final**; sin duplicar si ya lo incluye)
 - Cliente
 - Centro de costo
 - Tareas (una por cada alcance marcado "Incluir en propuesta")

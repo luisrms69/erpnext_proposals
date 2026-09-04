@@ -10,6 +10,7 @@
   "phase_code",
   "phase_name",
   "sequence",
+  "color",
   "enabled"
  ],
  "fields": [
@@ -37,6 +38,12 @@
    "in_list_view": 1,
    "label": "Sequence",
    "reqd": 1
+  },
+  {
+   "description": "Color de la fase (Color Picker nativo). Se copia a la Task padre de la fase al generar el Proyecto; cambiarlo después NO altera Proyectos ya creados.",
+   "fieldname": "color",
+   "fieldtype": "Color",
+   "label": "Color"
   },
   {
    "default": "1",

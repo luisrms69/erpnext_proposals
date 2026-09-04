@@ -1,7 +1,7 @@
 <!--
   ARCHIVO GENERADO AUTOMÁTICAMENTE. NO EDITAR MANUALMENTE.
   Regenerar con: python3 scripts/generate_reference.py
-  Fecha generación: 2026-09-01 10:20
+  Fecha generación: 2026-09-02 21:50
 -->
 
 
@@ -52,6 +52,20 @@ Fuente: `erpnext_proposals/erpnext_proposals/doctype/proposal_cost_matrix_log/pr
 | `notes` | Notas | Small Text |  |  |
 
 
+### Proposal Economic Behavior Rule _Child table_
+
+Fuente: `erpnext_proposals/erpnext_proposals/doctype/proposal_economic_behavior_rule/proposal_economic_behavior_rule.json`
+
+
+| Campo | Label | Tipo | Requerido | Opciones |
+|---|---|---|---|---|
+| `source_type` | Aplicar a | Select | ✅ | Item… |
+| `source` | Item / Item Group | Dynamic Link | ✅ | source_type |
+| `economic_behavior` | Comportamiento económico | Select | ✅ | one_time… |
+| `interval` | Intervalo | Select |  | … |
+| `interval_count` | Cada N intervalos | Int |  |  |
+
+
 ### Proposal Optional Section _Child table_
 
 Fuente: `erpnext_proposals/erpnext_proposals/doctype/proposal_optional_section/proposal_optional_section.json`
@@ -75,6 +89,37 @@ Fuente: `erpnext_proposals/erpnext_proposals/doctype/proposal_phase/proposal_pha
 | `enabled` | Enabled | Check |  |  |
 
 
+### Proposal Required Item _Child table_
+
+Fuente: `erpnext_proposals/erpnext_proposals/doctype/proposal_required_item/proposal_required_item.json`
+
+
+| Campo | Label | Tipo | Requerido | Opciones |
+|---|---|---|---|---|
+| `item` | Item | Link | ✅ | Item |
+| `qty` | Qty | Float | ✅ |  |
+| `uom` | Unidad | Link |  | UOM |
+| `auto_generated` | Auto Generated | Check |  |  |
+| `frozen_cost_rate` | Costo de compra (guardado) | Currency |  |  |
+| `frozen_cost_source` | Origen del costo | Data |  |  |
+| `cost_locked` | Costo ya guardado | Check |  |  |
+| `economic_behavior` | Comportamiento económico (congelado) | Data |  |  |
+| `billing_interval` | Intervalo de recurrencia (congelado) | Data |  |  |
+| `billing_interval_count` | Conteo de intervalo (congelado) | Int |  |  |
+
+
+### Proposal Required Item Rule _Child table_
+
+Fuente: `erpnext_proposals/erpnext_proposals/doctype/proposal_required_item_rule/proposal_required_item_rule.json`
+
+
+| Campo | Label | Tipo | Requerido | Opciones |
+|---|---|---|---|---|
+| `source_type` | Aplicar a | Select | ✅ | Item… |
+| `source` | Item / Item Group | Dynamic Link | ✅ | source_type |
+| `required_item` | Item requerido | Link | ✅ | Item |
+
+
 ### Proposal Section
 
 Fuente: `erpnext_proposals/erpnext_proposals/doctype/proposal_section/proposal_section.json`
@@ -87,6 +132,20 @@ Fuente: `erpnext_proposals/erpnext_proposals/doctype/proposal_section/proposal_s
 | `title` | Display Title | Data |  |  |
 | `enabled` | Enabled | Check |  |  |
 | `content` | Content | Text Editor |  |  |
+
+
+### Proposal Settings
+
+Fuente: `erpnext_proposals/erpnext_proposals/doctype/proposal_settings/proposal_settings.json`
+
+
+| Campo | Label | Tipo | Requerido | Opciones |
+|---|---|---|---|---|
+| `company` | Compañía | Link | ✅ | Company |
+| `required_item_rules` | Reglas Item / Item Group → Items requeridos | Table |  | Proposal Required Item Rule |
+| `default_procurement_scope_item` | Scope Item de abastecimiento por defecto | Link |  | Scope Item |
+| `economic_behavior_rules` | Comportamiento económico por Item / Item Group | Table |  | Proposal Economic Behavior Rule |
+| `default_contract_term_months` | Plazo contractual por defecto (meses) | Int |  |  |
 
 
 ### Proposal Template
