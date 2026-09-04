@@ -47,7 +47,7 @@ def _assert_recurring_valid(interval, count, term, label, company) -> None:
 	"""Una cadencia recurrente **inválida** o **sin plazo** es un ERROR de configuración (ADR-0018 hardening):
 	nunca fallback silencioso a mensual ni plazo inferido. Identifica el componente afectado. Se llama solo
 	para líneas con comportamiento efectivo ``recurring`` (MRC)."""
-	comp = _(" (compañía {0})").format(company) if company else ""
+	comp = " " + _("(compañía {0})").format(company) if company else ""
 	if interval not in _SUPPORTED_INTERVALS:
 		frappe.throw(
 			_("Componente recurrente '{0}'{1}: intervalo '{2}' inválido. Debe ser uno de: {3}.").format(

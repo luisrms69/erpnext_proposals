@@ -2,9 +2,11 @@
 
 **Fecha:** 2026-09-03
 **Rama activa:** `feat/required-items` (base `upstream/version-16` = v0.16.0; versión objetivo del PR **0.17.0**)
-**Tarea actual:** **Financiamiento CAPEX = plazo contractual** sobre Tema 3 corregido (`8026f72`) / Tema 2
-(`4c66709`) / Tema 1 (`f14de4e`) / campaña Evaluación Económica (`870ffcb`). Todo verde (**584** tests).
-**Sin push, sin PR.**
+**Tarea actual:** campaña **v0.17.0** publicada como **PR #56** (base `version-16`). CI *Frappe Linter* falló por
+`frappe-translation-trailing-spaces` (espacio inicial dentro de `_()` en `economic_calendar.py:50`, introducido
+por `5fc3d52`); corregido moviendo el espacio fuera del `_()`. **Lección:** el preflight debe incluir **Semgrep
+diff-aware** además de ruff/format/prettier/mkdocs (documentado en `CLAUDE.md` · Antes de cada PR). Todo verde
+(**584** tests).
 
 ## Financiamiento CAPEX = plazo contractual único (hecho)
 
