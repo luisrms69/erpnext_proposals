@@ -235,24 +235,32 @@ Es una capa **aditiva** que no toca ninguna cifra ni invariante de 2A.
 - **Amortización PMT (vencido, mensual).** Cuota fija `payment = P·r / (1 − (1+r)^−n)` con `r =` tasa anual/12
   (si `r = 0` → `P/n` lineal). Por cuota: saldo inicial, interés (`saldo·r`), capital (`pago − interés`), pago,
   saldo final; la **última cuota amortiza el capital restante** para cerrar el saldo exactamente en 0. Redondeo
-  a 2 decimales. Las **comisiones** entran como costo financiero en `Mes 0`; el **interés** de cada cuota entra
-  en su periodo.
-- **Horizonte se extiende, MRC NO.** Si el financiamiento dura más que el plazo contractual, el
-  `economic_horizon_months` se **extiende** para mostrar el costo financiero de todos los meses; los **ingresos
-  MRC no se extienden** (solo existen durante el plazo). Se emite `warnings: financing_extends_horizon`.
-- **Fail-closed (nunca números falsos).** Con financiamiento activo: `financed_amount ≤ 0`, `> CAPEX`, plazo
-  `≤ 0`, tasa `< 0` o comisiones `< 0` → `EconomicEvaluationError`. Activar financiamiento **sin** CAPEX en la
-  propuesta también es error. La configuración inválida se detiene, no se degrada.
+  a 2 decimales. Las **comisiones** entran como costo financiero en `Mes 0`. **Correspondencia cuota → periodo:**
+  la cuota `k` (1-based, pago vencido) se registra en el bucket `Mes k-1` (0-based) del calendario económico; con
+  plazo `T`, las cuotas `1..T` ocupan `Mes 0..T-1` (la cuota 1 comparte el `Mes 0` con las comisiones). **No** es
+  annuity-due: el PMT sigue siendo vencido; es únicamente el mapeo entre el índice de cuota (1-based) y el bucket
+  accrual (0-based), no el flujo de caja real (Fase 2C).
+- **Plazo del financiamiento = plazo contractual único.** El financiamiento **no** tiene plazo propio: usa
+  `proposal_contract_term_months` (ver Enmienda 2026-09). No existe un plazo financiero independiente.
+- **El financiamiento NUNCA extiende el horizonte.** Anclado al plazo contractual `T`, sus cuotas quedan en
+  `Mes 0..T-1`, siempre contenidas en `0..horizonte-1` (`horizonte ≥ plazo`). El horizonte solo se **extiende por
+  ejecución** (esfuerzo posterior al plazo → `warnings: labor_beyond_term`), nunca por financiamiento; los
+  **ingresos MRC no se extienden**.
+- **Fail-closed (nunca números falsos).** Con financiamiento activo: `financed_amount ≤ 0`, `> CAPEX`, **plazo
+  contractual `≤ 0`** (el financiamiento exige un plazo contractual `> 0`), tasa `< 0` o comisiones `< 0` →
+  `EconomicEvaluationError`. Activar financiamiento **sin** CAPEX en la propuesta también es error. La
+  configuración inválida se detiene, no se degrada.
 - **Invariantes 2B (en `_assert_reconciled`, además de las de 2A).** `total_cost + financial_cost =
   total_cost_with_financing`; `margin − financial_cost = margin_after_financing`; el calendario suma a esos
   totales; y sobre la amortización: `Σ capital = financed_amount`, `Σ pago = financed_amount + Σ interés`,
   `saldo final de la última cuota = 0`, `financial_cost_total = Σ interés + comisiones`.
-- **Defaults de Company = SOLO precarga; la Quotation es autoritativa.** `Proposal Settings` añade
-  `default_financing_term_months` y `default_financing_cost_rate` (mantenidos por Finanzas). Se **precargan**
-  al **activar** el financiamiento (transición 0→1, `_default_financing`) y **nada más**. Después, los valores
-  guardados en la Quotation mandan: el motor (`_effective_financing`) los lee **tal cual**, sin volver a
-  consultar la Company. En particular, una **tasa 0% explícita es válida** y **no** se sustituye por la de la
-  Company — **no hay fallback silencioso** de 0% a la tasa de la Company (evita sobrestimar el costo financiero).
+- **Default de Company = SOLO precarga; la Quotation es autoritativa.** `Proposal Settings` añade
+  `default_financing_cost_rate` (mantenida por Finanzas). La **tasa** se **precarga** al **activar** el
+  financiamiento (transición 0→1, `_default_financing`) y **nada más**; el **plazo** no se precarga aquí (lo aporta
+  `proposal_contract_term_months`, precargado por `_default_contract_term`). Después, los valores guardados en la
+  Quotation mandan: el motor (`_effective_financing`) lee la **tasa tal cual**, sin volver a consultar la Company.
+  En particular, una **tasa 0% explícita es válida** y **no** se sustituye por la de la Company — **no hay fallback
+  silencioso** de 0% a la tasa de la Company (evita sobrestimar el costo financiero).
 - **Freeze financiero por inmutabilidad.** Los campos de financiamiento son `allow_on_submit=0`: al pasar a
   **En Revisión** (submit) quedan fijos en el documento, y como el motor lee solo el documento, la evaluación
   histórica es estable por construcción. Cambiar `Proposal Settings` después **no** la altera. No se
@@ -336,10 +344,11 @@ payback**, **FX** y **escalamiento/sensibilidad**.
 - Motor `utils/economic_calendar.py` + Script Report **`Evaluacion Economica`** (no persiste calendario).
 
 **Inevitables (2B) — creados exactamente estos:**
-- En `Proposal Settings`: `default_financing_term_months` (Int) + `default_financing_cost_rate` (Percent).
+- En `Proposal Settings`: `default_financing_cost_rate` (Percent). El plazo NO se duplica: el financiamiento usa
+  `proposal_contract_term_months` (ver Enmienda 2026-09).
 - Custom fields en Quotation: `proposal_financing_enabled` (Check), `proposal_financed_amount` (Currency),
-  `proposal_financing_term_months` (Int), `proposal_financing_annual_cost_rate` (Percent),
-  `proposal_financing_fees_amount` (Currency), más el Section Break `proposal_financing_section`.
+  `proposal_financing_annual_cost_rate` (Percent), `proposal_financing_fees_amount` (Currency), más el Section
+  Break `proposal_financing_section`. **No** hay `proposal_financing_term_months`: el plazo es el contractual único.
 - Amortización + `financial_cost` como **cálculo on-demand** en `utils/economic_calendar.py` (no se persiste
   ningún importe financiero; los inputs se congelan en el freeze de En Revisión).
 
@@ -354,3 +363,33 @@ financieros por línea; DocType de calendario persistido; snapshot de FX/moneda 
 - **Fase 2B** (implementada, §7 ter): costo de financiar el CAPEX (nuestro fondeo) — amortización PMT, capa
   aditiva `financial_cost` / `total_cost_with_financing` / `margin_after_financing`.
 - **Fase 2C:** cobros/pagos (Payment Terms), FX, escalamiento, VAN/TIR/payback, sensibilidad.
+
+## 15. Enmienda 2026-09 — plazo del financiamiento = plazo contractual único
+
+**Contexto.** La Fase 2B introdujo un plazo financiero independiente (`proposal_financing_term_months` +
+`Proposal Settings.default_financing_term_months`). Coexistían tres ejes temporales en meses: el plazo contractual
+(`proposal_contract_term_months`, ventana de facturación MRC), la duración de **ejecución** derivada de Scope
+Items (`max_labor_month`, que puede superar el plazo → `labor_beyond_term`) y este plazo financiero propio. Tener
+dos plazos capturables que pueden contradecirse es captura redundante y fuente de inconsistencias.
+
+**Decisión.** El financiamiento del CAPEX **no** tiene plazo propio: se ancla al **plazo contractual único**
+`proposal_contract_term_months`. Es meses enteros (la amortización PMT lo requiere sin redondeos) y es la ventana
+de facturación MRC que **sirve** la deuda, por lo que amortizar la deuda sobre ese período es lo correcto. La
+duración de ejecución (fechas/Scope Items, resuelta en Tema 3 como rango operativo del Project) es un calendario
+distinto y **no** define el plazo financiero.
+
+**Consecuencias.**
+- Se **eliminan** `proposal_financing_term_months` (Quotation) y `default_financing_term_months` (Proposal
+  Settings) — fixtures, allowlist de `hooks.py`, UI/JS, precarga y tests. Sin campos muertos ni backfill.
+- `_effective_financing` lee el plazo de `proposal_contract_term_months`; si el financiamiento está activo y ese
+  plazo es `≤ 0` → error fail-closed (aplica también a propuestas **CAPEX-only**: financiar exige plazo
+  contractual `> 0`).
+- El financiamiento **nunca** extiende `economic_horizon_months` (se retira `financing_extends_horizon`); las
+  cuotas `1..T` se mapean a `Mes 0..T-1`. El horizonte solo crece por ejecución (`labor_beyond_term`).
+- La UX de financiamiento muestra el plazo **derivado** read-only (`Plazo: N meses (plazo contractual)`); no hay
+  input de plazo financiero. El freeze se mantiene por inmutabilidad (`allow_on_submit=0`) de los campos
+  financieros y de `proposal_contract_term_months`.
+
+**Alternativa descartada.** Anclar el financiamiento a la duración de ejecución (fechas/Scope Items): está en días
+y exigiría una regla de redondeo a meses no decidida, y mide *cuándo se ejecuta el trabajo*, no la ventana de
+cobro (MRC) que sirve la deuda.

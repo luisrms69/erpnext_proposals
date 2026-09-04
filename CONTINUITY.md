@@ -2,9 +2,23 @@
 
 **Fecha:** 2026-09-03
 **Rama activa:** `feat/required-items` (base `upstream/version-16` = v0.16.0; versión objetivo del PR **0.17.0**)
-**Tarea actual:** **Tema 3 — color y duración planificada de Proposal Phase** commiteado sobre Tema 2
-(`4c66709`) / Tema 1 (`f14de4e`) / campaña Evaluación Económica (`870ffcb`). Todo verde (**579** tests).
+**Tarea actual:** **Financiamiento CAPEX = plazo contractual** sobre Tema 3 corregido (`8026f72`) / Tema 2
+(`4c66709`) / Tema 1 (`f14de4e`) / campaña Evaluación Económica (`870ffcb`). Todo verde (**584** tests).
 **Sin push, sin PR.**
+
+## Financiamiento CAPEX = plazo contractual único (hecho)
+
+El financiamiento del CAPEX ya NO tiene plazo propio: usa `proposal_contract_term_months` (plazo único de la
+propuesta). Se **eliminaron** `proposal_financing_term_months` (Quotation) y `default_financing_term_months`
+(Proposal Settings) — fixture, allowlist de `hooks.py`, UI/JS, precarga (`_default_financing` solo precarga la
+tasa) y tests. `_effective_financing` lee el plazo del contrato; si el financiamiento está activo y el plazo es
+`≤0` → error fail-closed (aplica a CAPEX-only). **Correspondencia cuota→periodo:** cuota `k` (1-based) → `Mes k-1`
+(0-based); con plazo `T`, cuotas `1..T` ocupan `Mes 0..T-1` (no annuity-due; el PMT sigue vencido). El
+financiamiento **nunca** extiende `economic_horizon_months` (se retiró `financing_extends_horizon`); solo el
+esfuerzo lo extiende (`labor_beyond_term`). UI: sin input de plazo; pista derivada read-only «Plazo: N meses
+(plazo contractual)». ADR-0018 §15. Tests: `test_economic_calendar.py` (41–63). Pendiente de limpieza: el Custom
+Field huérfano `proposal_financing_term_months` sigue en la BD de sites ya migrados (migrate no borra custom
+fields eliminados del fixture); su borrado es una escritura de BD que requiere autorización (sin patch).
 
 ## Tema 3 — color de fase + rango autocalculado (definitivo)
 

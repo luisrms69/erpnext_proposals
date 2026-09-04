@@ -100,7 +100,6 @@ fixtures = [
 					"proposal_financing_section",
 					"proposal_financing_enabled",
 					"proposal_financed_amount",
-					"proposal_financing_term_months",
 					"proposal_financing_annual_cost_rate",
 					"proposal_financing_fees_amount",
 				],

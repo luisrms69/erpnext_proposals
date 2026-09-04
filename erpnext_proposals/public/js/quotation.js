@@ -185,6 +185,11 @@ frappe.ui.form.on("Quotation", {
 		refresh_financing_ui(frm);
 	},
 
+	// El plazo contractual es el plazo único del financiamiento: al cambiarlo, refrescar la pista derivada.
+	proposal_contract_term_months(frm) {
+		refresh_financing_ui(frm);
+	},
+
 	refresh(frm) {
 		// Issue #17: cubre las Quotations nuevas creadas desde Frappe CRM con crm_deal ya poblado.
 		autofill_proposal_group_from_crm_deal(frm);
@@ -656,11 +661,18 @@ function apply_financing_disclosure(frm, ev) {
 		"proposal_financing_section",
 		"proposal_financing_enabled",
 		"proposal_financed_amount",
-		"proposal_financing_term_months",
 		"proposal_financing_annual_cost_rate",
 		"proposal_financing_fees_amount",
 	];
 	fields.forEach((f) => frm.toggle_display(f, has_capex));
+	// El financiamiento usa el plazo contractual único (proposal_contract_term_months). No hay input de plazo
+	// financiero: se muestra el plazo DERIVADO como pista read-only en la sección.
+	const term = cint(frm.doc.proposal_contract_term_months);
+	const hint =
+		term > 0
+			? __("Plazo: {0} meses (plazo contractual)", [term])
+			: __("El financiamiento requiere un plazo contractual (meses) mayor que 0.");
+	frm.set_df_property("proposal_financing_section", "description", hint);
 	// Si desaparece el CAPEX y el financiamiento quedó activo, apagarlo para no arrastrar costo huérfano.
 	if (!has_capex && frm.doc.proposal_financing_enabled) {
 		frm.set_value("proposal_financing_enabled", 0);

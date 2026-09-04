@@ -605,24 +605,10 @@ def get_economic_evaluation(quotation_name: str) -> dict:
 	capex_external = groups["CAPEX"]["external"]
 	financing = _effective_financing(doc, capex_external, company)
 
-	# Horizonte económico: el plazo controla la RECURRENCIA (MRC); el horizonte se EXTIENDE por la ejecución
-	# (esfuerzo) y por el financiamiento, SIN extender los ingresos MRC (ya acotados por el plazo).
-	fin_last_month = financing["schedule"][-1]["period"] if financing and financing["schedule"] else 0
-	new_horizon = max(horizon, fin_last_month + 1)
-	while len(periods) < new_horizon:
-		periods.append(
-			{
-				"period": len(periods),
-				"revenue": 0.0,
-				"external": 0.0,
-				"labor": 0.0,
-				"total_cost": 0.0,
-				"margin": 0.0,
-				"revenue_components": [],
-				"external_components": [],
-				"labor_components": [],
-			}
-		)
+	# Horizonte económico: el plazo contractual controla la RECURRENCIA (MRC) y el horizonte base; este se
+	# EXTIENDE solo por la ejecución (esfuerzo), NUNCA por el financiamiento. El financiamiento se ancla al
+	# plazo contractual y sus cuotas 1..T se mapean a los buckets Mes 0..T-1 (ver `_effective_financing`),
+	# siempre contenidos en 0..horizonte-1 porque `horizonte >= plazo`. No amplía `economic_horizon_months`.
 	economic_horizon_months = len(periods)
 
 	fin_by_month = financing["by_month"] if financing else {}
@@ -651,16 +637,6 @@ def get_economic_evaluation(quotation_name: str) -> dict:
 					"horizonte económico {1} meses (esfuerzo hasta el Mes {2}). El costo NO se descarta y "
 					"los ingresos recurrentes (MRC) NO se extienden más allá del plazo."
 				).format(term, economic_horizon_months, max_labor_month),
-			}
-		)
-	if financing and fin_last_month + 1 > horizon:
-		warnings.append(
-			{
-				"code": "financing_extends_horizon",
-				"message": _(
-					"El financiamiento extiende el horizonte económico hasta el Mes {0} "
-					"(plazo de financiamiento {1} meses). No extiende los ingresos MRC."
-				).format(economic_horizon_months - 1, financing["term_months"]),
 			}
 		)
 	unattributed = totals["labor"] - sum(g["labor"] for g in groups.values())
@@ -743,8 +719,10 @@ def _amortize(principal: float, annual_rate_pct: float, term_months: int, fees: 
 
 def _effective_financing(doc, capex_external: float, company) -> dict | None:
 	"""Resuelve los inputs financieros EFECTIVOS (fail-closed) y la amortización. Devuelve ``None`` si el
-	financiamiento no está activado. Defaults documentados: monto = costo de adquisición CAPEX; plazo/tasa =
-	defaults de la Company (Proposal Settings). Representa NUESTRO costo de fondeo, nunca una tasa al cliente."""
+	financiamiento no está activado. El **plazo** es el ÚNICO plazo temporal de la propuesta:
+	`proposal_contract_term_months` (no existe un plazo financiero independiente). Monto por defecto = costo de
+	adquisición CAPEX; tasa = default de la Company (Proposal Settings), solo precarga. Representa NUESTRO costo
+	de fondeo, nunca una tasa al cliente."""
 	if not doc.get("proposal_financing_enabled"):
 		return None
 	if flt(capex_external) <= 0:
@@ -761,7 +739,8 @@ def _effective_financing(doc, capex_external: float, company) -> dict | None:
 	# particular una tasa **0% explícita es válida** y NO se sustituye por la tasa de la Company (sin fallback
 	# silencioso). Plazo/tasa/monto salen exclusivamente del documento.
 	financed = flt(doc.get("proposal_financed_amount")) or flt(capex_external)  # default = adquisición CAPEX
-	term = cint(doc.get("proposal_financing_term_months"))
+	# El plazo del financiamiento ES el plazo contractual de la propuesta (fuente única, sin doble captura).
+	term = cint(doc.get("proposal_contract_term_months"))
 	rate = flt(doc.get("proposal_financing_annual_cost_rate"))
 	fees = flt(doc.get("proposal_financing_fees_amount"))
 
@@ -781,7 +760,10 @@ def _effective_financing(doc, capex_external: float, company) -> dict | None:
 		)
 	if term <= 0:
 		frappe.throw(
-			_("El plazo de financiamiento debe ser mayor que 0 meses."),
+			_(
+				"El financiamiento requiere un plazo contractual mayor que 0 meses "
+				"(campo «Plazo contractual (meses)» de la propuesta)."
+			),
 			EconomicEvaluationError,
 			title=_("Financiamiento inválido"),
 		)
@@ -800,9 +782,14 @@ def _effective_financing(doc, capex_external: float, company) -> dict | None:
 
 	amort = _amortize(financed, rate, term, fees)
 	fees = flt(fees, 2)
+	# Correspondencia número de cuota (1-based, pago vencido) → bucket del calendario económico (0-based):
+	# cuota k → Mes k-1. La cuota 1 cae en el Mes 0 (junto con las comisiones de originación); la cuota T en el
+	# Mes T-1. NO convierte el préstamo en annuity-due: el PMT sigue calculándose como pago vencido; esto es
+	# solo el mapeo de índice al bucket accrual (no es el flujo de caja real de Fase 2C).
 	by_month = {0: fees} if fees else {}
 	for row in amort["schedule"]:
-		by_month[row["period"]] = by_month.get(row["period"], 0.0) + row["interest"]
+		bucket = row["period"] - 1
+		by_month[bucket] = by_month.get(bucket, 0.0) + row["interest"]
 	return {
 		"enabled": True,
 		"financed_amount": flt(financed, 2),

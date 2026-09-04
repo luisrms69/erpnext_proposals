@@ -105,37 +105,47 @@
   `total_cost_with_financing = total_cost + financial_cost` y `margin_after_financing = margin − financial_cost`
   (+ su %). Es **nuestro costo de fondeo** de la adquisición del CAPEX (interés + comisiones), **no** una tasa
   al cliente: el precio de la propuesta no cambia. El **principal no es costo** (se recupera).
-- **Configuración por Company:** `Proposal Settings.default_financing_term_months` +
-  `default_financing_cost_rate` (mantenidos por Finanzas, precargados al activar). Custom fields en Quotation:
-  `proposal_financing_enabled`, `proposal_financed_amount`, `proposal_financing_term_months`,
-  `proposal_financing_annual_cost_rate`, `proposal_financing_fees_amount` (+ Section Break
-  `proposal_financing_section`).
+- **Plazo ÚNICO = plazo contractual:** el financiamiento NO tiene un plazo propio; usa
+  `proposal_contract_term_months` (el mismo plazo de la propuesta que rige el MRC). No hay doble captura ni dos
+  duraciones que puedan contradecirse. **Configuración por Company:** `Proposal Settings.default_financing_cost_rate`
+  (mantenida por Finanzas, precargada al activar). Custom fields en Quotation: `proposal_financing_enabled`,
+  `proposal_financed_amount`, `proposal_financing_annual_cost_rate`, `proposal_financing_fees_amount`
+  (+ Section Break `proposal_financing_section`).
 - **Amortización PMT (vencido, mensual)** en `utils/economic_calendar.py` (`_amortize`/`_effective_financing`):
   cuota fija (`P·r/(1−(1+r)⁻ⁿ)`, o `P/n` si tasa 0); la última cuota cierra el saldo en 0; comisiones como costo
-  en `Mes 0`; interés de cada cuota en su periodo. `financed_amount` por defecto = costo de adquisición del
-  CAPEX; **financiar más que ese costo es error**.
-- **Horizonte se extiende, MRC no:** si el financiamiento supera el plazo contractual,
-  `economic_horizon_months` crece para mostrar el costo financiero de esos meses (aviso
-  `financing_extends_horizon`); los ingresos MRC **no** se extienden.
-- **Fail-closed:** con financiamiento activo, `financed_amount ≤ 0`/`> CAPEX`, plazo `≤ 0`, tasa `< 0` o
-  comisiones `< 0`, y activar financiamiento **sin** CAPEX → `EconomicEvaluationError`. **Invariantes 2B** en
+  en `Mes 0`. **Correspondencia cuota → periodo:** la cuota `k` (1-based, pago vencido) cae en el bucket
+  `Mes k-1` (0-based) del calendario; con plazo `T`, las cuotas `1..T` ocupan `Mes 0..T-1` (la cuota 1 en el
+  Mes 0 junto con las comisiones). No es annuity-due: el PMT sigue siendo vencido; es solo el mapeo de índice al
+  bucket accrual. `financed_amount` por defecto = costo de adquisición del CAPEX; **financiar más que ese costo
+  es error**.
+- **El financiamiento NUNCA extiende el horizonte:** al anclarse al plazo contractual, sus cuotas quedan en
+  `Mes 0..T-1`, contenidas en `0..horizonte-1` (`horizonte ≥ plazo`). Se retiró el aviso `financing_extends_horizon`.
+  El horizonte solo puede crecer por **ejecución** (esfuerzo posterior al plazo → aviso `labor_beyond_term`),
+  nunca por financiamiento; los ingresos MRC no se extienden.
+- **Fail-closed:** con financiamiento activo, `financed_amount ≤ 0`/`> CAPEX`, **plazo contractual `≤ 0`** (el
+  financiamiento exige un plazo contractual `> 0`), tasa `< 0` o comisiones `< 0`, y activar financiamiento
+  **sin** CAPEX → `EconomicEvaluationError`. **Invariantes 2B** en
   `_assert_reconciled` (Σ capital = financiado; Σ pago = financiado + Σ interés; saldo final = 0;
   `financial_cost_total` = interés + comisiones; sumas del calendario).
-- **Defaults de Company = solo precarga; Quotation autoritativa:** los defaults (`default_financing_*`) se
-  precargan al **activar** el financiamiento (`_default_financing`) y no vuelven a aplicarse. El motor lee la
-  tasa/plazo **del documento tal cual** — una **tasa 0% explícita es válida** y no se reemplaza por la de la
-  Company (sin fallback silencioso). **Freeze por inmutabilidad:** los campos son `allow_on_submit=0`, así que
-  al pasar a En Revisión quedan fijos y la evaluación histórica es estable; cambiar `Proposal Settings` después
-  no la altera.
+- **Default de Company = solo precarga; Quotation autoritativa:** la **tasa** default (`default_financing_cost_rate`)
+  se precarga al **activar** el financiamiento (`_default_financing`) y no vuelve a aplicarse; el **plazo** no se
+  precarga aquí (lo aporta `proposal_contract_term_months`, precargado por `_default_contract_term`). El motor lee
+  la tasa **del documento tal cual** — una **tasa 0% explícita es válida** y no se reemplaza por la de la Company
+  (sin fallback silencioso). **Freeze por inmutabilidad:** los campos financieros y `proposal_contract_term_months`
+  son `allow_on_submit=0`, así que al pasar a En Revisión quedan fijos y la evaluación histórica es estable;
+  cambiar `Proposal Settings` después no la altera.
 - **UX (revelación progresiva):** la sección de financiamiento **solo aparece si hay CAPEX**; al activarla,
-  `financed_amount` se precarga con el costo de adquisición. Alertas **por excepción**. La pestaña añade
+  `financed_amount` se precarga con el costo de adquisición. **No hay input de plazo financiero**: la sección
+  muestra el plazo **derivado** read-only (`Plazo: N meses (plazo contractual)`) tomado de
+  `proposal_contract_term_months`. Alertas **por excepción**. La pestaña añade
   indicadores financieros, **memoria de financiamiento** (tabla de amortización mes a mes) y dos columnas en el
   calendario. El Print Format `Rentabilidad Estimada` añade —solo si hay financiamiento— el KPI de costo
   financiero / margen tras financiar y una línea de resumen.
 - **Fuera de 2B** (diferido a 2C): flujo de caja, VPN, TIR, payback, y capital propio vs. tercero.
-- Docs: `usuario/evaluacion-economica.md` (sección financiamiento), **ADR-0018 §7 ter**, arquitectura. Tests:
-  **14** nuevos en `test_economic_calendar.py` (amortización, tasa 0/>0, fees, financiado parcial/= /> CAPEX,
-  errores, horizonte vs MRC, freeze financiero, determinismo, invariantes 2A+2B).
+- Docs: `usuario/evaluacion-economica.md` (sección financiamiento), **ADR-0018 §7 ter**, arquitectura. Tests en
+  `test_economic_calendar.py` (amortización, tasa 0/>0, fees, financiado parcial/= /> CAPEX, errores, mapeo
+  cuota→periodo con plazo 6/12, financiamiento nunca extiende horizonte, labor sí lo extiende, CAPEX-only,
+  freeze de plazo/tasa, ausencia de plazo financiero independiente, determinismo, invariantes 2A+2B).
 
 ### Added — Evaluación Económica por periodos (v0.17.0, ADR-0018 Fase 2A)
 - **Comportamiento económico en catálogo, por Company:** nueva child **`Proposal Economic Behavior Rule`** en

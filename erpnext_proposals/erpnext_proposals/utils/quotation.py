@@ -250,10 +250,12 @@ def _default_contract_term(doc) -> None:
 
 
 def _default_financing(doc) -> None:
-	"""Precarga plazo/tasa de financiamiento desde la Company **al ACTIVAR** el financiamiento (transición
-	0→1), no en cada guardado (ADR-0018 Fase 2B). Después el usuario controla los valores; no se reescriben.
+	"""Precarga la **tasa** de financiamiento desde la Company **al ACTIVAR** el financiamiento (transición
+	0→1), no en cada guardado (ADR-0018 Fase 2B). Después el usuario controla el valor; no se reescribe.
+	El **plazo** NO se precarga aquí: el financiamiento usa el plazo contractual único de la propuesta
+	(`proposal_contract_term_months`, precargado por `_default_contract_term`), sin plazo financiero propio.
 	El `financed_amount` lo precarga el cliente (= costo de adquisición CAPEX) y el motor aplica ese default
-	si queda vacío. Nunca infiere tasa/plazo en silencio durante el cálculo."""
+	si queda vacío. Nunca infiere tasa en silencio durante el cálculo."""
 	if not doc.get("proposal_financing_enabled"):
 		return
 	before = doc.get_doc_before_save()
@@ -262,8 +264,6 @@ def _default_financing(doc) -> None:
 	settings = _proposal_settings(doc.get("company"))
 	if not settings:
 		return
-	if not doc.get("proposal_financing_term_months") and settings.get("default_financing_term_months"):
-		doc.proposal_financing_term_months = int(settings.get("default_financing_term_months"))
 	if not doc.get("proposal_financing_annual_cost_rate") and settings.get("default_financing_cost_rate"):
 		doc.proposal_financing_annual_cost_rate = flt(settings.get("default_financing_cost_rate"))
 

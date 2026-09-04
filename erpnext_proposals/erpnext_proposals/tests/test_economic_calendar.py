@@ -11,6 +11,7 @@ En Revisión no alteran la propuesta histórica). No re-captura precios: los imp
 """
 
 import json
+import os
 import unittest
 
 import frappe
@@ -1061,19 +1062,19 @@ class TestEconomicCalendar(unittest.TestCase):
 		self.assertEqual(after, 3600.0)  # histórico congelado
 
 	# ── Fase 2B: financiamiento CAPEX ────────────────────────────────────
-	def _make_capex(
-		self, enabled=0, financed=None, term=24, rate=12.0, fees=0.0, contract_term=None, extra=None
-	):
-		"""Quotation con un CAPEX comprable (adquisición 100000) + campos de financiamiento explícitos."""
+	def _make_capex(self, enabled=0, financed=None, term=24, rate=12.0, fees=0.0, extra=None):
+		"""Quotation con un CAPEX comprable (adquisición 100000) + campos de financiamiento explícitos.
+
+		`term` es el plazo CONTRACTUAL único de la propuesta (`proposal_contract_term_months`): el
+		financiamiento lo consume, no existe un plazo financiero independiente."""
 		self._set_econ(self.company_a, rules=[("Item Group", GROUP_INFRA, "infrastructure", None, None)])
 		lines = [(IT_CAPEX, 1, 300000)] + (extra or [])
-		q = self._make_q_custom(self.company_a, lines=lines, term=contract_term)
+		q = self._make_q_custom(self.company_a, lines=lines, term=term)
 		d = frappe.get_doc("Quotation", q.name)
 		d.proposal_financing_enabled = enabled
 		if enabled:
 			if financed is not None:
 				d.proposal_financed_amount = financed
-			d.proposal_financing_term_months = term
 			d.proposal_financing_annual_cost_rate = rate
 			d.proposal_financing_fees_amount = fees
 		d.save(ignore_permissions=True)
@@ -1140,6 +1141,7 @@ class TestEconomicCalendar(unittest.TestCase):
 			get_economic_evaluation(name)
 
 	def test_49_term_zero_errors(self):
+		# Sin plazo CONTRACTUAL (0) el financiamiento no tiene duración → error fail-closed.
 		name = self._make_capex(enabled=1, financed=100000, term=0, rate=12.0)
 		with self.assertRaises(EconomicEvaluationError):
 			get_economic_evaluation(name)
@@ -1148,7 +1150,6 @@ class TestEconomicCalendar(unittest.TestCase):
 		q = self._make_q_custom(self.company_a, lines=[(IT_ONE, 1, 1000)], term=12)
 		d = frappe.get_doc("Quotation", q.name)
 		d.proposal_financing_enabled = 1
-		d.proposal_financing_term_months = 12
 		d.proposal_financing_annual_cost_rate = 10.0
 		d.save(ignore_permissions=True)
 		with self.assertRaises(EconomicEvaluationError):
@@ -1164,8 +1165,9 @@ class TestEconomicCalendar(unittest.TestCase):
 			sum(r["payment"] for r in sched), 100000.0 + ev["financing"]["total_interest"], places=1
 		)
 
-	def test_52_financing_extends_horizon_not_mrc(self):
-		# Contrato 12m con MRC + financiamiento 24m: horizonte se extiende a 24, MRC NO.
+	def test_52_financing_never_extends_horizon(self):
+		# Contrato 12m con MRC + financiamiento anclado al plazo (12): horizonte queda en 12, el financiamiento
+		# NO lo extiende, y las 12 cuotas (1..12) se mapean a los buckets Mes 0..11 (cuota k → Mes k-1).
 		self._set_econ(
 			self.company_a,
 			rules=[
@@ -1177,30 +1179,35 @@ class TestEconomicCalendar(unittest.TestCase):
 		d = frappe.get_doc("Quotation", q.name)
 		d.proposal_financing_enabled = 1
 		d.proposal_financed_amount = 100000
-		d.proposal_financing_term_months = 24
 		d.proposal_financing_annual_cost_rate = 12.0
 		d.save(ignore_permissions=True)
 		ev = get_economic_evaluation(d.name)
-		# Mes 0…Mes 24 (financiamiento 1..24) = 25 periodos; extendido más allá del plazo contractual 12.
-		self.assertEqual(ev["economic_horizon_months"], 25)
-		self.assertGreater(ev["economic_horizon_months"], ev["horizon"])
-		self.assertTrue([w for w in ev["warnings"] if w["code"] == "financing_extends_horizon"])
+		fin = ev["financing"]
+		self.assertEqual(fin["term_months"], 12)  # plazo = plazo contractual
+		self.assertEqual(len(fin["schedule"]), 12)  # 12 cuotas
+		self.assertEqual([r["period"] for r in fin["schedule"]], list(range(1, 13)))  # cuotas 1..12
+		# Horizonte NO se extiende por financiamiento y no hay warning de extensión.
+		self.assertEqual(ev["economic_horizon_months"], 12)
+		self.assertEqual(ev["economic_horizon_months"], ev["horizon"])
+		self.assertFalse([w for w in ev["warnings"] if w["code"] == "financing_extends_horizon"])
+		# Costo financiero contenido en Mes 0..11; NO se crea un Mes 12.
+		self.assertEqual(len(ev["periods"]), 12)
+		self.assertGreater(ev["periods"][11]["financial_cost"], 0.0)  # última cuota (12) cae en Mes 11
+		self.assertEqual(sum(p["financial_cost"] for p in ev["periods"]), ev["totals"]["financial_cost"])
 		self.assertEqual(ev["totals"]["revenue"], 300000 + 12000)  # CAPEX una vez + MRC 12 meses
-		self.assertEqual(sum(1 for p in ev["periods"] if p["revenue"]), 12)  # MRC solo 12 periodos
-		self.assertGreater(ev["periods"][20]["financial_cost"], 0.0)  # costo financiero en Mes 20
-		self.assertEqual(ev["periods"][20]["revenue"], 0.0)  # sin ingreso fuera del plazo
+		self.assertEqual(sum(1 for p in ev["periods"] if p["revenue"]), 12)  # MRC en 12 periodos
 
 	def test_53_freeze_financing_ignores_settings_change(self):
-		# Congelar tasa/plazo desde Company; cambiar el default tras En Revisión no altera histórico.
+		# Congelar tasa desde Company; cambiar el default tras En Revisión no altera histórico. El plazo lo
+		# aporta el plazo contractual (24) que ya vive en la propuesta.
 		self._set_econ(self.company_a, rules=[("Item Group", GROUP_INFRA, "infrastructure", None, None)])
 		s = frappe.get_doc("Proposal Settings", {"company": self.company_a})
-		s.default_financing_term_months = 24
 		s.default_financing_cost_rate = 12.0
 		s.flags.ignore_permissions = True
 		s.save(ignore_permissions=True)
-		q = self._make_q_custom(self.company_a, lines=[(IT_CAPEX, 1, 300000)], term=None)
+		q = self._make_q_custom(self.company_a, lines=[(IT_CAPEX, 1, 300000)], term=24)
 		d = frappe.get_doc("Quotation", q.name)
-		d.proposal_financing_enabled = 1  # activa → precarga term/rate desde Company (24 / 12%)
+		d.proposal_financing_enabled = 1  # activa → precarga rate desde Company (12%)
 		d.save(ignore_permissions=True)
 		self._transition(frappe.get_doc("Quotation", q.name))  # congela
 		before = get_economic_evaluation(q.name)["totals"]["financial_cost"]
@@ -1224,12 +1231,10 @@ class TestEconomicCalendar(unittest.TestCase):
 		self.assertGreater(ev["totals"]["financial_cost"], 0.0)
 
 	# ── Fase 2B: tasa 0% explícita es autoritativa (defaults de Company = solo precarga) ──────────────
-	def _fin_defaults(self, company, term=None, rate=None):
+	def _fin_defaults(self, company, rate=None):
 		name = frappe.db.get_value("Proposal Settings", {"company": company}, "name")
 		s = frappe.get_doc("Proposal Settings", name) if name else frappe.new_doc("Proposal Settings")
 		s.company = company
-		if term is not None:
-			s.default_financing_term_months = term
 		if rate is not None:
 			s.default_financing_cost_rate = rate
 		s.flags.ignore_permissions = True
@@ -1241,8 +1246,8 @@ class TestEconomicCalendar(unittest.TestCase):
 	def test_55_explicit_zero_rate_honored_over_company_default(self):
 		# Default de Company 12%; la preventa fija 0% explícito + comisión → debe usarse 0% (sin fallback).
 		self._set_econ(self.company_a, rules=[("Item Group", GROUP_INFRA, "infrastructure", None, None)])
-		self._fin_defaults(self.company_a, term=12, rate=12.0)
-		q = self._make_q_custom(self.company_a, lines=[(IT_CAPEX, 1, 300000)], term=None)
+		self._fin_defaults(self.company_a, rate=12.0)
+		q = self._make_q_custom(self.company_a, lines=[(IT_CAPEX, 1, 300000)], term=12)
 		# 1) activar → precarga la tasa de la Company (12%)
 		d = frappe.get_doc("Quotation", q.name)
 		d.proposal_financing_enabled = 1
@@ -1269,12 +1274,13 @@ class TestEconomicCalendar(unittest.TestCase):
 
 	def test_56_zero_rate_pure_no_company_fallback(self):
 		# _effective_financing NO consulta la Company: 0% explícito se respeta aunque el default sea 12%.
-		self._fin_defaults(self.company_a, term=12, rate=12.0)
+		# El plazo del financiamiento sale del plazo contractual del documento.
+		self._fin_defaults(self.company_a, rate=12.0)
 		fin = _effective_financing(
 			frappe._dict(
 				proposal_financing_enabled=1,
 				proposal_financed_amount=100000,
-				proposal_financing_term_months=12,
+				proposal_contract_term_months=12,
 				proposal_financing_annual_cost_rate=0,
 				proposal_financing_fees_amount=500,
 			),
@@ -1289,8 +1295,8 @@ class TestEconomicCalendar(unittest.TestCase):
 	def test_57_freeze_preserves_explicit_zero_rate(self):
 		# Congelar con 0% explícito; cambiar después el default de Company NO altera la evaluación histórica.
 		self._set_econ(self.company_a, rules=[("Item Group", GROUP_INFRA, "infrastructure", None, None)])
-		self._fin_defaults(self.company_a, term=12, rate=12.0)
-		q = self._make_q_custom(self.company_a, lines=[(IT_CAPEX, 1, 300000)], term=None)
+		self._fin_defaults(self.company_a, rate=12.0)
+		q = self._make_q_custom(self.company_a, lines=[(IT_CAPEX, 1, 300000)], term=12)
 		d = frappe.get_doc("Quotation", q.name)
 		d.proposal_financing_enabled = 1
 		d.save(ignore_permissions=True)  # precarga 12%
@@ -1304,6 +1310,81 @@ class TestEconomicCalendar(unittest.TestCase):
 		after = get_economic_evaluation(q.name)["totals"]["financial_cost"]
 		self.assertEqual(before, 500.0)  # 0% + comisión preservado
 		self.assertEqual(after, 500.0)  # cambiar el default de Company no afecta lo congelado
+
+	# ── Fase 2B: plazo financiero = plazo contractual único (sin doble captura) ──────────────────────
+	def test_60_term_six_maps_to_months_zero_to_five(self):
+		# Plazo contractual 6 → 6 cuotas (1..6) en los buckets Mes 0..5; sin Mes 6.
+		name = self._make_capex(enabled=1, financed=60000, term=6, rate=12.0, fees=0)
+		ev = get_economic_evaluation(name)
+		fin = ev["financing"]
+		self.assertEqual(fin["term_months"], 6)
+		self.assertEqual([r["period"] for r in fin["schedule"]], [1, 2, 3, 4, 5, 6])
+		self.assertEqual(len(ev["periods"]), 6)  # Mes 0..5
+		self.assertGreater(ev["periods"][5]["financial_cost"], 0.0)  # cuota 6 → Mes 5
+		self.assertEqual(sum(p["financial_cost"] for p in ev["periods"]), ev["totals"]["financial_cost"])
+		self.assertFalse([w for w in ev["warnings"] if w["code"] == "financing_extends_horizon"])
+
+	def test_61_labor_extends_horizon_financing_does_not(self):
+		# El esfuerzo posterior al plazo SÍ extiende el horizonte (labor_beyond_term); el financiamiento NO:
+		# queda contenido en Mes 0..plazo-1 aunque el horizonte crezca por labor.
+		self._set_econ(self.company_a, rules=[("Item Group", GROUP_INFRA, "infrastructure", None, None)])
+		q = self._make_q_custom(
+			self.company_a,
+			lines=[(IT_CAPEX, 1, 300000), (IT_LAB, 1, 1000)],
+			term=12,
+			scope_rows=[
+				{
+					"scope_item": SC_MASTER,
+					"item_code": IT_LAB,
+					"estimated_hours": 5,
+					"activity_type": ACT,
+					"phase": PHASE,
+					"include_in_proposal": 1,
+					"planned_start_offset_days": "400",  # Mes 13
+					"planned_duration_days": 0,
+					"is_milestone": 1,
+				}
+			],
+		)
+		d = frappe.get_doc("Quotation", q.name)
+		d.proposal_financing_enabled = 1
+		d.proposal_financed_amount = 100000
+		d.proposal_financing_annual_cost_rate = 12.0
+		d.save(ignore_permissions=True)
+		ev = get_economic_evaluation(d.name)
+		self.assertTrue([w for w in ev["warnings"] if w["code"] == "labor_beyond_term"])  # labor sí extiende
+		self.assertFalse([w for w in ev["warnings"] if w["code"] == "financing_extends_horizon"])
+		self.assertGreaterEqual(ev["economic_horizon_months"], 14)  # horizonte crecido por labor
+		self.assertEqual(ev["financing"]["term_months"], 12)  # financiamiento anclado al plazo
+		# Costo financiero SOLO en Mes 0..11; los meses extendidos por labor no tienen financiamiento.
+		for p in ev["periods"]:
+			if p["period"] >= 12:
+				self.assertEqual(p["financial_cost"], 0.0)
+
+	def test_62_frozen_term_ignores_company_default_change(self):
+		# Congelada la propuesta, cambiar default_contract_term_months en Company NO altera su financiamiento.
+		self._set_econ(self.company_a, rules=[("Item Group", GROUP_INFRA, "infrastructure", None, None)])
+		q = self._make_q_custom(self.company_a, lines=[(IT_CAPEX, 1, 300000)], term=12)
+		d = frappe.get_doc("Quotation", q.name)
+		d.proposal_financing_enabled = 1
+		d.proposal_financing_annual_cost_rate = 12.0
+		d.save(ignore_permissions=True)
+		self._transition(frappe.get_doc("Quotation", q.name))  # congela (submit)
+		before = get_economic_evaluation(q.name)["financing"]
+		s = frappe.get_doc("Proposal Settings", {"company": self.company_a})
+		s.default_contract_term_months = 36
+		s.flags.ignore_permissions = True
+		s.save(ignore_permissions=True)
+		after = get_economic_evaluation(q.name)["financing"]
+		self.assertEqual(before["term_months"], 12)
+		self.assertEqual(after["term_months"], 12)  # histórico intacto (no re-precarga en doc congelado)
+
+	def test_63_financing_term_fields_removed(self):
+		# No debe quedar plazo financiero independiente: ni doctype field ni custom field en el fixture.
+		self.assertIsNone(frappe.get_meta("Proposal Settings").get_field("default_financing_term_months"))
+		fx = os.path.join(frappe.get_app_path("erpnext_proposals"), "fixtures", "custom_field.json")
+		with open(fx) as fh:
+			self.assertNotIn("proposal_financing_term_months", fh.read())
 
 	# ── Presentación: estructura fija de hojas + reconciliación por hoja (ADR-0018) ──────────────────
 	def _mixed(self):

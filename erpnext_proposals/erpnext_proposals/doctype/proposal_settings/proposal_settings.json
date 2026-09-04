@@ -15,8 +15,6 @@
   "economic_col_break",
   "default_contract_term_months",
   "financing_section",
-  "default_financing_term_months",
-  "financing_col_break",
   "default_financing_cost_rate"
  ],
  "fields": [
@@ -83,18 +81,6 @@
    "fieldname": "financing_section",
    "fieldtype": "Section Break",
    "label": "Financiamiento CAPEX (defaults)"
-  },
-  {
-   "default": "0",
-   "description": "Plazo estándar de financiamiento (meses) que se precarga al activar el financiamiento de CAPEX. Independiente del plazo contractual. 0 = sin default.",
-   "fieldname": "default_financing_term_months",
-   "fieldtype": "Int",
-   "label": "Plazo de financiamiento por defecto (meses)",
-   "non_negative": 1
-  },
-  {
-   "fieldname": "financing_col_break",
-   "fieldtype": "Column Break"
   },
   {
    "default": "0",

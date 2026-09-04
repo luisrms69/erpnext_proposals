@@ -88,14 +88,15 @@ Puntos clave:
   como costo financiero.
 - La sección **solo aparece si la propuesta tiene CAPEX**. Se activa con **«¿Requiere financiamiento?»**.
 
-Al activarlo verás cuatro datos (con valores por defecto que Finanzas mantiene por compañía):
+Al activarlo verás tres datos (con valores por defecto que Finanzas mantiene por compañía) más el plazo, que es
+**derivado**:
 
 | Campo | Qué es |
 |---|---|
 | **Monto financiado** | Cuánto financiamos. Por defecto = costo de adquisición del CAPEX. **No puede ser mayor** que ese costo (financiar de más es un error). |
-| **Plazo de financiamiento (meses)** | En cuántos meses lo pagamos. Es independiente del plazo contractual. |
 | **Costo anual (%)** | Lo que nos cuesta el dinero al año. |
 | **Comisiones** | Cargo de apertura del financiador (se cuenta como costo en el Mes 0). |
+| **Plazo** (derivado, solo lectura) | No se captura: el financiamiento se paga en el **plazo contractual** de la propuesta (el mismo que rige el servicio recurrente). La sección lo muestra como «Plazo: N meses (plazo contractual)». Por eso, para financiar, la propuesta necesita un plazo contractual mayor que 0. |
 
 En la pestaña, cuando hay financiamiento, se agregan:
 
@@ -104,9 +105,10 @@ En la pestaña, cuando hay financiamiento, se agregan:
   y una **tabla de amortización** mes a mes (saldo, interés, capital, pago, saldo final).
 - **Calendario:** dos columnas más (costo financiero y margen tras financiar por mes).
 
-Si el financiamiento dura más que el plazo del contrato, el calendario se **extiende** para mostrar el costo
-financiero de esos meses (con un aviso). Los ingresos recurrentes **no** se extienden: solo existen durante el
-plazo contractual.
+El financiamiento se paga dentro del **plazo contractual** (las mensualidades ocupan del Mes 0 al último mes del
+plazo), así que **no** alarga el calendario económico. El calendario solo puede extenderse cuando hay **trabajo**
+(esfuerzo) posterior al plazo — con su propio aviso —, nunca por el financiamiento. Los ingresos recurrentes solo
+existen durante el plazo contractual.
 
 ## Congelamiento
 
