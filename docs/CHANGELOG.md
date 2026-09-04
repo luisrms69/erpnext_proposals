@@ -2,6 +2,22 @@
 
 ## [No liberado]
 
+### Added — Color y duración planificada de Proposal Phase (Tema 3)
+- **`Proposal Phase`** gana dos atributos de planificación: **`color`** (Color, Color Picker nativo) y
+  **`planned_duration_days`** (Int, opcional). Al generar el Project, la **Task padre de cada fase** los
+  **congela** en los campos **nativos** de Task (`Task.color`, `Task.duration`) — snapshot operativo: cambiar
+  el catálogo después **no** altera Projects ya creados; no hay sincronización retroactiva ni backfill.
+- **Color:** se copia solo a la Task padre de fase (`is_group`); las hijas no lo heredan. Sin color → sin cambio
+  visual. Se usa el campo nativo de Task (no se crean Custom Fields en Task).
+- **Duración = mínimo, nunca recorta:** la ventana de la fase padre = roll-up de hijas fechadas con la duración
+  como piso: `fin = max(último fin de hija, inicio + duración − 1)`; la fase se **expande** para contener a sus
+  hijas y **nunca** las mueve ni las recorta. **Inicio:** con hijas fechadas, `min(inicio de hijas)`; sin hijas
+  fechadas pero con duración, **secuencial** (primera fase = `Project.expected_start_date`; siguientes = tras el
+  fin de la anterior). Sin duración → roll-up previo. No se introduce un segundo scheduler: las fechas de las
+  hijas (offset/dependencias) no se recalculan. La idempotencia de `create_project_from_quotation` no cambia.
+  Tests: `test_phase_color_duration.py` (11: color, snapshot no retroactivo, duración mínima, expansión por
+  hijas, fase sin duración, fase sin hijas fechadas, fases secuenciales, offsets preservados, idempotencia).
+
 ### Fixed — El nombre del Project incluye el Proposal Group al final (Tema 2)
 - `create_project_from_quotation` construye el `project_name` con el **Grupo de propuesta al final**
   (`_build_project_name`): base = `proposal_title` (o `<cliente> — <grupo>` si no hay título) **+ separador +

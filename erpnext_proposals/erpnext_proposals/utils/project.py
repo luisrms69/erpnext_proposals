@@ -2,7 +2,7 @@ import json
 
 import frappe
 from frappe import _
-from frappe.utils import add_days, getdate
+from frappe.utils import add_days, cint, getdate
 
 from erpnext_proposals.erpnext_proposals.utils.permissions import assert_can_manage_proposals
 from erpnext_proposals.erpnext_proposals.utils.phase import phase_label, phase_sequence
@@ -174,8 +174,9 @@ def create_project_from_quotation(quotation_name: str):
 	def _phase_parent_task(phase_code: str) -> str:
 		"""Task-fase: una por (Project, Proposal Phase). Idempotente.
 
-		Tras crear/resolver la Task padre, materializa en ella los Tags NATIVOS de su Proposal Phase
-		(mecanismo nativo, idempotente). Solo la Task padre: nunca las Tasks hijas ni otros documentos.
+		Al CREARLA (no al reutilizarla) congela como **snapshot operativo** el color y la duración planificada
+		de la Proposal Phase en los campos NATIVOS de Task (`color`, `duration`): cambiar después el catálogo NO
+		altera el Project ya generado. Tras crear/resolver la Task padre, materializa sus Tags NATIVOS.
 		"""
 		if phase_code in phase_task_by_code:
 			return phase_task_by_code[phase_code]
@@ -186,6 +187,12 @@ def create_project_from_quotation(quotation_name: str):
 			counters["parent_reused"] += 1
 			name = existing
 		else:
+			ph = (
+				frappe.db.get_value(
+					"Proposal Phase", phase_code, ["color", "planned_duration_days"], as_dict=True
+				)
+				or {}
+			)
 			parent = frappe.get_doc(
 				{
 					"doctype": "Task",
@@ -196,6 +203,9 @@ def create_project_from_quotation(quotation_name: str):
 					"status": "Open",
 					"proposal_phase": phase_code,
 					"source_quotation": quotation.name,
+					# Snapshot operativo (campos nativos de Task): color y duración de la fase al momento de crear.
+					"color": ph.get("color") or None,
+					"duration": cint(ph.get("planned_duration_days")) or 0,
 				}
 			)
 			parent.insert(ignore_permissions=True)
@@ -290,8 +300,8 @@ def create_project_from_quotation(quotation_name: str):
 	# ── Programación de fechas (offset o propagación por predecesoras) ──
 	undatable = _schedule_tasks(project, contracted, dep_edges)
 
-	# ── Roll-up de fechas de las Task padre de fase (min inicio / max fin de sus hijas) ──
-	_rollup_phase_dates(contracted)
+	# ── Ventana de cada Task padre de fase: roll-up de hijas + duración planificada (snapshot) ──
+	_rollup_phase_dates(contracted, phase_task_by_code, project)
 
 	frappe.db.commit()  # nosemgrep
 
@@ -476,19 +486,45 @@ def _schedule_tasks(project, contracted: list, dep_edges: dict) -> list:
 	return undatable
 
 
-def _rollup_phase_dates(contracted: list) -> None:
-	"""Actualiza cada Task padre de fase con el mínimo inicio y máximo fin de sus hijas fechadas."""
+def _rollup_phase_dates(contracted: list, phase_task_by_code: dict, project) -> None:
+	"""Ventana (exp_start_date / exp_end_date) de cada Task padre de fase. NO reprograma las hijas ni
+	introduce un segundo scheduler: solo fija la ventana del padre a partir de la información ya calculada.
+
+	- **Inicio:** si la fase tiene hijas **fechadas**, `min(inicio de hijas)` (las fechas reales de las hijas
+	  tienen prioridad). Si no hay hijas fechadas pero la fase tiene **duración planificada** (snapshot en
+	  `Task.duration`), el inicio es **secuencial**: la primera fase (por `sequence`) arranca en
+	  `Project.expected_start_date`; las siguientes, el día siguiente al fin de la fase anterior fechada.
+	- **Fin:** `max(fin de hijas fechadas, inicio + duracion - 1)`. La duración es un **mínimo**: nunca recorta
+	  ni mueve hijas; la fase se **expande** para contenerlas.
+	- Sin duración y sin hijas fechadas → la fase queda sin fechas (comportamiento previo).
+	"""
 	by_parent: dict = {}
 	for node in contracted:
 		if node.get("parent"):
 			by_parent.setdefault(node["parent"], []).append(node)
-	for parent, children in by_parent.items():
+	project_start = getdate(project.expected_start_date) if project.expected_start_date else None
+	prev_end = None
+	# Recorrer las fases en orden de `sequence` para la propagación secuencial del inicio.
+	for _phase_code, parent in sorted(phase_task_by_code.items(), key=lambda kv: phase_sequence(kv[0])):
+		children = by_parent.get(parent, [])
 		starts = [c["_start"] for c in children if c.get("_start")]
 		ends = [c["_end"] for c in children if c.get("_end")]
-		if starts and ends:
+		duration = cint(frappe.db.get_value("Task", parent, "duration"))  # snapshot congelado
+		if starts:
+			start = min(starts)
+		elif duration and project_start:
+			start = add_days(prev_end, 1) if prev_end else project_start
+		else:
+			start = None
+		end_candidates = list(ends)
+		if start and duration:
+			end_candidates.append(add_days(start, duration - 1))
+		end = max(end_candidates) if end_candidates else None
+		if start and end:
 			frappe.db.set_value(
 				"Task",
 				parent,
-				{"exp_start_date": min(starts), "exp_end_date": max(ends)},
+				{"exp_start_date": start, "exp_end_date": end},
 				update_modified=False,
 			)
+			prev_end = end
