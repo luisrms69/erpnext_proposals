@@ -2,6 +2,54 @@
 
 ## [No liberado]
 
+### Added — Sensibilidad de duración del proyecto + resumen financiero (Evaluación Económica, Fase 2C parcial)
+- Nuevo método whitelisted `economic_calendar.get_duration_sensitivity(quotation_name, down_months, up_months)`:
+  evalúa la **misma propuesta** a plazos alternativos `base - X` / `base` / `base + Y` **en memoria**, sin
+  mutar ni persistir la Quotation ni los Scope Items y sin crear una segunda Quotation. El plazo base es
+  `proposal_contract_term_months`. La ventana (`down_months`/`up_months`) la captura el usuario — **no hay
+  valores por defecto** en la lógica. Ver ADR-0018 §16.
+- **Semántica (se sensibiliza el MISMO proyecto, no las ventas).** `D` cambia **cuándo** se ejecuta el mismo
+  alcance, no cuánto se vende. Constantes entre escenarios: **TCV, ingreso total, NRC, ingreso y adquisición
+  CAPEX, costo externo total, horas totales, tarifa, costo total de labor** y el **margen operativo**. Para
+  recurrentes, el **total contractual se ancla al plazo base y se redistribuye** (`rec_scale =
+  ocurrencias(base)/ocurrencias(D)`): MRC $10 000/mes × 36 = $360 000 → a 24 meses, $15 000/mes × 24 =
+  **$360 000** (mismo total). Solo cambian la **distribución temporal**, el **pico h/mes** y —si hay
+  financiamiento— el **costo financiero** (único costo dependiente del tiempo, único driver del margen final).
+  *(Corrige la primera implementación, que usaba `term=D` en las ocurrencias e inflaba ingreso/TCV/margen al
+  alargar — «vender más meses de MRC», que es otro análisis.)*
+- **Esfuerzo.** `scope_scale = D / base_D` redistribuye el calendario del Scope conservando horas, tarifa y
+  costo total (guardas: milestones solo se reposicionan, piso de **1 día**, redondeo determinista `_round_days`).
+- **Financiamiento CAPEX.** Por ADR-0018 §15 no hay plazo financiero independiente: se ancla al plazo
+  contractual (la duración sensibilizada) → re-amortizar sobre `D` es correcto; el interés crece con `D`.
+- **Refactor sin regresión.** `get_economic_evaluation` = wrapper + núcleo `_evaluate_doc(doc, *, term,
+  scope_scale, base_term)` (`term = base_term` en base → idéntico). `_scope_effort` añade `hours_by_month`; el
+  modelo expone `hours_by_month`/`peak_hours_per_month` (aditivos). `_effective_financing` recibe el plazo por
+  parámetro.
+- **Integración en el reporte (entregable), no un botón.** El Print Format `Rentabilidad Estimada` gana **dos
+  secciones finales** (sin quitar ni reorganizar lo existente): «Resumen financiero de la propuesta» (tabla
+  compacta NRC/MRC/CAPEX/Total + KPIs ejecutivos; CAPEX distingue ingreso / adquisición / costo financiero) y
+  «Análisis de sensibilidad de duración» (tres corridas, fila BASE marcada). Se genera **automáticamente** al
+  ver el reporte; `get_duration_sensitivity` se registra como método jinja (`hooks.py`). El **botón
+  «Sensibilidad de duración» se retiró** de `quotation.js` junto con su Dialog (código muerto), sin tocar otros
+  botones.
+- **Columna «MRC equiv./mes».** Métrica de presentación = MRC contractual total / D (p. ej. $96 000 → 12 000 /
+  8 000 / 6 000 a 8/12/16 meses). No es un precio nuevo ni multiplica MRC por meses.
+- **Nomenclatura financiera.** En la tabla de sensibilidad `Costo total` → **`Costo operativo`** (el valor no
+  cambia; el costo total con financiamiento se muestra en el reporte principal). En NRC/MRC/CAPEX,
+  `Margen`/`Margen %` → **`Margen operativo`/`Margen operativo %`** (son pre-financiamiento). KPI
+  `TCV / Valor total del proyecto` → **`… del contrato`**.
+- **Defaults configurables (Proposal Settings).** Dos campos nuevos en `Proposal Settings`
+  (`duration_sensitivity_down_percent` / `duration_sensitivity_up_percent`, default **33.33 % / 33.33 %** del
+  plazo base). El reporte deriva la ventana automáticamente (`base ± %`, redondeo determinista, plazo corto
+  siempre `> 0`); el lector es defensivo (`has_field`) y usa el default si el sitio aún no aplicó los campos
+  (`bench migrate`). **Sin overrides por Quotation, sin config por Company nueva** (Proposal Settings ya es por
+  compañía). Contingencia sigue fuera.
+- Tests: 20 casos en `test_economic_calendar.py` (invariancia de TCV/ingreso/MRC contractual/costo externo,
+  horas/costo de labor, margen operativo constante; compresión/expansión del pico; solo-financiamiento-varía;
+  MRC equiv./mes; ventana por defecto 33.33 % y helper; lectura de Proposal Settings con fallback; botón
+  retirado; milestones, piso de duración, redondeo determinista, escenarios `D<=0`, tarifas heterogéneas,
+  no-regresión).
+
 ### Added — `clear_fields`: vaciado explícito de campos en `catalog_loader` (v0.18.0)
 - Un objeto del catálogo puede declarar **`"clear_fields": ["<campo>", ...]`** para que esos campos de un
   registro **existente** queden vacíos al cargar. **Opt-in:** la **ausencia** de un campo en el JSON

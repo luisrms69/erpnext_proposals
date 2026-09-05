@@ -393,3 +393,76 @@ distinto y **no** define el plazo financiero.
 **Alternativa descartada.** Anclar el financiamiento a la duración de ejecución (fechas/Scope Items): está en días
 y exigiría una regla de redondeo a meses no decidida, y mide *cuándo se ejecuta el trabajo*, no la ventana de
 cobro (MRC) que sirve la deuda.
+
+## 16. Fase 2C (parcial) — Sensibilidad de duración del proyecto
+
+**Contexto.** La «Hoja de Costos» del cliente compara escenarios de plazo fijos (15/25/60 meses). No queremos
+replicar esa hoja ni fijar esos plazos: el motor ya evalúa la propuesta a su plazo real. Falta responder
+«¿cómo se comporta esta **misma** propuesta si se ejecuta/comercializa en una duración distinta?» sin duplicar
+la Quotation ni persistir escenarios.
+
+**Decisión.** Un único método whitelisted `get_duration_sensitivity(quotation_name, down_months, up_months)`
+evalúa la propuesta a `base − X` / `base` / `base + Y` **en memoria**. Es una **capa de escenario**, no un
+motor nuevo:
+
+- **Base = `proposal_contract_term_months`** (decisión de producto: una sola duración de escenario `D`, la que
+  el cliente reconoce; no se separa para el usuario «duración de ejecución» de «plazo contractual», aunque el
+  motor los tenga desacoplados — §15). La ventana `down`/`up` la captura el usuario; **sin defaults** en la
+  lógica.
+- **Se sensibiliza el MISMO proyecto, no las ventas.** El precio contratado y el **total contractual** ya
+  están definidos; cambiar `D` cambia **cuándo** se ejecuta/reconoce ese mismo alcance, no cuánto se vende.
+  Por eso, en el escenario, un mismo `D` gobierna: (a) el **reescalado temporal del esfuerzo**
+  (`scope_scale = D / base_D`); (b) la **redistribución temporal del total contractual recurrente** (ver
+  abajo); y (c) el **plazo de amortización** del financiamiento (`_amortize` / `_effective_financing`, que
+  ahora recibe el plazo por parámetro).
+- **Recurrentes (MRC ingreso y costo externo recurrente): total contractual anclado al plazo BASE y
+  redistribuido — NO se venden meses.** Para líneas `recurring`, `_add_line` aplica
+  `rec_scale = ocurrencias(base_term) / ocurrencias(D)` al importe por periodo, de modo que
+  `importe_por_periodo × ocurrencias(D)` = **total contractual base** en todo escenario. Ej.: MRC $10 000/mes
+  a 36 meses = $360 000; a 24 meses se redistribuye a $15 000/mes × 24 = **$360 000** (mismo total). Así
+  **TCV, ingreso total y costo externo recurrente total NO cambian** entre escenarios. *(Corrige el error de
+  la primera implementación, que usaba `term=D` en las ocurrencias e inflaba ingreso/TCV/margen al alargar —
+  «vender más meses de MRC» — que es un análisis distinto y NO pertenece aquí.)*
+- **Invariantes.** Constantes entre escenarios: **TCV, ingreso total, NRC, ingreso y costo de adquisición
+  CAPEX, costo externo total, horas totales, tarifa, costo total de labor** y, por tanto, el **margen
+  operativo** (ingreso − costo total). Solo cambia la **distribución temporal** y, con ella, el **pico h/mes**.
+  El **margen final** solo varía por costos legítimamente dependientes del tiempo — en este modelo, el **costo
+  financiero** (ver Financiamiento). Sin esos costos, el margen final también es constante.
+- **Reescalado lineal con guardas** (aproximación aceptada para v1): `offset' = round(offset · scale)`;
+  la duración solo escala si es positiva y la actividad **no** es hito (piso **1 día**); los **milestones**
+  solo se reposicionan. Redondeo determinista `_round_days` (`int(x+0.5)`, medio hacia arriba; no banker's).
+- **Financiamiento CAPEX.** Por ADR-0018 §15 el financiamiento **no** tiene plazo independiente: se ancla al
+  plazo contractual, que es justo la duración que se sensibiliza. Por tanto re-amortizar sobre `D` es
+  correcto: el costo financiero (interés) crece con `D` y es el **único** costo dependiente del tiempo → único
+  driver del margen final. No se «altera por accidente»: es su semántica real.
+- **Presentación integrada (entregable), sin persistencia.** Los resultados se **integran al Print Format
+  `Rentabilidad Estimada`** como dos secciones finales, generadas automáticamente al ver el reporte:
+  «Resumen financiero de la propuesta» (tabla compacta NRC/MRC/CAPEX/Total + KPIs ejecutivos, referencia a la
+  hoja del cliente) y «Análisis de sensibilidad de duración» (tres corridas, fila BASE marcada, con columna
+  **MRC equiv./mes** = MRC contractual total / D — métrica de presentación, no un precio nuevo). El **botón/
+  Dialog en la Quotation se retiró** (era herramienta de validación, no el entregable). Nomenclatura precisada:
+  `Costo operativo` (no «Costo total»), `Margen operativo`/`Margen operativo %` (pre-financiamiento),
+  `TCV / Valor total del contrato`. **Sin segunda Quotation, sin fixtures. Contingencia queda fuera.**
+- **Defaults configurables en `Proposal Settings`.** La ventana por defecto es **± 33.33 % del plazo base**
+  (campos `duration_sensitivity_down_percent` / `duration_sensitivity_up_percent` en `Proposal Settings`, que
+  ya es por compañía). Redondeo determinista a meses; el plazo corto nunca es `<= 0`. El lector es defensivo
+  (`has_field`): usa el default si el sitio aún no aplicó los campos (`bench migrate`). Se pueden pasar
+  `down_months`/`up_months` explícitos para forzar una ventana concreta. **Sin overrides por Quotation.**
+
+**Implementación.** `get_economic_evaluation` se divide en wrapper (carga + permiso) y núcleo
+`_evaluate_doc(doc, *, term, scope_scale, base_term)`; el wrapper delega con `term = base_term =
+proposal_contract_term_months` y `scope_scale = 1.0` → **comportamiento base idéntico** (cubierto por test de
+no-regresión). `_scope_effort` recibe `scope_scale` y añade `hours_by_month`; el modelo expone `hours_by_month`
+y `peak_hours_per_month` (aditivos). KPIs por escenario: Duración, TCV, MRC total, Costo total, Costo
+financiero, Margen final (+ %), Horas totales, Pico h/mes y **MRC equiv./mes**; `peak_delta_pct` es
+**informativo, sin umbral** (no es capacity planning). La ventana por defecto se deriva de `Proposal Settings`
+(**± 33.33 %** del plazo base), no de una constante fija en la lógica.
+
+**Alternativa descartada.** Reescalar contra la duración de ejecución derivada del Scope (en vez del plazo
+contractual): más «correcto» para proyectos con implementación front-loaded, pero rompe la decisión de
+producto de un solo `D` reconocible por el cliente y complica la lectura. Se documenta como límite: reescalar
+un esfuerzo corto contra un plazo contractual largo es una aproximación; el pico h/mes lo hace visible.
+
+**Límites conocidos.** El calendario es mensual (buckets de 30 días): la compresión **intra-mes** es invisible
+y el pico h/mes puede subestimar concentraciones sub-mensuales. Un escenario sobre una Quotation **congelada**
+(submitted) es hipotético sobre el snapshot contractual; la UI lo etiqueta como indicativo.

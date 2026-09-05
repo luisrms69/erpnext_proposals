@@ -102,6 +102,13 @@ def _parse_offset_days(value) -> int:
 		return 0
 
 
+def _round_days(x: float) -> int:
+	"""Redondeo determinista a días enteros para el reescalado temporal de la sensibilidad de duración. Usa
+	``int(x + 0.5)`` (medio hacia arriba) en lugar de ``round`` (banker's rounding) para que escenarios
+	simétricos reconcilien de forma estable y reproducible entre plataformas (ADR-0018 Fase 2C)."""
+	return int(flt(x) + 0.5)
+
+
 def _line_amount_for_period(amount: float, period: int, occurrences: set) -> float:
 	"""Semilla de extensibilidad: importe de una línea en un periodo. Hoy constante (mismo importe en cada
 	ocurrencia); Fase 2C podrá inyectar escalamiento/FX como función de ``period`` sin rediseñar el motor."""
@@ -190,14 +197,22 @@ def _cadence_label(interval: str | None, count: int | None) -> str:
 	return name if c == 1 else f"Cada {c} {plural}"
 
 
-def _scope_effort(doc, is_frozen: bool):
+def _scope_effort(doc, is_frozen: bool, scope_scale: float = 1.0):
 	"""Detalle de esfuerzo por Quotation Scope Item + labor total atribuible por item_code.
 
-	Devuelve ``(effort_rows, labor_by_item, labor_by_month)``. Reusa la misma regla de distribución que el
-	calendario (``_labor_by_month``) para consistencia."""
+	Devuelve ``(effort_rows, labor_by_item, labor_by_month, hours_by_month)``. Reusa la misma regla de
+	distribución que el calendario (``_labor_by_month``) para consistencia.
+
+	``scope_scale`` (capa de sensibilidad de duración, ADR-0018 Fase 2C): factor temporal aplicado a
+	offset/duración de cada actividad SIN alterar horas, tarifa ni costo. El reparto (`_distribute_over_months`)
+	conserva el total, por lo que ``hours`` y ``cost`` totales son invariantes al factor; solo cambia CUÁNDO se
+	reconocen. Guardas: los milestones solo se reposicionan (no escalan duración); las duraciones positivas
+	escaladas tienen piso de 1 día (no se evaporan). Con ``scope_scale == 1.0`` el resultado es idéntico al
+	base (sin regresión)."""
 	effort_rows = []
 	labor_by_item: dict = {}
 	labor_by_month: dict = {}
+	hours_by_month: dict = {}
 	for row in doc.get("quotation_scope_items") or []:
 		if not (row.get("include_in_proposal") or row.get("is_internal_cost_task")):
 			continue
@@ -207,9 +222,19 @@ def _scope_effort(doc, is_frozen: bool):
 		offset = _parse_offset_days(row.get("planned_start_offset_days"))
 		dur = cint(row.get("planned_duration_days"))
 		milestone = 1 if row.get("is_milestone") else 0
-		alloc = _distribute_over_months(offset, dur, milestone, cost)  # fuente ÚNICA de reparto
+		# Sensibilidad de duración: reescalado temporal in-memory. El offset SIEMPRE escala; la duración solo
+		# escala si es positiva y la actividad no es un hito (piso 1 día). Horas y costo NO se tocan → las
+		# invariantes de total quedan garantizadas por `_distribute_over_months` (conserva el total).
+		offset_s = _round_days(offset * scope_scale)
+		dur_s = dur if (milestone or dur <= 0) else max(1, _round_days(dur * scope_scale))
+		alloc = _distribute_over_months(offset_s, dur_s, milestone, cost)  # reparto de COSTO (fuente única)
+		alloc_hours = _distribute_over_months(
+			offset_s, dur_s, milestone, hours
+		)  # mismas ponderaciones (HORAS)
 		for m, c in alloc.items():
 			labor_by_month[m] = labor_by_month.get(m, 0.0) + c
+		for m, h in alloc_hours.items():
+			hours_by_month[m] = hours_by_month.get(m, 0.0) + h
 		item_code = row.get("item_code")
 		labor_by_item[item_code] = labor_by_item.get(item_code, 0.0) + cost
 		effort_rows.append(
@@ -234,7 +259,7 @@ def _scope_effort(doc, is_frozen: bool):
 				"phase": row.get("phase"),
 			}
 		)
-	return effort_rows, labor_by_item, labor_by_month
+	return effort_rows, labor_by_item, labor_by_month, hours_by_month
 
 
 def get_economic_calendar(quotation_name: str) -> dict:
@@ -358,10 +383,33 @@ def get_economic_evaluation(quotation_name: str) -> dict:
 
 	La agrupación es **presentación**: la naturaleza se infiere del comportamiento efectivo por línea
 	(`one_time`→NRC, `recurring`→MRC, `infrastructure`→CAPEX). El importe sale de la propuesta; sin re-captura.
+
+	Este wrapper carga la Quotation y delega en ``_evaluate_doc`` con el plazo contractual persistido y sin
+	reescalado (``scope_scale=1.0``): el comportamiento base es idéntico (sin regresión).
 	"""
 	doc = frappe.get_doc("Quotation", quotation_name)
 	doc.check_permission("read")
+	return _evaluate_doc(doc, term=cint(doc.get("proposal_contract_term_months")), scope_scale=1.0)
 
+
+def _evaluate_doc(doc, *, term: int, scope_scale: float = 1.0, base_term: int | None = None) -> dict:
+	"""Núcleo de cálculo de la Evaluación Económica sobre un doc **ya cargado**. Parametrizado por:
+
+	- ``term``: plazo (meses) que controla las ocurrencias MRC, el horizonte base y el plazo de amortización
+	  del financiamiento de CAPEX.
+	- ``scope_scale``: factor de reescalado temporal del esfuerzo para la sensibilidad de duración
+	  (``D / base_D``). ``1.0`` = evaluación base.
+	- ``base_term``: plazo contractual **base** de la propuesta. En sensibilidad de duración el **total
+	  contractual** de los recurrentes (ingreso MRC y costo externo recurrente) se ancla a ``base_term`` y se
+	  **redistribuye** sobre las ocurrencias del escenario — NO se venden/compran meses adicionales, de modo
+	  que TCV, ingreso total y costo externo total **no cambian** entre escenarios; solo cambia su distribución
+	  temporal. Si es ``None`` se toma ``base_term = term`` → evaluación normal sin redistribución (base sin
+	  regresión).
+
+	No persiste nada y no muta ``doc`` (offsets/duraciones se escalan al vuelo dentro de ``_scope_effort``).
+	Solo lectura."""
+	if base_term is None:
+		base_term = term
 	is_frozen = doc.docstatus == 1
 	company = doc.get("company")
 	currency = (
@@ -369,10 +417,9 @@ def get_economic_evaluation(quotation_name: str) -> dict:
 		or (frappe.db.get_value("Company", company, "default_currency") if company else None)
 		or "MXN"
 	)
-	term = cint(doc.get("proposal_contract_term_months"))
 	txn = doc.get("transaction_date")
 
-	effort_rows, labor_by_item, labor_by_month = _scope_effort(doc, is_frozen)
+	effort_rows, labor_by_item, labor_by_month, hours_by_month = _scope_effort(doc, is_frozen, scope_scale)
 	max_labor_month = max(labor_by_month) if labor_by_month else 0
 	horizon = max(term, max_labor_month + 1, 1)
 
@@ -400,11 +447,23 @@ def get_economic_evaluation(quotation_name: str) -> dict:
 		step = _step_months(interval, count)
 		occ = [p for p in _occurrence_periods(behavior, step, term) if p < horizon]
 		ext_amt = flt(ext_rate) * flt(qty or 0)
+		# Sensibilidad de duración: para RECURRENTES el TOTAL contractual (ingreso MRC y costo externo
+		# recurrente) se ancla al plazo BASE y se REDISTRIBUYE sobre las ocurrencias del escenario — no se
+		# venden/compran meses adicionales. `rec_scale = ocurrencias(base_term) / ocurrencias(term)`; así
+		# `importe_por_periodo x ocurrencias(term)` = total contractual base (constante entre escenarios). En
+		# evaluación base (`term == base_term`) es 1.0 → sin cambio. NRC/CAPEX (one_time/infrastructure)
+		# ocurren una sola vez en ambos → nunca se reescalan.
+		rec_scale = 1.0
+		if behavior == "recurring" and term != base_term and occ:
+			base_occ = len(_occurrence_periods(behavior, step, base_term))
+			rec_scale = base_occ / len(occ)
+		eff_rev = flt(revenue_amt) * rec_scale
+		eff_ext = ext_amt * rec_scale
 		for p in occ:
 			# Importe por periodo vía la semilla de extensibilidad (hoy constante; Fase 2C podrá inyectar
 			# escalamiento/FX como función de `p` sin rediseñar el motor).
-			rev_p = _line_amount_for_period(revenue_amt, p, occ)
-			ext_p = _line_amount_for_period(ext_amt, p, occ)
+			rev_p = _line_amount_for_period(eff_rev, p, occ)
+			ext_p = _line_amount_for_period(eff_ext, p, occ)
 			if rev_p:
 				periods[p]["revenue"] += rev_p
 				periods[p]["revenue_components"].append(
@@ -423,13 +482,15 @@ def get_economic_evaluation(quotation_name: str) -> dict:
 				)
 		n = len(occ)
 		line_labor = flt(labor_by_item.get(item_code, 0.0))
-		contractual_rev = flt(revenue_amt) * n
-		contractual_ext = ext_amt * n
+		# Totales contractuales con el importe EFECTIVO ya redistribuido: `eff_* x n` = total contractual base
+		# (invariante entre escenarios de sensibilidad; en evaluación base `eff_* == revenue_amt/ext_amt`).
+		contractual_rev = eff_rev * n
+		contractual_ext = eff_ext * n
 		qty_f = flt(qty) or 0.0
 		# Campos DESCRIPTIVOS para las hojas NRC/MRC/CAPEX (no alteran totales ni el cálculo):
 		# precio unitario de venta, periodos donde impacta y etiqueta legible, y si participa en la base
 		# financiable (solo CAPEX con costo de adquisición > 0).
-		unit_price = (flt(revenue_amt) / qty_f) if qty_f else 0.0
+		unit_price = (eff_rev / qty_f) if qty_f else 0.0
 		impact_label = "—" if not occ else (f"Mes {occ[0]}" if len(occ) == 1 else f"Mes {occ[0]}…{occ[-1]}")
 		# Detalle de esfuerzo ATRIBUIBLE a esta línea (APU): las actividades de Scope cuyo `item_code` es el de
 		# esta línea — vínculo demostrable (la Quotation Scope Item guarda su item_code). Σ de estos costos ==
@@ -468,8 +529,8 @@ def get_economic_evaluation(quotation_name: str) -> dict:
 			"occurrences": n,
 			"impact_periods": list(occ),
 			"impact_label": impact_label,
-			"revenue_per_period": flt(revenue_amt),
-			"external_per_period": ext_amt,
+			"revenue_per_period": eff_rev,
+			"external_per_period": eff_ext,
 			"external_unit_cost": flt(ext_rate),
 			"external_source": ext_source,
 			"financeable": grp == "CAPEX" and contractual_ext > 0,
@@ -603,7 +664,7 @@ def get_economic_evaluation(quotation_name: str) -> dict:
 	# Base financiable = costo de adquisición del CAPEX (nunca el precio de venta). El PRINCIPAL no es costo
 	# económico (ya está en `external`); solo entran interés + comisiones como `financial_cost`.
 	capex_external = groups["CAPEX"]["external"]
-	financing = _effective_financing(doc, capex_external, company)
+	financing = _effective_financing(doc, capex_external, company, term)
 
 	# Horizonte económico: el plazo contractual controla la RECURRENCIA (MRC) y el horizonte base; este se
 	# EXTIENDE solo por la ejecución (esfuerzo), NUNCA por el financiamiento. El financiamiento se ancla al
@@ -671,6 +732,10 @@ def get_economic_evaluation(quotation_name: str) -> dict:
 			"hours": sum(flt(er["hours"]) for er in effort_rows),
 			"cost": totals["labor"],
 		},
+		# Distribución de HORAS por mes (mismas ponderaciones que el costo laboral) e intensidad pico. Aditivos:
+		# no alteran totales económicos. Base de la sensibilidad de duración (pico h/mes por escenario).
+		"hours_by_month": {int(m): flt(h) for m, h in hours_by_month.items()},
+		"peak_hours_per_month": (max(hours_by_month.values()) if hours_by_month else 0.0),
 		"apu": apu,  # puente margen directo de vendidos vs pool no asignado vs margen operativo
 		"financing": financing,  # None si no aplica (sin CAPEX o toggle apagado)
 		"periods": periods,
@@ -680,6 +745,167 @@ def get_economic_evaluation(quotation_name: str) -> dict:
 	}
 	_assert_reconciled(model)
 	return model
+
+
+_SENSITIVITY_DEFAULT_PCT = 33.33  # ventana por defecto (± % del plazo base) si Proposal Settings no la define
+
+
+def _sensitivity_percents(company) -> tuple:
+	"""Porcentajes (inferior, superior) de la ventana de sensibilidad, leídos de la Proposal Settings de la
+	compañía (por defecto 33.33 % / 33.33 %). Solo lectura; sin fallback silencioso a otra compañía. El guard
+	`has_field` mantiene el default si el sitio aún no aplicó los campos (`bench migrate`) — sin errores de
+	columna inexistente."""
+	down = up = None
+	if company and frappe.get_meta("Proposal Settings").has_field("duration_sensitivity_down_percent"):
+		row = frappe.db.get_value(
+			"Proposal Settings",
+			{"company": company},
+			["duration_sensitivity_down_percent", "duration_sensitivity_up_percent"],
+		)
+		if row:
+			down, up = row
+	return (flt(down) or _SENSITIVITY_DEFAULT_PCT, flt(up) or _SENSITIVITY_DEFAULT_PCT)
+
+
+def _default_sensitivity_window(base_d: int, down_pct: float, up_pct: float) -> tuple:
+	"""Convierte los porcentajes de sensibilidad en meses enteros (± del plazo base), con redondeo determinista
+	(`_round_days`, medio hacia arriba). Nunca produce un plazo inferior ``<= 0`` (la reducción se topa en
+	``base_d - 1``)."""
+	base_d = cint(base_d)
+	down = _round_days(base_d * flt(down_pct) / 100.0)
+	up = _round_days(base_d * flt(up_pct) / 100.0)
+	if base_d > 1:
+		down = min(base_d - 1, down)
+	else:
+		down = 0
+	return (max(0, down), max(0, up))
+
+
+@frappe.whitelist()
+def get_duration_sensitivity(quotation_name: str, down_months=None, up_months=None) -> dict:
+	"""Sensibilidad de la **duración del proyecto** (ADR-0018 Fase 2C). Evalúa la MISMA propuesta a plazos
+	alternativos ``base - X`` / ``base`` / ``base + Y`` **en memoria**, sin mutar ni persistir la Quotation ni
+	los Scope Items, sin crear una segunda Quotation.
+
+	El plazo base es ``proposal_contract_term_months`` (duración económica que el cliente reconoce). En cada
+	escenario ``D`` el **total contractual recurrente** (ingreso MRC y costo externo recurrente) se **ancla al
+	plazo base y se redistribuye** (no cambia el ingreso total), el esfuerzo se **reescala temporalmente**
+	(``scope_scale = D / base_D``) y el financiamiento **re-amortiza** sobre ``D``. **TCV, ingreso total, NRC,
+	CAPEX, costo externo total, horas totales, costo total de labor y margen operativo son invariantes**; solo
+	cambian la distribución temporal, el pico h/mes y el costo financiero.
+
+	``down_months`` / ``up_months``: si se omiten (``None``), la ventana se toma de la Proposal Settings de la
+	compañía (``duration_sensitivity_down_percent`` / ``_up_percent``; por defecto 33.33 % / 33.33 % del plazo
+	base). Se pueden pasar explícitos para forzar una ventana concreta. Solo lectura."""
+	doc = frappe.get_doc("Quotation", quotation_name)
+	doc.check_permission("read")
+	company = doc.get("company")
+	currency = (
+		doc.get("currency")
+		or (frappe.db.get_value("Company", company, "default_currency") if company else None)
+		or "MXN"
+	)
+	base_d = cint(doc.get("proposal_contract_term_months"))
+	if base_d <= 0:
+		# Sin plazo base no hay eje de sensibilidad (mismo criterio que MRC/financiamiento: exigen plazo > 0).
+		return {
+			"applicable": False,
+			"reason": "sin_plazo_base",
+			"base_d": base_d,
+			"currency": currency,
+			"constants": {},
+			"scenarios": [],
+			"skipped": [],
+		}
+	# Ventana: explícita si se pasa; si no, derivada de los porcentajes de Proposal Settings (default 33.33 %).
+	down = cint(down_months) if down_months is not None else None
+	up = cint(up_months) if up_months is not None else None
+	if down is None or up is None:
+		down_pct, up_pct = _sensitivity_percents(company)
+		dwin, uwin = _default_sensitivity_window(base_d, down_pct, up_pct)
+		if down is None:
+			down = dwin
+		if up is None:
+			up = uwin
+	if down < 0 or up < 0:
+		frappe.throw(
+			_("Los meses de sensibilidad (inferior y superior) deben ser mayores o iguales a 0."),
+			title=_("Sensibilidad inválida"),
+		)
+
+	# Plazos objetivo: ascendentes, sin duplicados; los no positivos se descartan con nota (no se evalúan).
+	seen: set = set()
+	targets = []
+	skipped = []
+	for d in sorted([base_d - down, base_d, base_d + up]):
+		if d in seen:
+			continue
+		seen.add(d)
+		if d <= 0:
+			skipped.append({"duration_months": d, "reason": "plazo_no_positivo"})
+		else:
+			targets.append(d)
+
+	scenarios = []
+	constants: dict = {}
+	for d in targets:
+		# term = D (financiamiento + horizonte) · base_term = base_d (ancla el total contractual recurrente →
+		# TCV/ingreso/costo externo constantes) · scope_scale = D/base_d (redistribuye el esfuerzo).
+		model = _evaluate_doc(
+			doc, term=d, scope_scale=(d / base_d), base_term=base_d
+		)  # `_assert_reconciled` corre por escenario
+		scenarios.append(_sensitivity_row(model, d, is_base=(d == base_d)))
+		if d == base_d:
+			g = model["groups"]
+			constants = {
+				"hours_total": flt(model["effort_totals"]["hours"], 2),
+				"labor_total_cost": flt(model["totals"]["labor"], 2),
+				"nrc_revenue": flt(g["NRC"]["revenue"], 2),
+				"capex_revenue": flt(g["CAPEX"]["revenue"], 2),
+				"capex_acquisition_cost": flt(g["CAPEX"]["external"], 2),
+				"financed_amount": (
+					flt(model["financing"]["financed_amount"], 2) if model.get("financing") else 0.0
+				),
+			}
+
+	# Variación % del pico vs BASE — informativa (ajuste de producto: SIN umbral, sin bloqueo; no es capacity).
+	base_peak = next((s["peak_hours_per_month"] for s in scenarios if s["is_base"]), 0.0)
+	for s in scenarios:
+		s["peak_delta_pct"] = (
+			flt((s["peak_hours_per_month"] - base_peak) / base_peak * 100.0, 2) if base_peak else 0.0
+		)
+
+	return {
+		"applicable": True,
+		"base_d": base_d,
+		"currency": currency,
+		"constants": constants,
+		"scenarios": scenarios,
+		"skipped": skipped,
+	}
+
+
+def _sensitivity_row(model: dict, duration_months: int, is_base: bool) -> dict:
+	"""Extrae los KPIs de sensibilidad de un modelo económico ya evaluado. Todos los valores provienen del
+	motor (sin recálculo paralelo)."""
+	t = model["totals"]
+	g = model["groups"]
+	return {
+		"duration_months": duration_months,
+		"is_base": is_base,
+		"tcv": flt(t["revenue"], 2),
+		"mrc_total": flt(g["MRC"]["revenue"], 2),
+		# MRC equivalente por mes: mismo total contractual MRC repartido en la duración del escenario (métrica de
+		# presentación; NO es un nuevo precio ni multiplica MRC por meses). `mrc_total` es el total contractual
+		# base (constante entre escenarios por el anclaje de `_add_line`).
+		"mrc_equiv_per_month": (flt(g["MRC"]["revenue"] / duration_months, 2) if duration_months else 0.0),
+		"total_cost": flt(t["total_cost"], 2),
+		"financial_cost": flt(t["financial_cost"], 2),
+		"margin_after_financing": flt(t["margin_after_financing"], 2),
+		"margin_after_financing_pct": flt(t["margin_after_financing_pct"], 2),
+		"peak_hours_per_month": flt(model["peak_hours_per_month"], 2),
+		"warnings": model.get("warnings", []),
+	}
 
 
 def _amortize(principal: float, annual_rate_pct: float, term_months: int, fees: float) -> dict:
@@ -717,12 +943,13 @@ def _amortize(principal: float, annual_rate_pct: float, term_months: int, fees: 
 	return {"payment": payment, "total_interest": flt(total_interest, 2), "schedule": schedule}
 
 
-def _effective_financing(doc, capex_external: float, company) -> dict | None:
+def _effective_financing(doc, capex_external: float, company, term: int) -> dict | None:
 	"""Resuelve los inputs financieros EFECTIVOS (fail-closed) y la amortización. Devuelve ``None`` si el
-	financiamiento no está activado. El **plazo** es el ÚNICO plazo temporal de la propuesta:
-	`proposal_contract_term_months` (no existe un plazo financiero independiente). Monto por defecto = costo de
-	adquisición CAPEX; tasa = default de la Company (Proposal Settings), solo precarga. Representa NUESTRO costo
-	de fondeo, nunca una tasa al cliente."""
+	financiamiento no está activado. El **plazo** (``term``) lo provee el llamador: en la evaluación base es
+	`proposal_contract_term_months` (plazo único de la propuesta; no existe un plazo financiero independiente);
+	en la sensibilidad de duración es el plazo del escenario ``D``. Monto por defecto = costo de adquisición
+	CAPEX; tasa = default de la Company (Proposal Settings), solo precarga. Representa NUESTRO costo de fondeo,
+	nunca una tasa al cliente."""
 	if not doc.get("proposal_financing_enabled"):
 		return None
 	if flt(capex_external) <= 0:
@@ -739,8 +966,8 @@ def _effective_financing(doc, capex_external: float, company) -> dict | None:
 	# particular una tasa **0% explícita es válida** y NO se sustituye por la tasa de la Company (sin fallback
 	# silencioso). Plazo/tasa/monto salen exclusivamente del documento.
 	financed = flt(doc.get("proposal_financed_amount")) or flt(capex_external)  # default = adquisición CAPEX
-	# El plazo del financiamiento ES el plazo contractual de la propuesta (fuente única, sin doble captura).
-	term = cint(doc.get("proposal_contract_term_months"))
+	# El plazo lo provee el llamador (`term`): base = plazo contractual; sensibilidad = plazo del escenario.
+	term = cint(term)
 	rate = flt(doc.get("proposal_financing_annual_cost_rate"))
 	fees = flt(doc.get("proposal_financing_fees_amount"))
 

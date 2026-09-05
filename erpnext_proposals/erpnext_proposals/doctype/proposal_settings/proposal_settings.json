@@ -15,7 +15,10 @@
   "economic_col_break",
   "default_contract_term_months",
   "financing_section",
-  "default_financing_cost_rate"
+  "default_financing_cost_rate",
+  "duration_sensitivity_section",
+  "duration_sensitivity_down_percent",
+  "duration_sensitivity_up_percent"
  ],
  "fields": [
   {
@@ -89,11 +92,33 @@
    "fieldtype": "Percent",
    "label": "Costo anual de financiamiento por defecto (%)",
    "non_negative": 1
+  },
+  {
+   "description": "Ventana por defecto del análisis de sensibilidad de duración en el reporte Rentabilidad Estimada, como porcentaje del plazo base de cada propuesta. No altera el ingreso contractual: solo define los escenarios de duración menor/mayor.",
+   "fieldname": "duration_sensitivity_section",
+   "fieldtype": "Section Break",
+   "label": "Sensibilidad de duración (defaults)"
+  },
+  {
+   "default": "33.33",
+   "description": "Porcentaje del plazo base que se resta para el escenario de duración menor (default 33.33 %).",
+   "fieldname": "duration_sensitivity_down_percent",
+   "fieldtype": "Percent",
+   "label": "Sensibilidad inferior (%)",
+   "non_negative": 1
+  },
+  {
+   "default": "33.33",
+   "description": "Porcentaje del plazo base que se suma para el escenario de duración mayor (default 33.33 %).",
+   "fieldname": "duration_sensitivity_up_percent",
+   "fieldtype": "Percent",
+   "label": "Sensibilidad superior (%)",
+   "non_negative": 1
   }
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-09-02 15:30:00.000000",
+ "modified": "2026-09-05 12:00:00.000000",
  "modified_by": "Administrator",
  "module": "ERPNext Proposals",
  "name": "Proposal Settings",
