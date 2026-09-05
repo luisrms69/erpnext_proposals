@@ -782,7 +782,9 @@ def _default_sensitivity_window(base_d: int, down_pct: float, up_pct: float) -> 
 
 
 @frappe.whitelist()
-def get_duration_sensitivity(quotation_name: str, down_months=None, up_months=None) -> dict:
+def get_duration_sensitivity(
+	quotation_name: str, down_months: int | None = None, up_months: int | None = None
+) -> dict:
 	"""Sensibilidad de la **duración del proyecto** (ADR-0018 Fase 2C). Evalúa la MISMA propuesta a plazos
 	alternativos ``base - X`` / ``base`` / ``base + Y`` **en memoria**, sin mutar ni persistir la Quotation ni
 	los Scope Items, sin crear una segunda Quotation.
