@@ -110,6 +110,41 @@ plazo), así que **no** alarga el calendario económico. El calendario solo pued
 (esfuerzo) posterior al plazo — con su propio aviso —, nunca por el financiamiento. Los ingresos recurrentes solo
 existen durante el plazo contractual.
 
+## Sensibilidad de duración
+
+Responde una pregunta comercial concreta: **¿cómo cambia la economía de este mismo proyecto si se ejecuta en
+menos o más meses?** Es el **mismo alcance y el mismo precio contratado**, solo con otra duración. No crea una
+segunda cotización ni cambia nada guardado: es un cálculo **en memoria**.
+
+Aparece **automáticamente dentro del reporte «Rentabilidad Estimada»**, al final, en la sección *Análisis de
+sensibilidad de duración* (tres corridas: una duración menor, la duración base marcada, y una mayor). No hay
+que presionar ningún botón: se genera al ver el reporte. La ventana por defecto es **± 33.33 % del plazo base**
+(p. ej. base 12 → 8/12/16; base 36 → 24/36/48) y es **configurable en `Proposal Settings`** (campos
+*Sensibilidad inferior/superior (%)*).
+
+Lo que **NO cambia** entre escenarios, porque es el mismo proyecto vendido al mismo precio: el **TCV / valor
+total**, el **ingreso** (NRC, MRC y CAPEX), el **costo externo**, las **horas totales** y el **costo total de
+esfuerzo**. El ingreso recurrente (MRC) **no crece por alargar** el proyecto: su total contractual se mantiene
+y solo se **reparte** en más o menos meses (p. ej. $360 000 a 36 meses = $10 000/mes; a 24 meses = $15 000/mes,
+mismo total).
+
+Lo que **sí cambia**:
+
+- la **distribución temporal** del esfuerzo y, con ella, el **pico de horas por mes** —acortar concentra
+  (más h/mes), alargar diluye (menos h/mes)—;
+- el **MRC equivalente por mes** (columna del reporte): el mismo total contractual MRC repartido en la
+  duración del escenario (p. ej. $96 000 → $12 000/mes a 8 meses, $8 000/mes a 12, $6 000/mes a 16). Es una
+  lectura temporal, no un precio nuevo;
+- el **costo financiero** del CAPEX, porque el crédito se amortiza en más o menos meses; es el **único** costo
+  que depende del tiempo, y por eso es lo único que mueve el **margen final** (el **margen operativo** se
+  mantiene). Sin financiamiento, el margen final también es constante.
+
+Así se evita la lectura engañosa de «más duración = más margen»: alargar el proyecto no vende más; a lo sumo
+sube ligeramente el costo financiero y baja un poco el margen final.
+
+> El pico de horas por mes es un indicador de **intensidad**, no una verificación de disponibilidad de
+> recursos: dice cuánto esfuerzo mensual exigiría el escenario, no si el equipo puede absorberlo.
+
 ## Congelamiento
 
 Mientras la propuesta está en **Borrador**, la evaluación es una proyección viva: si cambias la configuración
@@ -120,9 +155,9 @@ esa propuesta.
 
 ## Qué no incluye todavía (fases siguientes)
 
-Cobros/pagos (condiciones de pago y flujo de caja) y los indicadores VAN/TIR/payback y análisis de
-sensibilidad llegan en fases posteriores, sobre este mismo calendario. El financiamiento del CAPEX (costo de
-fondeo, amortización) ya está incluido; lo que falta es el **flujo de caja** y esos indicadores.
+Cobros/pagos (condiciones de pago y flujo de caja) y los indicadores VAN/TIR/payback llegan en fases
+posteriores, sobre este mismo calendario. El financiamiento del CAPEX (costo de fondeo, amortización) y la
+**sensibilidad de duración** ya están incluidos; lo que falta es el **flujo de caja** y esos indicadores.
 
 > Nota de arquitectura: modelo definido en
 > [ADR-0018](../adr/0018-evaluacion-economica-por-periodos.md), continuación de

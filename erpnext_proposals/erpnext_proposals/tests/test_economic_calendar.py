@@ -32,12 +32,18 @@ from erpnext_proposals.erpnext_proposals.utils.economic_calendar import (
 	_assert_reconciled,
 	_assert_recurring_valid,
 	_collapse_periods,
+	_default_sensitivity_window,
 	_distribute_over_months,
 	_effective_financing,
+	_evaluate_doc,
 	_labor_by_month,
 	_occurrence_periods,
 	_parse_offset_days,
+	_round_days,
+	_scope_effort,
+	_sensitivity_percents,
 	_step_months,
+	get_duration_sensitivity,
 	get_economic_calendar,
 	get_economic_evaluation,
 	group_label,
@@ -697,6 +703,285 @@ class TestEconomicCalendar(unittest.TestCase):
 		self._set_econ(self.company_a, rules=[("Item", IT_REC, "one_time", None, None)])
 		self.assertEqual(self._cal(q.name)["totals"]["revenue"], 12000.0)
 
+	# ── sensibilidad de duración (ADR-0018 Fase 2C) ──────────────────────
+	def _sensitivity_rules(self):
+		self._set_econ(
+			self.company_a,
+			rules=[
+				("Item", IT_ONE, "one_time", None, None),
+				("Item", IT_REC, "recurring", "Month", 1),
+				("Item Group", GROUP_INFRA, "infrastructure", None, None),
+			],
+			term=36,
+		)
+
+	def _make_sensitivity_q(self, term=36, hours=1800, dur_days=1080, financing_rate=18.0):
+		"""Quotation base_D=36 con NRC 50k, MRC 1k/mes, CAPEX 400k (adquisición 100k) y labor de 1800h
+		distribuida uniformemente sobre el plazo (offset 0, duración 1080 días = 36 meses → 50 h/mes)."""
+		self._sensitivity_rules()
+		q = self._make_q_custom(
+			self.company_a,
+			lines=[(IT_ONE, 1, 50000), (IT_REC, 1, 1000), (IT_CAPEX, 1, 400000)],
+			term=term,
+			scope_rows=[
+				{
+					"scope_item": SC_MASTER,
+					"item_code": IT_ONE,  # atribuible a una línea vendida (sin unattributed_labor)
+					"estimated_hours": hours,
+					"activity_type": ACT,  # costing_rate 100 → costo 180000
+					"phase": PHASE,
+					"include_in_proposal": 1,
+					"planned_start_offset_days": "0",
+					"planned_duration_days": dur_days,
+				}
+			],
+		)
+		if financing_rate is not None:
+			d = frappe.get_doc("Quotation", q.name)
+			d.proposal_financing_enabled = 1
+			d.proposal_financed_amount = 100000
+			d.proposal_financing_annual_cost_rate = financing_rate
+			d.proposal_financing_fees_amount = 0
+			d.save(ignore_permissions=True)
+		return q.name
+
+	def test_sens_base_no_regression(self):
+		# _evaluate_doc(scope_scale=1.0, term=base) == get_economic_evaluation (salvo campos aditivos nuevos).
+		name = self._make_sensitivity_q(financing_rate=None)
+		base = get_economic_evaluation(name)
+		self.assertEqual(base["term_months"], 36)
+		self.assertAlmostEqual(base["totals"]["labor"], 180000.0, places=2)
+		self.assertAlmostEqual(base["effort_totals"]["hours"], 1800.0, places=2)
+		# Campos aditivos presentes y coherentes.
+		self.assertAlmostEqual(sum(base["hours_by_month"].values()), 1800.0, places=2)
+		self.assertAlmostEqual(base["peak_hours_per_month"], 50.0, places=2)
+
+	def test_sens_contractual_totals_invariant_across_scenarios(self):
+		# El MISMO proyecto a otra duración: TCV, ingreso total, MRC contractual, NRC, CAPEX, costo externo,
+		# costo de labor y horas son CONSTANTES entre escenarios; NO se venden meses adicionales.
+		name = self._make_sensitivity_q(financing_rate=None)
+		res = get_duration_sensitivity(name, 12, 12)
+		self.assertTrue(res["applicable"])
+		self.assertEqual([s["duration_months"] for s in res["scenarios"]], [24, 36, 48])
+		# MRC contractual base = 1000/mes x 36 = 36000; TCV = 50000 (NRC) + 36000 (MRC) + 400000 (CAPEX).
+		for s in res["scenarios"]:
+			self.assertAlmostEqual(s["tcv"], 486000.0, places=2)  # TCV CONSTANTE
+			self.assertAlmostEqual(s["mrc_total"], 36000.0, places=2)  # MRC contractual CONSTANTE
+			self.assertAlmostEqual(s["total_cost"], 280000.0, places=2)  # ext 100000 + labor 180000
+		for d in (24, 36, 48):
+			m = _evaluate_doc(frappe.get_doc("Quotation", name), term=d, scope_scale=d / 36, base_term=36)
+			self.assertAlmostEqual(m["totals"]["revenue"], 486000.0, places=2)  # revenue total CONSTANTE
+			self.assertAlmostEqual(m["groups"]["NRC"]["revenue"], 50000.0, places=2)
+			self.assertAlmostEqual(m["groups"]["MRC"]["revenue"], 36000.0, places=2)
+			self.assertAlmostEqual(m["groups"]["CAPEX"]["revenue"], 400000.0, places=2)
+			self.assertAlmostEqual(m["groups"]["CAPEX"]["external"], 100000.0, places=2)  # adquisición
+			self.assertAlmostEqual(m["totals"]["external"], 100000.0, places=2)  # costo externo total
+			self.assertAlmostEqual(m["totals"]["labor"], 180000.0, places=2)  # costo labor total
+			self.assertAlmostEqual(m["effort_totals"]["hours"], 1800.0, places=2)  # horas totales
+			self.assertAlmostEqual(m["totals"]["margin"], 206000.0, places=2)  # margen OPERATIVO constante
+			self.assertAlmostEqual(sum(m["hours_by_month"].values()), 1800.0, places=2)
+			self.assertAlmostEqual(sum(p["labor"] for p in m["periods"]), 180000.0, places=2)
+
+	def test_sens_peak_compression_expansion(self):
+		# 24m → 75 h/mes ; 36m BASE → 50 ; 48m → 37.5 (mismas 1800 h redistribuidas; solo cambia distribución).
+		name = self._make_sensitivity_q(financing_rate=None)
+		res = get_duration_sensitivity(name, 12, 12)
+		peaks = {s["duration_months"]: s["peak_hours_per_month"] for s in res["scenarios"]}
+		self.assertAlmostEqual(peaks[24], 75.0, places=2)
+		self.assertAlmostEqual(peaks[36], 50.0, places=2)
+		self.assertAlmostEqual(peaks[48], 37.5, places=2)
+		# El pico sube al comprimir y baja al extender.
+		self.assertGreater(peaks[24], peaks[36])
+		self.assertGreater(peaks[36], peaks[48])
+		self.assertEqual(res["constants"]["hours_total"], 1800.0)
+
+	def test_sens_only_financing_varies_margin(self):
+		# Con financiamiento activo: TCV, MRC y margen OPERATIVO constantes; SOLO el costo financiero varía con
+		# la duración (único costo legítimamente dependiente del tiempo) → mueve el margen final.
+		name = self._make_sensitivity_q(financing_rate=18.0)
+		res = get_duration_sensitivity(name, 12, 12)
+		rows = {s["duration_months"]: s for s in res["scenarios"]}
+		self.assertEqual(res["constants"]["nrc_revenue"], 50000.0)
+		self.assertEqual(res["constants"]["capex_acquisition_cost"], 100000.0)
+		for d in (24, 36, 48):
+			self.assertAlmostEqual(rows[d]["tcv"], 486000.0, places=2)  # TCV CONSTANTE
+			self.assertAlmostEqual(rows[d]["mrc_total"], 36000.0, places=2)  # MRC CONSTANTE
+			# margen operativo (pre-financiamiento) = revenue - total_cost = 486000 - 280000 = 206000
+			m = _evaluate_doc(frappe.get_doc("Quotation", name), term=d, scope_scale=d / 36, base_term=36)
+			self.assertAlmostEqual(m["totals"]["margin"], 206000.0, places=2)  # OPERATIVO constante
+		# El costo financiero SÍ crece con D (PMT sobre más meses) → el margen final baja al alargar.
+		self.assertLess(rows[24]["financial_cost"], rows[36]["financial_cost"])
+		self.assertLess(rows[36]["financial_cost"], rows[48]["financial_cost"])
+		self.assertGreater(rows[24]["margin_after_financing"], rows[36]["margin_after_financing"])
+		self.assertGreater(rows[36]["margin_after_financing"], rows[48]["margin_after_financing"])
+
+	def test_sens_financing_inactive_zero_all_scenarios(self):
+		# Sin financiamiento: NADA depende del tiempo → margen final CONSTANTE (no la burla de +margen por D).
+		name = self._make_sensitivity_q(financing_rate=None)
+		res = get_duration_sensitivity(name, 12, 12)
+		for s in res["scenarios"]:
+			self.assertEqual(s["financial_cost"], 0.0)
+			self.assertAlmostEqual(s["margin_after_financing"], 206000.0, places=2)  # margen final CONSTANTE
+
+	def test_sens_milestone_reposition_not_scaled(self):
+		# Un hito NO escala duración; solo se reposiciona por el offset escalado.
+		self._sensitivity_rules()
+		q = self._make_q_custom(
+			self.company_a,
+			lines=[(IT_ONE, 1, 50000)],
+			term=36,
+			scope_rows=[
+				{
+					"scope_item": SC_MASTER,
+					"item_code": IT_ONE,
+					"estimated_hours": 10,
+					"activity_type": ACT,
+					"phase": PHASE,
+					"include_in_proposal": 1,
+					"planned_start_offset_days": "360",  # Mes 12 en base
+					"planned_duration_days": 0,
+					"is_milestone": 1,
+				}
+			],
+		)
+		# base: hito en Mes 12 ; escenario 18m (scale 0.5): offset 180 → Mes 6 ; sigue puntual (una sola celda).
+		base = _evaluate_doc(frappe.get_doc("Quotation", q.name), term=36, scope_scale=1.0)
+		comp = _evaluate_doc(frappe.get_doc("Quotation", q.name), term=18, scope_scale=0.5)
+		self.assertEqual(sorted(int(m) for m in base["hours_by_month"]), [12])
+		self.assertEqual(sorted(int(m) for m in comp["hours_by_month"]), [6])
+		self.assertAlmostEqual(sum(comp["hours_by_month"].values()), 10.0, places=2)
+
+	def test_sens_min_duration_floor(self):
+		# Duración 30 días con scale 0.02 → 0.6 días → piso 1 día (la actividad NO desaparece).
+		self.assertEqual(_distribute_over_months(0, max(1, _round_days(30 * 0.02)), 0, 100.0), {0: 100.0})
+
+	def test_sens_round_days_deterministic_half_up(self):
+		self.assertEqual(_round_days(719.5), 720)  # medio hacia arriba (no banker's)
+		self.assertEqual(_round_days(720.0), 720)
+		self.assertEqual(_round_days(0.5), 1)
+		self.assertEqual(_round_days(2.49), 2)
+
+	def test_sens_non_positive_scenarios_skipped(self):
+		# base_D=6, down=12 → D=-6 se descarta; quedan 6 (base) y 18.
+		self._sensitivity_rules()
+		q = self._make_q_custom(self.company_a, lines=[(IT_ONE, 1, 50000), (IT_REC, 1, 1000)], term=6)
+		res = get_duration_sensitivity(q.name, 12, 12)
+		self.assertTrue(res["applicable"])
+		self.assertEqual([s["duration_months"] for s in res["scenarios"]], [6, 18])
+		self.assertEqual([sk["duration_months"] for sk in res["skipped"]], [-6])
+
+	def test_sens_no_base_term_not_applicable(self):
+		# Company B sin settings → sin plazo base → no aplicable (fail-closed, sin lanzar).
+		q = self._make_q_custom(self.company_b, lines=[(IT_ONE, 1, 50000)], term=0)
+		res = get_duration_sensitivity(q.name, 12, 12)
+		self.assertFalse(res["applicable"])
+		self.assertEqual(res["reason"], "sin_plazo_base")
+		self.assertEqual(res["scenarios"], [])
+
+	def test_sens_button_removed_from_quotation_js(self):
+		# El entregable es el reporte, no un botón: el Dialog de sensibilidad se retiró de quotation.js.
+		import os
+
+		js = os.path.join(frappe.get_app_path("erpnext_proposals"), "public", "js", "quotation.js")
+		with open(js, encoding="utf-8") as fh:
+			src = fh.read()
+		for sym in (
+			"render_duration_sensitivity_button",
+			"open_duration_sensitivity_dialog",
+			"render_sensitivity_table",
+			"get_duration_sensitivity",
+			"Sensibilidad de duración",
+		):
+			self.assertNotIn(sym, src, f"quotation.js aún referencia {sym}")
+
+	def test_sens_default_window_helper(self):
+		# 33.33 % del plazo base, redondeo determinista; la reducción nunca deja plazo <= 0.
+		self.assertEqual(_default_sensitivity_window(12, 33.33, 33.33), (4, 4))  # 12 → 8/12/16
+		self.assertEqual(_default_sensitivity_window(36, 33.33, 33.33), (12, 12))  # 36 → 24/36/48
+		self.assertEqual(_default_sensitivity_window(1, 33.33, 33.33)[0], 0)  # base 1 → sin escenario corto
+
+	def test_sens_percents_fallback_default(self):
+		# Sin configuración específica en Proposal Settings → default 33.33 / 33.33 (sin error de columna).
+		self.assertEqual(_sensitivity_percents(self.company_a), (33.33, 33.33))
+
+	def test_sens_defaults_from_settings_when_window_omitted(self):
+		# Sin ventana explícita → 33.33 % del plazo base (default) → 24 / 36 / 48 para base 36.
+		name = self._make_sensitivity_q(financing_rate=None)
+		res = get_duration_sensitivity(name)  # sin down/up
+		self.assertEqual([s["duration_months"] for s in res["scenarios"]], [24, 36, 48])
+
+	def test_sens_mrc_equiv_per_month(self):
+		# MRC contractual total 36000 (constante) repartido en D: 24→1500, 36→1000, 48→750; NO altera el total.
+		name = self._make_sensitivity_q(financing_rate=None)
+		res = get_duration_sensitivity(name, 12, 12)
+		eq = {s["duration_months"]: s["mrc_equiv_per_month"] for s in res["scenarios"]}
+		self.assertAlmostEqual(eq[24], 1500.0, places=2)
+		self.assertAlmostEqual(eq[36], 1000.0, places=2)
+		self.assertAlmostEqual(eq[48], 750.0, places=2)
+		for s in res["scenarios"]:
+			self.assertAlmostEqual(s["mrc_total"], 36000.0, places=2)
+
+	def test_sens_window_not_hardcoded_twelve(self):
+		# down/up son parámetros: 6/6 → 30/36/42 (prueba que NO hay ±12 hardcodeado).
+		name = self._make_sensitivity_q(financing_rate=None)
+		res = get_duration_sensitivity(name, 6, 6)
+		self.assertEqual([s["duration_months"] for s in res["scenarios"]], [30, 36, 42])
+
+	def test_sens_peak_from_hours_not_cost_with_heterogeneous_rates(self):
+		# Perfiles con tarifas distintas: el pico h/mes sale de la distribución de HORAS, no de costo/tarifa.
+		act2 = "_EC Activity Hi"
+		if not frappe.db.exists("Activity Type", act2):
+			frappe.get_doc({"doctype": "Activity Type", "activity_type": act2}).insert(
+				ignore_permissions=True
+			)
+		frappe.db.set_value("Activity Type", act2, "costing_rate", 2000)
+		self._sensitivity_rules()
+		q = self._make_q_custom(
+			self.company_a,
+			lines=[(IT_ONE, 1, 50000)],
+			term=12,
+			scope_rows=[
+				{  # Mes 0: 100 horas x 100 = 10,000 (muchas horas, tarifa baja)
+					"scope_item": SC_MASTER,
+					"item_code": IT_ONE,
+					"estimated_hours": 100,
+					"activity_type": ACT,
+					"phase": PHASE,
+					"include_in_proposal": 1,
+					"planned_start_offset_days": "0",
+					"planned_duration_days": 30,
+				},
+				{  # Mes 1: 10 horas x 2000 = 20,000 (pocas horas, tarifa alta → pico de COSTO)
+					"scope_item": SC_MASTER,
+					"item_code": IT_ONE,
+					"estimated_hours": 10,
+					"activity_type": act2,
+					"phase": PHASE,
+					"include_in_proposal": 1,
+					"planned_start_offset_days": "30",
+					"planned_duration_days": 30,
+				},
+			],
+		)
+		m = _evaluate_doc(frappe.get_doc("Quotation", q.name), term=12, scope_scale=1.0)
+		# Pico de HORAS = Mes 0 (100 h), aunque el pico de COSTO sea el Mes 1 (20,000).
+		self.assertAlmostEqual(m["peak_hours_per_month"], 100.0, places=2)
+		self.assertAlmostEqual(m["periods"][1]["labor"], 20000.0, places=2)
+		self.assertGreater(m["periods"][1]["labor"], m["periods"][0]["labor"])
+
+	def test_sens_reconciliation_holds_each_scenario(self):
+		# _assert_reconciled corre dentro de _evaluate_doc por escenario; get_duration_sensitivity no lanza.
+		name = self._make_sensitivity_q(financing_rate=18.0)
+		res = get_duration_sensitivity(name, 12, 12)  # no debe lanzar
+		self.assertEqual(len(res["scenarios"]), 3)
+		for d in (24, 36, 48):
+			_assert_reconciled(_evaluate_doc(frappe.get_doc("Quotation", name), term=d, scope_scale=d / 36))
+
+	def test_sens_negative_window_rejected(self):
+		name = self._make_sensitivity_q(financing_rate=None)
+		with self.assertRaises(frappe.ValidationError):
+			get_duration_sensitivity(name, -1, 12)
+
 	# ── modelo rico / presentación NRC-MRC-CAPEX ─────────────────────────
 	def _full_rules(self):
 		self._set_econ(
@@ -1274,7 +1559,7 @@ class TestEconomicCalendar(unittest.TestCase):
 
 	def test_56_zero_rate_pure_no_company_fallback(self):
 		# _effective_financing NO consulta la Company: 0% explícito se respeta aunque el default sea 12%.
-		# El plazo del financiamiento sale del plazo contractual del documento.
+		# El plazo lo provee el llamador (`term`): en base es el plazo contractual del documento.
 		self._fin_defaults(self.company_a, rate=12.0)
 		fin = _effective_financing(
 			frappe._dict(
@@ -1286,6 +1571,7 @@ class TestEconomicCalendar(unittest.TestCase):
 			),
 			100000,
 			self.company_a,
+			12,
 		)
 		self.assertEqual(fin["annual_cost_rate"], 0.0)
 		self.assertEqual(fin["total_interest"], 0.0)

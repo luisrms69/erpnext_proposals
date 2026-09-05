@@ -112,7 +112,12 @@ BASE_SECTIONS = frozenset(
 # v10: el catálogo puede declarar `proposal_renderer_profile` (`legacy`/`gotenberg-v1`) en un Print
 #      Format; `_seed_print_formats` lo administra igual que html/css (ADR-0015). Completa la capacidad
 #      genérica del renderer desacoplado para que un pack pueda adoptar Gotenberg de forma declarativa.
-LOADER_CAPS_VERSION = 10
+# v11: vaciado explícito de campos (`clear_fields`) por objeto: un catálogo puede declarar qué campos de
+#      un registro existente deben quedar vacíos. Opt-in (la ausencia de un campo NO borra nada),
+#      genérico para los tipos soportados, idempotente, respeta update_content/dry_run y valida el campo
+#      (existe, no obligatorio, no sistema/estructura/tabla). Resuelve el hueco: `update_content` no
+#      podía anular un campo que desaparece del JSON (`_seed_clear_fields`).
+LOADER_CAPS_VERSION = 11
 
 
 def capabilities() -> dict:
@@ -145,6 +150,8 @@ def capabilities() -> dict:
 		"letter_heads": callable(globals().get("_seed_letter_heads")),
 		# v10: el catálogo puede declarar el renderer profile de un Print Format (ADR-0015).
 		"renderer_profile": "proposal_renderer_profile" in _PRINT_FORMAT_MANAGED_FIELDS,
+		# v11: vaciado explícito y opt-in de campos (`clear_fields`) por objeto.
+		"clear_fields": callable(globals().get("_seed_clear_fields")),
 		# El loader NO tiene capacidad de sembrar masters fiscales (UOM / Item Groups).
 		"no_fiscal_master_writes": not callable(globals().get("_seed_item_groups"))
 		and not callable(globals().get("_seed_uoms")),
@@ -227,6 +234,9 @@ def run(catalog_path: str | None = None, dry_run: bool = True, update_content: b
 			dry_run,
 			declared={pf.get("name") for pf in data.get("print_formats", [])},
 		)
+		# Vaciado explícito y opt-in de campos (`clear_fields`) — DESPUÉS de todos los seeders, de modo
+		# que el estado deseado del catálogo prevalezca sobre lo que ellos hayan sembrado.
+		_seed_clear_fields(data, section_remap, report, dry_run, update_content)
 	except Exception:
 		frappe.db.rollback()
 		raise
@@ -1244,6 +1254,93 @@ def _template_section_row(r: dict) -> dict:
 		"hide_title": r.get("hide_title", 0),
 		"page_break_before": r.get("page_break_before", 0),
 	}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Vaciado explícito de campos (`clear_fields`) — genérico, opt-in, idempotente
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Tipos de catálogo sobre los que un objeto puede declarar `clear_fields`.
+# clave del catálogo -> (DocType, campo identidad del objeto).
+_CLEARABLE_TYPES = {
+	"templates": ("Proposal Template", "template_name"),
+	"sections": ("Proposal Section", "section_name"),
+	"scope_items": ("Scope Item", "code"),
+	"items": ("Item", "item_code"),
+	"phases": ("Proposal Phase", "phase_code"),
+	"letter_heads": ("Letter Head", "letter_head_name"),
+}
+
+# Campos que NUNCA pueden vaciarse por `clear_fields` (estructura/sistema/nested-set/child).
+_CLEAR_FIELDS_FORBIDDEN = {
+	"name",
+	"owner",
+	"creation",
+	"modified",
+	"modified_by",
+	"docstatus",
+	"idx",
+	"parent",
+	"parentfield",
+	"parenttype",
+	"doctype",
+	"lft",
+	"rgt",
+	"is_group",
+}
+
+
+def _seed_clear_fields(
+	data: dict, section_remap: dict, report: dict, dry_run: bool, update_content: bool
+) -> None:
+	"""Vacía campos que un objeto del catálogo declare explícitamente en ``clear_fields``.
+
+	Opt-in y genérico: la AUSENCIA de un campo en el JSON nunca se interpreta como "bórralo"; solo se
+	vacía lo declarado. Idempotente: si el campo ya está vacío no hay cambio. Respeta ``update_content``
+	(sin él, un vaciado pendiente se reporta como conflicto) y ``dry_run`` (no escribe pero reporta
+	``updated``). Valida que el campo exista, no sea obligatorio, no sea de sistema/estructura ni una
+	tabla hija. No afecta catálogos que no usen ``clear_fields``."""
+	for key, (doctype, id_field) in _CLEARABLE_TYPES.items():
+		for obj in data.get(key, []) or []:
+			fields = obj.get("clear_fields")
+			if not fields:
+				continue
+			ident = obj.get(id_field)
+			if key == "sections":
+				ident = section_remap.get(ident, ident)  # respeta el remap de secciones versionadas
+			if not ident or not frappe.db.exists(doctype, ident):
+				continue  # el objeto aún no existe: no hay nada que vaciar
+			label = f"{doctype} '{ident}'"
+			meta = frappe.get_meta(doctype)
+			to_clear = []
+			for f in fields:
+				# Campos de sistema/estructura (`name`, `lft`, `parent`, …): protegidos SIEMPRE, incluso
+				# si no aparecen como DocField normal (`meta.get_field` los devuelve como None).
+				if f in _CLEAR_FIELDS_FORBIDDEN:
+					report["conflicts"].append(f"{label}: clear_fields campo protegido '{f}'")
+					continue
+				df = meta.get_field(f)
+				if not df:
+					report["conflicts"].append(f"{label}: clear_fields campo inexistente '{f}'")
+					continue
+				if df.fieldtype in ("Table", "Table MultiSelect") or df.reqd:
+					report["conflicts"].append(f"{label}: clear_fields campo no permitido '{f}'")
+					continue
+				if frappe.db.get_value(doctype, ident, f):  # solo si tiene valor no vacío
+					to_clear.append(f)
+			if not to_clear:
+				continue  # ya vacíos → idempotente (no se reporta cambio)
+			if not update_content:
+				report["conflicts"].append(
+					f"{label}: clear_fields {to_clear} pendientes (usar update_content)"
+				)
+				continue
+			if not dry_run:
+				doc = frappe.get_doc(doctype, ident)
+				for f in to_clear:
+					doc.set(f, None)
+				doc.save(ignore_permissions=True)
+			report["updated"].append(f"{label}: clear_fields {to_clear}")
 
 
 def _template_rows_diff(template_name: str, expected_rows: list) -> str:
