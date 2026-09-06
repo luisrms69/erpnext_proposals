@@ -97,6 +97,38 @@ def _build_project_name(customer_name: str, proposal_title, proposal_group) -> s
 	return f"{base[:keep].rstrip()}{suffix}"
 
 
+def _resolve_project_type(quotation) -> str | None:
+	"""Project Type inferido de los **paquetes de alcance** presentes en `required_items` (issue #55, commit 2).
+
+	Cada Item-paquete puede declarar el custom field opcional `proposal_project_type`. Política **fail-closed**:
+	0 tipos → ``None`` (Project sin tipo); 1 tipo distinto → ese tipo; **≥2 tipos distintos → bloquear** (nunca
+	last-wins), identificando los paquetes y tipos en conflicto. Solo considera `required_items` (los paquetes),
+	**nunca** `Quotation.items`: la metodología la define el paquete, no el servicio vendido.
+
+	El guard `has_field` mantiene el comportamiento seguro (sin tipo) si el sitio aún no aplicó el custom field
+	(`bench migrate`) — sin errores de columna inexistente."""
+	if not frappe.get_meta("Item").has_field("proposal_project_type"):
+		return None
+	by_type: dict[str, list[str]] = {}
+	for r in quotation.get("required_items") or []:
+		if not r.item:
+			continue
+		pt = frappe.db.get_value("Item", r.item, "proposal_project_type")
+		if pt:
+			by_type.setdefault(pt, []).append(r.item)
+	if not by_type:
+		return None
+	if len(by_type) == 1:
+		return next(iter(by_type))
+	detalle = "; ".join(f"{t} ← {', '.join(sorted(set(items)))}" for t, items in sorted(by_type.items()))
+	frappe.throw(
+		_(
+			"No se puede crear el Proyecto: hay paquetes de alcance con tipos de proyecto distintos "
+			"({0}). Deja un solo tipo de proyecto entre los paquetes antes de crear el Proyecto."
+		).format(detalle)
+	)
+
+
 @frappe.whitelist()
 def create_project_from_quotation(quotation_name: str):
 	assert_can_manage_proposals()
@@ -134,6 +166,10 @@ def create_project_from_quotation(quotation_name: str):
 			).format(len(rows_sin_fase), nombres)
 		)
 
+	# Project Type inferido de los paquetes (issue #55): se valida ANTES de crear nada — si hay ambigüedad,
+	# se bloquea sin dejar Project a medias.
+	resolved_project_type = _resolve_project_type(quotation)
+
 	# ── Project (idempotente: reutiliza si ya existe) ──────────────────────────
 	if quotation.proposal_project and frappe.db.exists("Project", quotation.proposal_project):
 		project = frappe.get_doc("Project", quotation.proposal_project)
@@ -154,6 +190,7 @@ def create_project_from_quotation(quotation_name: str):
 					"cost_center": quotation.proposal_cost_center or None,
 					"expected_start_date": quotation.transaction_date,
 					"status": "Open",
+					"project_type": resolved_project_type or None,
 				}
 			)
 			project.insert(ignore_permissions=True)
@@ -311,6 +348,8 @@ def create_project_from_quotation(quotation_name: str):
 		"dependencies_ambiguous": counters.get("deps_ambiguous", 0),
 		# Tasks realmente no fechables (sin offset y sin predecesora con fecha): no se inventan fechas.
 		"undatable_tasks": undatable,
+		# Project Type inferido desde paquetes (issue #55); None si ningún paquete lo declara.
+		"project_type": project.get("project_type"),
 	}
 
 

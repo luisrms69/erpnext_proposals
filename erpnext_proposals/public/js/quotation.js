@@ -252,6 +252,16 @@ frappe.ui.form.on("Quotation", {
 				},
 				__("Propuesta")
 			);
+
+			// Issue #55: agregar "paquetes de alcance" (Items organizativos no vendibles) a required_items.
+			// Ayuda UX SEPARADA: el grid required_items conserva su doble propósito (hardware, licencias,
+			// partners…); este diálogo solo filtra paquetes e inserta filas. La materialización de sus Scope
+			// Items la hace el flujo normal al guardar (_generate_scope_items), sin mecanismo aparte.
+			frm.add_custom_button(
+				__("Agregar paquete de alcance"),
+				() => open_scope_package_dialog(frm),
+				__("Propuesta")
+			);
 		}
 
 		// PDF buttons — available in all states (including Borrador for preview)
@@ -677,4 +687,91 @@ function apply_financing_disclosure(frm, ev) {
 	if (!has_capex && frm.doc.proposal_financing_enabled) {
 		frm.set_value("proposal_financing_enabled", 0);
 	}
+}
+
+// ─────────────────────────── Paquetes de alcance — UX (issue #55) ───────────────────────────
+// Diálogo de ayuda para agregar Items-paquete (no vendibles, no comprables, con Scope Items) a
+// `required_items`. NO crea otro mecanismo de materialización ni toca el query general del grid: solo
+// filtra paquetes (scope_package_query), muestra un preview simple de sus Scope Items y agrega filas
+// (dedup contra las ya presentes). Al cerrar, si hubo cambios, guarda una vez → el flujo normal
+// (_generate_scope_items) materializa los Quotation Scope Item como `source_type="required"`.
+function open_scope_package_dialog(frm) {
+	let dirty = false;
+	const present = () =>
+		new Set((frm.doc.required_items || []).map((r) => r.item).filter(Boolean));
+
+	const d = new frappe.ui.Dialog({
+		title: __("Agregar paquete de alcance"),
+		fields: [
+			{
+				fieldname: "package",
+				fieldtype: "Link",
+				options: "Item",
+				label: __("Paquete de alcance"),
+				description: __(
+					"Items organizativos no vendibles con Scope Items. No crean línea comercial."
+				),
+				get_query: () => ({
+					query: "erpnext_proposals.erpnext_proposals.utils.scope_item_links.scope_package_query",
+				}),
+			},
+			{ fieldname: "preview", fieldtype: "HTML" },
+		],
+		primary_action_label: __("Agregar"),
+		primary_action: () => {
+			const pkg = d.get_value("package");
+			if (!pkg) return;
+			if (present().has(pkg)) {
+				frappe.show_alert({
+					message: __("El paquete '{0}' ya está en Items requeridos.", [pkg]),
+					indicator: "orange",
+				});
+				return;
+			}
+			frm.add_child("required_items", { item: pkg, qty: 1 });
+			frm.refresh_field("required_items");
+			dirty = true;
+			frappe.show_alert({
+				message: __("Paquete agregado: {0}.", [pkg]),
+				indicator: "green",
+			});
+			d.set_value("package", "");
+			d.fields_dict.preview.$wrapper.empty();
+		},
+		secondary_action_label: __("Guardar y cerrar"),
+		secondary_action: () => {
+			if (dirty) frm.save().then(() => d.hide());
+			else d.hide();
+		},
+	});
+
+	// Preview simple de los Scope Items del paquete elegido (solo lectura).
+	d.fields_dict.package.df.onchange = () => {
+		const pkg = d.get_value("package");
+		const $w = d.fields_dict.preview.$wrapper.empty();
+		if (!pkg) return;
+		frappe.call({
+			method: "erpnext_proposals.erpnext_proposals.utils.scope_item_links.get_scope_package_scope_items",
+			args: { item: pkg },
+			callback: (r) => {
+				const rows = r.message || [];
+				if (!rows.length) {
+					$w.html(
+						`<div class="text-muted small">${__("Sin Scope Items habilitados.")}</div>`
+					);
+					return;
+				}
+				const items = rows
+					.map((s) => `<li>${frappe.utils.escape_html(s.title || s.code)}</li>`)
+					.join("");
+				$w.html(
+					`<div class="small" style="margin-top:4px"><b>${__(
+						"Scope Items"
+					)}</b><ul style="margin:4px 0 0 16px">${items}</ul></div>`
+				);
+			},
+		});
+	};
+
+	d.show();
 }

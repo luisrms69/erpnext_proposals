@@ -255,3 +255,63 @@ snapshot económico".
 - Fix del `task_by_scope` last-wins (Issue separado; no bloquea Fase 1).
 - `supplier`/`warehouse`/`company`/`currency` almacenados en Required Item.
 - Declaración de Required Items desde el catálogo/loader.
+
+## Enmienda 2026-09 — Paquetes de alcance (issue #55)
+
+**Contexto.** Los conjuntos reutilizables de actividades (metodologías PMO, Capacitación, Gestión de Compras)
+no son productos comerciales; modelarlos como Items vendibles los volvía líneas de `Quotation.items` con
+propagación a Sales Order. Materializa la decisión ya anticipada en §10 ("`Scope Package` como maestro paralelo
+→ rechazado; el Item nativo + N:M ya cubre el caso").
+
+**Decisión.** Un **"paquete de alcance" es un `Required Item`, no un DocType ni un motor nuevo.** Un paquete es
+un `Item` **organizativo** —`is_sales_item=0` y normalmente `is_purchase_item=0`— que agrupa Scope Items por la
+N:M vigente (ADR-0016). Se incorpora en `required_items` y su alcance se materializa en `quotation_scope_items`
+con `source_type="required"` por el **flujo normal** (`_generate_scope_items`): mismo snapshot, freeze,
+identidad `(source_row, scope_item)`, Project/Tasks y no-reposición de eliminadas. Al ser no comprable, su
+costo externo congela **0**; el costo real viene de sus Scope Items (labor).
+
+**Consecuencias (commit 1 del issue #55).**
+- **Cero DocTypes, cero Custom Fields, cero segundo motor** para el núcleo. La automatización "Item/Item Group
+  vendido → paquete(s)" **ya existe**: es `required_item_rules` (§3 bis) — no se crea otro mecanismo de reglas.
+- **Clasificación por inferencia (solo UX, no validación):** el picker "Agregar paquete de alcance" filtra
+  Items con `is_sales_item=0 AND is_purchase_item=0 AND disabled=0` y ≥1 Scope Item habilitado
+  (`scope_item_links.scope_package_query`). El grid `required_items` **conserva su doble propósito** (hardware,
+  licencias, partners…) y **no** se filtra; el diálogo es una ayuda separada que solo agrega filas (dedup
+  contra las presentes), sin mecanismo de materialización aparte.
+- **Solapamiento entre paquetes:** dos paquetes que comparten un Scope Item producen **dos ocurrencias**
+  (identidad por `source_row`), coherente con §5; **no** se deduplica globalmente. Se evita diseñando paquetes
+  disjuntos en catálogo (revisa el criterio #7 del issue en consecuencia).
+- **`is_purchase_item=0` es convención, no regla dura** (no se valida en backend).
+
+**Diferido a commits posteriores del mismo PR (documentado aparte):** (2) inferencia de `Project.project_type`
+desde paquetes; (3) sustitución de `default_procurement_scope_item` por un paquete "Gestión de Compras"
+disparado una-vez por `is_purchase_item` (enmienda propia a esta ADR).
+
+**Alternativas descartadas (además de §10):** Custom Field `is_scope_package` en Item (clasificador global, no
+compone con el motor de reglas); filtrar el grid `required_items` (rompería su uso general).
+
+### Sustitución del abastecimiento por paquete de Compras (commit 3)
+
+**Decisión.** Se **retira** `Proposal Settings.default_procurement_scope_item` (Scope Item único inyectado por
+**cada** Item comprable, por ocurrencia, en `_applicable_scope_items`) y se sustituye por
+**`default_procurement_package_item`** (Link → **Item**): un paquete de Gestión de Compras que se agrega **una
+sola vez** a `required_items` cuando la propuesta contiene ≥1 Item comprable aplicable. Reemplaza la §3 bis
+("Scope de abastecimiento híbrido").
+
+**Mecánica (`_autoload_procurement_package`).** `is_purchase_item` sigue siendo la señal nativa; se consideran
+comprables **vendidos y requeridos**, con opt-out `proposal_skip_procurement`, excluyendo el propio paquete.
+El disparo es por **diff** (mismo patrón que `_autoload_required_items`): agrega el paquete solo si aparece un
+comprable aplicable **nuevo** respecto a `get_doc_before_save`, de modo que un guardado normal no lo repone y
+**no** se reinyecta si el usuario lo borró (soberanía). **No** auto-remove. Se **elimina** la rama de
+abastecimiento por-ocurrencia de `_applicable_scope_items` (que ahora resuelve solo la N:M).
+
+**Cambio de comportamiento.** De "el scope de compra aparece por cada línea comprable" a "la gestión de
+compras es un paquete único por propuesta". Es el modelo correcto (trabajo humano integral, no el workflow
+transaccional de ERPNext Procurement).
+
+**Migración.** Al retirar `default_procurement_scope_item`, ese valor **deja de formar parte del modelo
+soportado**. **No** se automigra: no se puede inferir con seguridad qué Item-paquete sustituye al Scope Item
+antiguo. Cada Company que usaba el mecanismo anterior **debe** configurar `default_procurement_package_item`
+(crear el Item-paquete "Gestión de Compras" y enlazar sus Scope Items). Propuestas **congeladas** no cambian;
+en **borradores**, las filas de compra por-ocurrencia ya materializadas se conservan (no se reponen ni borran)
+y dejan de re-adjuntarse. Requiere `bench migrate` por sitio.
