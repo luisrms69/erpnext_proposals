@@ -107,7 +107,14 @@ def set_scope_items_for_item(item: str, scope_items: str | list) -> dict:
 
 @frappe.whitelist()
 @frappe.validate_and_sanitize_search_inputs
-def scope_package_query(doctype, txt, searchfield, start, page_len, filters):
+def scope_package_query(
+	doctype: str,
+	txt: str,
+	searchfield: str,
+	start: int,
+	page_len: int,
+	filters: dict | None,
+) -> list[tuple]:
 	"""Link-query del picker "Agregar paquete de alcance" (issue #55). Un **paquete de alcance** es un Item
 	organizativo —no vendible, no comprable— que agrupa Scope Items por la relación N:M y se incorpora a la
 	propuesta como Required Item. Filtro **solo de UX** (no es validación de backend): Items con
