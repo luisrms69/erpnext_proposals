@@ -110,6 +110,11 @@ def on_quotation_validate(doc, method=None):
 	# Issue #55: precargar el paquete de Gestión de Compras (una vez) si hay comprables aplicables nuevos,
 	# ANTES de generar el alcance para que sus Scope Items entren en la misma pasada.
 	_autoload_procurement_package(doc)
+	# Issue #55 (fix): las filas de `required_items` agregadas por los autoloads en ESTE mismo `validate`
+	# aún no tienen `name` (Frappe nombra los children en `set_name_in_children`, que corre ANTES de
+	# `validate`). Sin name, `_generate_scope_items` grabaría `source_row=NULL` y rompería la identidad por
+	# ocurrencia `(source_row, scope_item)`. Asignar el name nativo AHORA, antes de materializar.
+	_assign_pending_required_item_names(doc)
 	_generate_scope_items(doc)
 
 
@@ -365,6 +370,22 @@ def _autoload_procurement_package(doc) -> None:
 	prev = _applicable_purchasables(before, package) if before else set()
 	if now - prev:  # apareció un comprable aplicable nuevo → precargar el paquete una vez
 		doc.append("required_items", {"item": package, "qty": 1, "auto_generated": 1})
+
+
+def _assign_pending_required_item_names(doc) -> None:
+	"""Asigna el ``name`` nativo (``set_new_name``) a las filas de ``required_items`` que aún no lo tienen.
+
+	Frappe nombra los child rows en ``set_name_in_children``, que corre ANTES de ``validate``; las filas que
+	los autoloads (``_autoload_required_items`` / ``_autoload_procurement_package``) agregan DURANTE ``validate``
+	llegan sin ``name`` y no se re-nombran después, así que persisten al ``db_insert`` con el name asignado aquí.
+	Sin este paso, ``_source_rows`` leería ``ri.name = None`` y ``_generate_scope_items`` materializaría
+	``source_row=NULL``, rompiendo la identidad por ocurrencia ``(source_row, scope_item)`` (resync/poda). Usa el
+	mecanismo nativo de Frappe; no inventa IDs paralelos ni cambia la identidad a ``item_code``."""
+	from frappe.model.naming import set_new_name
+
+	for ri in doc.get("required_items") or []:
+		if not ri.name:
+			set_new_name(ri)
 
 
 def _source_rows(doc) -> list:

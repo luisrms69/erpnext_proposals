@@ -399,6 +399,75 @@ class TestRequiredItemsAutoload(unittest.TestCase):
 		with self.assertRaises(frappe.exceptions.ValidationError):
 			dup.insert(ignore_permissions=True)
 
+	# ─────────── Identidad source_row de Required Items autogenerados (issue #55, fix) ───────────
+	# Regresión: las filas de required_items que los autoloads agregan DENTRO del mismo validate no tenían
+	# name al materializar el scope, quedando con source_row=NULL y rompiendo la identidad por ocurrencia.
+
+	def _scope_rows(self, name, item_code):
+		return [
+			s for s in frappe.get_doc("Quotation", name).quotation_scope_items if s.item_code == item_code
+		]
+
+	def test_18_rule_autoloaded_required_has_real_source_row(self):
+		# Required precargado por required_item_rules: su scope apunta al name REAL de la fila persistida.
+		self._set_settings(self.company_a, rules=[("Item", IT_SOLD, IT_REQ)])
+		q = self._make_quotation(self.company_a, sold=[IT_SOLD])
+		doc = frappe.get_doc("Quotation", q.name)
+		ri = next(r for r in doc.required_items if r.item == IT_REQ)
+		srows = self._scope_rows(q.name, IT_REQ)
+		self.assertTrue(srows, "el required autogenerado debe materializar su scope")
+		for s in srows:
+			self.assertTrue(s.source_row, "source_row != NULL")
+			self.assertEqual(s.source_row, ri.name, "source_row == name real del Proposal Required Item")
+			self.assertEqual(s.source_type, "required")
+
+	def test_19_procurement_package_has_real_source_row(self):
+		# Paquete de Gestión de Compras autoloadeado: su scope apunta al name REAL del Required Item.
+		self._set_settings(self.company_a, procurement=PROC_PKG)
+		q = self._make_quotation(self.company_a, sold=[IT_SOLD_BUY])
+		doc = frappe.get_doc("Quotation", q.name)
+		ri = next(r for r in doc.required_items if r.item == PROC_PKG)
+		srows = self._scope_rows(q.name, PROC_PKG)
+		self.assertTrue(srows, "el paquete de compras debe materializar su scope")
+		for s in srows:
+			self.assertTrue(s.source_row, "source_row != NULL")
+			self.assertEqual(s.source_row, ri.name, "source_row == name real del Required Item de compras")
+
+	def test_20_two_occurrences_differ_by_source_row(self):
+		# Dos ocurrencias válidas del mismo Item-paquete se distinguen por source_row (no se colapsan).
+		self._set_settings(self.company_a)  # sin reglas: control total del required_items
+		q = self._make_quotation(self.company_a, sold=[IT_SOLD])
+		doc = frappe.get_doc("Quotation", q.name)
+		doc.append("required_items", {"item": IT_REQ, "qty": 1})
+		doc.append("required_items", {"item": IT_REQ, "qty": 1})
+		doc.save(ignore_permissions=True)
+		doc = frappe.get_doc("Quotation", q.name)
+		ri_names = {r.name for r in doc.required_items if r.item == IT_REQ}
+		self.assertEqual(len(ri_names), 2, "dos filas required distintas")
+		sources = {
+			s.source_row
+			for s in doc.quotation_scope_items
+			if s.item_code == IT_REQ and s.scope_item == REQ_SCOPE
+		}
+		self.assertEqual(sources, ri_names, "cada ocurrencia materializa su scope con su propio source_row")
+
+	def test_21_resync_prunes_by_source_row_membership(self):
+		# La poda del resync identifica pertenencia por source_row: al quitar la ocurrencia del paquete,
+		# su scope se elimina (antes, con source_row=NULL, quedaba huérfano y no se podaba).
+		self._set_settings(self.company_a, procurement=PROC_PKG)
+		q = self._make_quotation(self.company_a, sold=[IT_SOLD_BUY])
+		self.assertIn((PROC_PKG, PROC_SCOPE), self._scope_pairs(q.name))
+		doc = frappe.get_doc("Quotation", q.name)
+		doc.required_items = [r for r in doc.required_items if r.item != PROC_PKG]
+		doc.save(ignore_permissions=True)  # el guardado normal no repone ni poda
+		self.assertIn(
+			(PROC_PKG, PROC_SCOPE), self._scope_pairs(q.name), "el scope huérfano sigue hasta el resync"
+		)
+		resync_scope_from_catalog(q.name)
+		self.assertNotIn(
+			(PROC_PKG, PROC_SCOPE), self._scope_pairs(q.name), "resync poda el scope por source_row ausente"
+		)
+
 
 if __name__ == "__main__":
 	unittest.main()

@@ -664,11 +664,15 @@ function refresh_financing_ui(frm) {
 }
 
 // Fase 2B — Progressive disclosure del bloque de financiamiento:
-// la sección solo aparece si la propuesta contiene CAPEX. Sin CAPEX no hay nada que financiar.
+// el disclosure es a nivel de CAMPOS, nunca de Section Break. Regla de diseño: NINGÚN Section Break de la
+// pestaña Propuesta se oculta dinámicamente (ocultar un Section Break arrastra todo lo que le sigue hasta el
+// próximo break — origen del bug que ocultaba Scope Items / Required Items). El encabezado "Financiamiento
+// CAPEX" queda SIEMPRE visible; sin CAPEX solo se ocultan sus campos internos.
 function apply_financing_disclosure(frm, ev) {
 	const has_capex = !!(ev && ev.groups && ev.groups.CAPEX && ev.groups.CAPEX.count > 0);
+	// Solo campos individuales — NUNCA `proposal_financing_section`. Con CAPEX se muestra
+	// `proposal_financing_enabled`; los montos/tasas siguen respetando su `depends_on: financing_enabled`.
 	const fields = [
-		"proposal_financing_section",
 		"proposal_financing_enabled",
 		"proposal_financed_amount",
 		"proposal_financing_annual_cost_rate",
