@@ -36,6 +36,29 @@ Reglas de alcance (iguales para vendidos y requeridos):
 - dos Items distintos que apuntan al mismo Scope Item generan **dos filas** (dos esfuerzos); si es un solo
   esfuerzo compartido, elimina la fila sobrante manualmente.
 
+## Paquetes de alcance
+
+Un **paquete de alcance** es un Item **organizativo** —no se vende ni se compra— que agrupa varias actividades
+(Scope Items): por ejemplo *PMO – Bolsa de Horas*, *PMO – Agile*, *Capacitación*. No es un concepto nuevo: es
+un Item requerido, así que al agregarlo a la propuesta trae sus Scope Items **sin** crear línea comercial ni
+precio.
+
+En la pestaña **Propuesta** (solo en Borrador), la acción **«Agregar paquete de alcance»** abre un diálogo que
+muestra únicamente los Items-paquete (no vendibles, no comprables, con actividades), te deja ver qué Scope
+Items contiene cada uno y los agrega a **Items requeridos**. Al guardar, sus actividades entran a la tabla de
+alcance como cualquier otra.
+
+- Puedes agregar **uno o varios** paquetes.
+- No se crean líneas en **Items** (no son productos).
+- No se duplica un paquete ya presente.
+- La tabla **Items requeridos** sigue sirviendo para todo lo demás (hardware, licencias, partners); el diálogo
+  es solo una ayuda para encontrar e insertar paquetes.
+- Si dos paquetes comparten una actividad, verás **dos filas** (dos esfuerzos); elimina la sobrante si en
+  realidad es una sola.
+
+> También puedes hacer que un servicio vendido **precargue** su paquete automáticamente (ver abajo, *Reglas de
+> Items requeridos*): p. ej. vender cierto servicio agrega solo el paquete *PMO – Agile*.
+
 ## Precarga automática (opcional)
 
 Para que la preventa capture sobre todo **Items vendidos** y no tenga que recordar todo lo requerido, el
@@ -51,9 +74,13 @@ otra Compañía).
 - **Reglas de Items requeridos** — mapeo *Item o Item Group vendido → Item requerido*. Al agregar un Item
   vendido nuevo, sus Items requeridos configurados se agregan solos a la tabla **Items requeridos**. Una
   regla específica de **Item** tiene prioridad sobre la de su **Item Group** (no se combinan).
-- **Scope Item de abastecimiento** — un Scope Item por defecto que se agrega al alcance de **todo Item
-  comprable** (vendido o requerido), para representar la tarea de comprar/aprovisionar. Se puede excluir un
-  Item concreto marcando en el Item **«Omitir tarea de abastecimiento»** (`proposal_skip_procurement`).
+- **Paquete de Gestión de Compras** — un **Item-paquete** por defecto (campo *Paquete de Gestión de Compras*
+  en Proposal Settings). Si la propuesta contiene **al menos un** Item comprable (vendido o requerido), el
+  paquete se agrega **una sola vez** a *Items requeridos* y sus Scope Items entran al alcance —representa la
+  gestión de compra del proyecto, no una tarea repetida por cada línea comprable. Se puede excluir un Item
+  concreto marcando en el Item **«Omitir tarea de abastecimiento»** (`proposal_skip_procurement`). Como
+  cualquier precarga, si lo borras no reaparece. *(Sustituye al antiguo «Scope Item de abastecimiento por
+  defecto», que se agregaba por cada Item comprable.)*
 
 La precarga es **solo un punto de partida**: una vez agregadas, las filas son de la propuesta. Puedes
 borrarlas, agregar otras o hacer excepciones; **lo que borras no reaparece** al guardar. Sin Proposal

@@ -9,7 +9,7 @@
   "autoload_section",
   "required_item_rules",
   "procurement_section",
-  "default_procurement_scope_item",
+  "default_procurement_package_item",
   "economic_section",
   "economic_behavior_rules",
   "economic_col_break",
@@ -49,11 +49,11 @@
    "label": "Abastecimiento"
   },
   {
-   "description": "Scope Item genérico de gestión de abastecimiento. Si se define, se agrega automáticamente al alcance de cada Item COMPRABLE (is_purchase_item=1), vendido o requerido, salvo que el Item tenga marcado 'Omitir tarea de abastecimiento'. Vacío = no se genera abastecimiento automático.",
-   "fieldname": "default_procurement_scope_item",
+   "description": "Item-paquete de Gestión de Compras. Si se define, y la propuesta contiene al menos un Item COMPRABLE (is_purchase_item=1, vendido o requerido) sin 'Omitir tarea de abastecimiento', el paquete se agrega UNA sola vez a Items requeridos (sus Scope Items entran al alcance). Sustituye al antiguo Scope Item de abastecimiento por-ocurrencia. Vacio = no se genera abastecimiento automatico.",
+   "fieldname": "default_procurement_package_item",
    "fieldtype": "Link",
-   "label": "Scope Item de abastecimiento por defecto",
-   "options": "Scope Item"
+   "label": "Paquete de Gestion de Compras",
+   "options": "Item"
   },
   {
    "fieldname": "economic_section",
@@ -118,7 +118,7 @@
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-09-05 12:00:00.000000",
+ "modified": "2026-09-05 13:00:00.000000",
  "modified_by": "Administrator",
  "module": "ERPNext Proposals",
  "name": "Proposal Settings",

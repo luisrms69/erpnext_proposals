@@ -38,13 +38,17 @@ IT_SOLD = "_RIB Sold"  # vendido no comprable (dispara reglas de autoload)
 IT_GSOLD = "_RIB GSold"  # vendido no comprable, en GROUP (dispara regla por Item Group)
 IT_REQ = "_RIB Req"  # requerido comprable con scope propio
 IT_REQ2 = "_RIB Req2"  # segundo requerido (precedencia y reglas por Company distintas)
-IT_SOLD_BUY = "_RIB SoldBuy"  # vendido comprable → abastecimiento
+IT_SOLD_BUY = "_RIB SoldBuy"  # vendido comprable → dispara paquete de compras
+IT_SOLD_BUY2 = "_RIB SoldBuy2"  # segundo vendido comprable (para probar "una sola vez")
 IT_SOLD_NOPUR = "_RIB SoldNoPur"  # vendido no comprable → sin abastecimiento
 IT_SKIP = "_RIB Skip"  # vendido comprable con opt-out de abastecimiento
 
 REQ_SCOPE = "_RIB_REQ_SCOPE"  # scope del Required Item precargado
-PROC_SCOPE = "_RIB_PROC"  # Scope Item de abastecimiento (Company A)
-PROC_SCOPE_B = "_RIB_PROC_B"  # Scope Item de abastecimiento (Company B)
+# Paquetes de Gestión de Compras (issue #55): Items no vendibles/no comprables con su Scope Item de compra.
+PROC_PKG = "_RIB ProcPkg"  # paquete de compras (Company A)
+PROC_PKG_B = "_RIB ProcPkgB"  # paquete de compras (Company B)
+PROC_SCOPE = "_RIB_PROC"  # Scope Item de compras del paquete A
+PROC_SCOPE_B = "_RIB_PROC_B"  # Scope Item de compras del paquete B
 
 
 class TestRequiredItemsAutoload(unittest.TestCase):
@@ -128,8 +132,11 @@ class TestRequiredItemsAutoload(unittest.TestCase):
 		_item(IT_REQ, 0, 1)
 		_item(IT_REQ2, 0, 1)
 		_item(IT_SOLD_BUY, 1, 1)
+		_item(IT_SOLD_BUY2, 1, 1)
 		_item(IT_SOLD_NOPUR, 1, 0)
 		_item(IT_SKIP, 1, 1, skip=1)
+		_item(PROC_PKG, 0, 0)  # paquete de compras A (no vendible, no comprable)
+		_item(PROC_PKG_B, 0, 0)  # paquete de compras B
 
 		if not frappe.db.exists("Proposal Template", TEMPLATE):
 			frappe.get_doc(
@@ -137,8 +144,8 @@ class TestRequiredItemsAutoload(unittest.TestCase):
 			).insert(ignore_permissions=True)
 
 		cls._make_scope(REQ_SCOPE, IT_REQ, hours=1)  # scope ligado al Required Item precargado
-		cls._make_scope(PROC_SCOPE, None, hours=1, visible=0)  # abastecimiento Company A
-		cls._make_scope(PROC_SCOPE_B, None, hours=1, visible=0)  # abastecimiento Company B
+		cls._make_scope(PROC_SCOPE, PROC_PKG, hours=1, visible=0)  # scope del paquete de compras A
+		cls._make_scope(PROC_SCOPE_B, PROC_PKG_B, hours=1, visible=0)  # scope del paquete de compras B
 		cls._clear_all_settings()
 		frappe.db.commit()  # nosemgrep — fixtures de test
 
@@ -212,7 +219,7 @@ class TestRequiredItemsAutoload(unittest.TestCase):
 				"required_item_rules",
 				{"source_type": source_type, "source": source, "required_item": required_item},
 			)
-		s.default_procurement_scope_item = procurement
+		s.default_procurement_package_item = procurement  # Item-paquete de Gestión de Compras (issue #55)
 		s.flags.ignore_permissions = True
 		s.save(ignore_permissions=True)
 
@@ -294,33 +301,52 @@ class TestRequiredItemsAutoload(unittest.TestCase):
 		q = self._make_quotation(self.company_a, sold=[IT_SOLD, IT_SOLD_BUY])
 		self.assertNotIn(IT_SOLD_BUY, [r[0] for r in self._required(q.name)])
 
-	# ─────────────────────────── Scope de abastecimiento ────────────────────
+	# ─────────────────── Paquete de Gestión de Compras (issue #55, commit 3) ───────────────────
 
-	def test_08_sold_purchasable_gets_procurement_scope(self):
-		self._set_settings(self.company_a, procurement=PROC_SCOPE)
+	def test_08_sold_purchasable_adds_procurement_package(self):
+		# Un vendido comprable dispara el paquete de compras UNA vez (con sus Scope Items).
+		self._set_settings(self.company_a, procurement=PROC_PKG)
 		q = self._make_quotation(self.company_a, sold=[IT_SOLD_BUY])
-		self.assertIn((IT_SOLD_BUY, PROC_SCOPE), self._scope_pairs(q.name))
+		self.assertIn(PROC_PKG, [r[0] for r in self._required(q.name)])
+		self.assertIn((PROC_PKG, PROC_SCOPE), self._scope_pairs(q.name))
 
-	def test_09_required_purchasable_gets_procurement_scope(self):
-		self._set_settings(self.company_a, rules=[("Item", IT_SOLD, IT_REQ)], procurement=PROC_SCOPE)
+	def test_09_required_purchasable_adds_procurement_package(self):
+		# Un requerido comprable (precargado por regla) también dispara el paquete.
+		self._set_settings(self.company_a, rules=[("Item", IT_SOLD, IT_REQ)], procurement=PROC_PKG)
 		q = self._make_quotation(self.company_a, sold=[IT_SOLD])  # precarga IT_REQ (comprable)
-		self.assertIn((IT_REQ, PROC_SCOPE), self._scope_pairs(q.name))
+		self.assertIn(PROC_PKG, [r[0] for r in self._required(q.name)])
 
-	def test_10_non_purchasable_no_procurement_scope(self):
-		self._set_settings(self.company_a, procurement=PROC_SCOPE)
+	def test_10_non_purchasable_no_procurement_package(self):
+		self._set_settings(self.company_a, procurement=PROC_PKG)
 		q = self._make_quotation(self.company_a, sold=[IT_SOLD_NOPUR])
-		self.assertFalse({p for p in self._scope_pairs(q.name) if p[1] == PROC_SCOPE})
+		self.assertNotIn(PROC_PKG, [r[0] for r in self._required(q.name)])
 
 	def test_11_skip_procurement_opt_out(self):
-		self._set_settings(self.company_a, procurement=PROC_SCOPE)
+		self._set_settings(self.company_a, procurement=PROC_PKG)
 		q = self._make_quotation(self.company_a, sold=[IT_SKIP])  # comprable pero skip=1
-		self.assertFalse({p for p in self._scope_pairs(q.name) if p[1] == PROC_SCOPE})
+		self.assertNotIn(PROC_PKG, [r[0] for r in self._required(q.name)])
 
-	def test_12_resync_preserves_procurement_scope(self):
-		self._set_settings(self.company_a, procurement=PROC_SCOPE)
+	def test_12_procurement_package_added_once(self):
+		# DOS comprables → el paquete se agrega UNA sola vez (no por ocurrencia, a diferencia del viejo scope).
+		self._set_settings(self.company_a, procurement=PROC_PKG)
+		q = self._make_quotation(self.company_a, sold=[IT_SOLD_BUY, IT_SOLD_BUY2])
+		self.assertEqual([r[0] for r in self._required(q.name)].count(PROC_PKG), 1)
+
+	def test_12b_resync_preserves_procurement_scope(self):
+		self._set_settings(self.company_a, procurement=PROC_PKG)
 		q = self._make_quotation(self.company_a, sold=[IT_SOLD_BUY])
-		resync_scope_from_catalog(q.name)  # no debe eliminar el scope de abastecimiento
-		self.assertIn((IT_SOLD_BUY, PROC_SCOPE), self._scope_pairs(q.name))
+		resync_scope_from_catalog(q.name)  # no elimina el scope del paquete de compras
+		self.assertIn((PROC_PKG, PROC_SCOPE), self._scope_pairs(q.name))
+
+	def test_13b_procurement_no_auto_remove(self):
+		# Soberanía: si el usuario borra el paquete, un re-guardado sin comprables nuevos NO lo repone.
+		self._set_settings(self.company_a, procurement=PROC_PKG)
+		q = self._make_quotation(self.company_a, sold=[IT_SOLD_BUY])
+		self.assertIn(PROC_PKG, [r[0] for r in self._required(q.name)])
+		doc = frappe.get_doc("Quotation", q.name)
+		doc.required_items = [r for r in doc.required_items if r.item != PROC_PKG]
+		doc.save(ignore_permissions=True)
+		self.assertNotIn(PROC_PKG, [r[0] for r in self._required(q.name)])
 
 	# ─────────────────────────── Compatibilidad Fase 1 ──────────────────────
 
@@ -328,7 +354,7 @@ class TestRequiredItemsAutoload(unittest.TestCase):
 		# Sin Proposal Settings para la Company: comportamiento idéntico a Fase 1.
 		q = self._make_quotation(self.company_a, sold=[IT_SOLD_BUY])
 		self.assertEqual(self._required(q.name), [])
-		self.assertFalse({p for p in self._scope_pairs(q.name) if p[1] == PROC_SCOPE})
+		self.assertNotIn(PROC_PKG, [r[0] for r in self._required(q.name)])
 
 	# ─────────────────────────── Separación por Company ─────────────────────
 
@@ -353,16 +379,18 @@ class TestRequiredItemsAutoload(unittest.TestCase):
 		self.assertIn(IT_REQ2, rb)
 		self.assertNotIn(IT_REQ, rb)
 
-	def test_16_procurement_scope_differs_per_company(self):
-		# default_procurement_scope_item distinto por Company; cada Quotation usa el suyo.
-		self._set_settings(self.company_a, procurement=PROC_SCOPE)
-		self._set_settings(self.company_b, procurement=PROC_SCOPE_B)
+	def test_16_procurement_package_differs_per_company(self):
+		# default_procurement_package_item distinto por Company; cada Quotation usa el suyo.
+		self._set_settings(self.company_a, procurement=PROC_PKG)
+		self._set_settings(self.company_b, procurement=PROC_PKG_B)
 		qa = self._make_quotation(self.company_a, sold=[IT_SOLD_BUY])
 		qb = self._make_quotation(self.company_b, sold=[IT_SOLD_BUY])
-		self.assertIn((IT_SOLD_BUY, PROC_SCOPE), self._scope_pairs(qa.name))
-		self.assertNotIn((IT_SOLD_BUY, PROC_SCOPE_B), self._scope_pairs(qa.name))
-		self.assertIn((IT_SOLD_BUY, PROC_SCOPE_B), self._scope_pairs(qb.name))
-		self.assertNotIn((IT_SOLD_BUY, PROC_SCOPE), self._scope_pairs(qb.name))
+		ra = [r[0] for r in self._required(qa.name)]
+		rb = [r[0] for r in self._required(qb.name)]
+		self.assertIn(PROC_PKG, ra)
+		self.assertNotIn(PROC_PKG_B, ra)
+		self.assertIn(PROC_PKG_B, rb)
+		self.assertNotIn(PROC_PKG, rb)
 
 	def test_17_cannot_create_two_settings_for_same_company(self):
 		self._set_settings(self.company_a)  # primera config para A
@@ -370,6 +398,75 @@ class TestRequiredItemsAutoload(unittest.TestCase):
 		dup.company = self.company_a
 		with self.assertRaises(frappe.exceptions.ValidationError):
 			dup.insert(ignore_permissions=True)
+
+	# ─────────── Identidad source_row de Required Items autogenerados (issue #55, fix) ───────────
+	# Regresión: las filas de required_items que los autoloads agregan DENTRO del mismo validate no tenían
+	# name al materializar el scope, quedando con source_row=NULL y rompiendo la identidad por ocurrencia.
+
+	def _scope_rows(self, name, item_code):
+		return [
+			s for s in frappe.get_doc("Quotation", name).quotation_scope_items if s.item_code == item_code
+		]
+
+	def test_18_rule_autoloaded_required_has_real_source_row(self):
+		# Required precargado por required_item_rules: su scope apunta al name REAL de la fila persistida.
+		self._set_settings(self.company_a, rules=[("Item", IT_SOLD, IT_REQ)])
+		q = self._make_quotation(self.company_a, sold=[IT_SOLD])
+		doc = frappe.get_doc("Quotation", q.name)
+		ri = next(r for r in doc.required_items if r.item == IT_REQ)
+		srows = self._scope_rows(q.name, IT_REQ)
+		self.assertTrue(srows, "el required autogenerado debe materializar su scope")
+		for s in srows:
+			self.assertTrue(s.source_row, "source_row != NULL")
+			self.assertEqual(s.source_row, ri.name, "source_row == name real del Proposal Required Item")
+			self.assertEqual(s.source_type, "required")
+
+	def test_19_procurement_package_has_real_source_row(self):
+		# Paquete de Gestión de Compras autoloadeado: su scope apunta al name REAL del Required Item.
+		self._set_settings(self.company_a, procurement=PROC_PKG)
+		q = self._make_quotation(self.company_a, sold=[IT_SOLD_BUY])
+		doc = frappe.get_doc("Quotation", q.name)
+		ri = next(r for r in doc.required_items if r.item == PROC_PKG)
+		srows = self._scope_rows(q.name, PROC_PKG)
+		self.assertTrue(srows, "el paquete de compras debe materializar su scope")
+		for s in srows:
+			self.assertTrue(s.source_row, "source_row != NULL")
+			self.assertEqual(s.source_row, ri.name, "source_row == name real del Required Item de compras")
+
+	def test_20_two_occurrences_differ_by_source_row(self):
+		# Dos ocurrencias válidas del mismo Item-paquete se distinguen por source_row (no se colapsan).
+		self._set_settings(self.company_a)  # sin reglas: control total del required_items
+		q = self._make_quotation(self.company_a, sold=[IT_SOLD])
+		doc = frappe.get_doc("Quotation", q.name)
+		doc.append("required_items", {"item": IT_REQ, "qty": 1})
+		doc.append("required_items", {"item": IT_REQ, "qty": 1})
+		doc.save(ignore_permissions=True)
+		doc = frappe.get_doc("Quotation", q.name)
+		ri_names = {r.name for r in doc.required_items if r.item == IT_REQ}
+		self.assertEqual(len(ri_names), 2, "dos filas required distintas")
+		sources = {
+			s.source_row
+			for s in doc.quotation_scope_items
+			if s.item_code == IT_REQ and s.scope_item == REQ_SCOPE
+		}
+		self.assertEqual(sources, ri_names, "cada ocurrencia materializa su scope con su propio source_row")
+
+	def test_21_resync_prunes_by_source_row_membership(self):
+		# La poda del resync identifica pertenencia por source_row: al quitar la ocurrencia del paquete,
+		# su scope se elimina (antes, con source_row=NULL, quedaba huérfano y no se podaba).
+		self._set_settings(self.company_a, procurement=PROC_PKG)
+		q = self._make_quotation(self.company_a, sold=[IT_SOLD_BUY])
+		self.assertIn((PROC_PKG, PROC_SCOPE), self._scope_pairs(q.name))
+		doc = frappe.get_doc("Quotation", q.name)
+		doc.required_items = [r for r in doc.required_items if r.item != PROC_PKG]
+		doc.save(ignore_permissions=True)  # el guardado normal no repone ni poda
+		self.assertIn(
+			(PROC_PKG, PROC_SCOPE), self._scope_pairs(q.name), "el scope huérfano sigue hasta el resync"
+		)
+		resync_scope_from_catalog(q.name)
+		self.assertNotIn(
+			(PROC_PKG, PROC_SCOPE), self._scope_pairs(q.name), "resync poda el scope por source_row ausente"
+		)
 
 
 if __name__ == "__main__":

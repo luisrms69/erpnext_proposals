@@ -103,3 +103,58 @@ def set_scope_items_for_item(item: str, scope_items: str | list) -> dict:
 			removed += 1
 
 	return {"added": added, "removed": removed}
+
+
+@frappe.whitelist()
+@frappe.validate_and_sanitize_search_inputs
+def scope_package_query(
+	doctype: str,
+	txt: str,
+	searchfield: str,
+	start: int,
+	page_len: int,
+	filters: dict | None,
+) -> list[tuple]:
+	"""Link-query del picker "Agregar paquete de alcance" (issue #55). Un **paquete de alcance** es un Item
+	organizativo —no vendible, no comprable— que agrupa Scope Items por la relación N:M y se incorpora a la
+	propuesta como Required Item. Filtro **solo de UX** (no es validación de backend): Items con
+	``is_sales_item=0 AND is_purchase_item=0 AND disabled=0`` que tengan **al menos un Scope Item habilitado**
+	(child `erpnext_items` + legacy `erpnext_item`). Devuelve ``[(name, item_name)]``."""
+	like = f"%{txt}%"
+	return frappe.db.sql(
+		"""
+		SELECT i.name, i.item_name
+		FROM `tabItem` i
+		WHERE i.is_sales_item = 0 AND i.is_purchase_item = 0 AND i.disabled = 0
+		  AND (i.name LIKE %(txt)s OR i.item_name LIKE %(txt)s)
+		  AND i.name IN (
+			SELECT sie.item
+			FROM `tabScope Item ERPNext Item` sie
+			INNER JOIN `tabScope Item` si ON si.name = sie.parent
+			WHERE si.enabled = 1 AND sie.parentfield = 'erpnext_items'
+			UNION
+			SELECT si2.erpnext_item
+			FROM `tabScope Item` si2
+			WHERE si2.enabled = 1 AND si2.erpnext_item IS NOT NULL AND si2.erpnext_item != ''
+		  )
+		ORDER BY i.item_name ASC
+		LIMIT %(start)s, %(page_len)s
+		""",
+		{"txt": like, "start": start, "page_len": page_len},
+	)
+
+
+@frappe.whitelist()
+def get_scope_package_scope_items(item: str) -> list[dict]:
+	"""Preview (code + title) de los Scope Items habilitados de un Item-paquete, para el diálogo de #55.
+	Reusa la FUENTE ÚNICA ``resolve_scope_items_for_item``; solo lectura, sin materializar nada."""
+	frappe.has_permission("Item", "read", doc=item, throw=True)
+	names = resolve_scope_items_for_item(item, enabled_only=True)
+	if not names:
+		return []
+	return frappe.get_all(
+		"Scope Item",
+		filters={"name": ["in", names]},
+		fields=["code", "title"],
+		order_by="sequence asc, code asc",
+	)

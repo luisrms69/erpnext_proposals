@@ -30,6 +30,12 @@ Al presionar el botón, el sistema crea el proyecto y las tareas automáticament
 | Fecha de inicio esperada | Ancla del proyecto (fecha de la Cotización) |
 | Fecha de fin esperada | Fecha de fin más tardía del plan (envelope de las tareas generadas); vacía si ninguna actividad tiene fecha |
 | Estado | Se crea en estado "Abierto" (Open) |
+| Tipo de proyecto | **Inferido de los paquetes de alcance** de la propuesta (ver [Items requeridos](items-requeridos.md#paquetes-de-alcance)): si un paquete tiene *Tipo de proyecto* configurado, se copia al Proyecto. Si ningún paquete lo define, queda vacío |
+
+> **Tipos de proyecto en conflicto.** Si dos paquetes de la propuesta implican **tipos de proyecto distintos**
+> (p. ej. uno *Agile* y otro *Cascada*), la creación del Proyecto se **bloquea** con un mensaje que identifica
+> los paquetes y tipos en conflicto. Deja un solo tipo entre los paquetes y vuelve a intentar. (El sistema
+> nunca elige uno en silencio.)
 
 ### Tareas creadas
 

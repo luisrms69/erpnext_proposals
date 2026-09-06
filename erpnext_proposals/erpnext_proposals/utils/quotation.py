@@ -107,6 +107,14 @@ def on_quotation_validate(doc, method=None):
 	# Fase 1 bis: precargar Items requeridos configurados por los Items vendidos nuevos, ANTES de generar
 	# el alcance, para que sus Scope Items entren en la misma pasada.
 	_autoload_required_items(doc)
+	# Issue #55: precargar el paquete de Gestión de Compras (una vez) si hay comprables aplicables nuevos,
+	# ANTES de generar el alcance para que sus Scope Items entren en la misma pasada.
+	_autoload_procurement_package(doc)
+	# Issue #55 (fix): las filas de `required_items` agregadas por los autoloads en ESTE mismo `validate`
+	# aún no tienen `name` (Frappe nombra los children en `set_name_in_children`, que corre ANTES de
+	# `validate`). Sin name, `_generate_scope_items` grabaría `source_row=NULL` y rompería la identidad por
+	# ocurrencia `(source_row, scope_item)`. Asignar el name nativo AHORA, antes de materializar.
+	_assign_pending_required_item_names(doc)
 	_generate_scope_items(doc)
 
 
@@ -291,37 +299,13 @@ def _economic_behavior_for_item(item_code: str, company: str | None) -> tuple:
 	return default
 
 
-def _procurement_scope_for_item(item_code: str, company: str | None):
-	"""Scope Item de abastecimiento aplicable a un Item COMPRABLE (default de la Company + opt-out por Item).
-	Devuelve el code del Scope Item o ``None``. Genérico: no depende de nombres de cliente."""
-	settings = _proposal_settings(company)
-	if not settings:
-		return None
-	proc = settings.get("default_procurement_scope_item")
-	if not proc:
-		return None
-	item = frappe.db.get_value(
-		"Item", item_code, ["is_purchase_item", "proposal_skip_procurement"], as_dict=True
-	)
-	if not item or not item.is_purchase_item or item.get("proposal_skip_procurement"):
-		return None
-	if not frappe.db.get_value("Scope Item", proc, "enabled"):
-		return None
-	return proc
-
-
-def _applicable_scope_items(item_code: str, company: str | None) -> list:
-	"""Scope Items que aplican a un item_code **en el contexto de una Company**: los de la relación N:M
-	(fuente única) MÁS, si el Item es comprable y la Company tiene abastecimiento configurado, el Scope Item
-	de abastecimiento. Compartido por la generación y el resync para que ambos vean el MISMO conjunto (el
-	resync no elimina el de compra)."""
+def _applicable_scope_items(item_code: str) -> list:
+	"""Scope Items que aplican a un item_code: los de la relación N:M (FUENTE ÚNICA). Compartido por la
+	generación y el resync para que ambos vean el MISMO conjunto. (El abastecimiento ya NO se inyecta por
+	ocurrencia: pasó a ser el paquete de Gestión de Compras — ver `_autoload_procurement_package`, issue #55.)"""
 	from erpnext_proposals.erpnext_proposals.utils.scope_item_links import resolve_scope_items_for_item
 
-	codes = resolve_scope_items_for_item(item_code, enabled_only=True)
-	proc = _procurement_scope_for_item(item_code, company)
-	if proc and proc not in codes:
-		codes = [*list(codes), proc]
-	return codes
+	return resolve_scope_items_for_item(item_code, enabled_only=True)
 
 
 def _autoload_required_items(doc) -> None:
@@ -344,6 +328,64 @@ def _autoload_required_items(doc) -> None:
 				continue  # ya está como requerido, o ya es una línea vendida → no duplicar
 			doc.append("required_items", {"item": req, "qty": 1, "auto_generated": 1})
 			present_required.add(req)
+
+
+def _applicable_purchasables(doc, package_item: str | None) -> set:
+	"""Items COMPRABLES aplicables presentes (vendidos + requeridos): `is_purchase_item=1` y sin
+	`proposal_skip_procurement`, excluyendo el propio paquete de compras. Base del disparo del paquete."""
+	codes = {i.item_code for i in (doc.get("items") or []) if i.item_code}
+	codes |= {r.item for r in (doc.get("required_items") or []) if r.item}
+	codes.discard(package_item)
+	out = set()
+	for code in codes:
+		it = frappe.db.get_value(
+			"Item", code, ["is_purchase_item", "proposal_skip_procurement"], as_dict=True
+		)
+		if it and it.is_purchase_item and not it.get("proposal_skip_procurement"):
+			out.add(code)
+	return out
+
+
+def _autoload_procurement_package(doc) -> None:
+	"""Precarga el paquete **Gestión de Compras** (`default_procurement_package_item`) UNA sola vez cuando
+	aparece un Item comprable aplicable **nuevo** (issue #55, commit 3). Sustituye la inyección por-ocurrencia
+	del antiguo `default_procurement_scope_item`: el abastecimiento se modela como un paquete (Required Item)
+	agregado una vez, no un Scope Item repetido por cada línea comprable.
+
+	Disparo por **diff** (mismo patrón que `_autoload_required_items`): agrega el paquete solo si el conjunto
+	de comprables aplicables **creció** respecto a `get_doc_before_save`; así un guardado normal no lo repone y
+	**no** se reinyecta si el usuario lo borró deliberadamente (soberanía). **No** auto-remove. `is_purchase_item`
+	sigue siendo la señal nativa; se consideran comprables vendidos **y** requeridos."""
+	settings = _proposal_settings(doc.get("company"))
+	if not settings:
+		return
+	package = settings.get("default_procurement_package_item")
+	if not package:
+		return
+	present_required = {r.item for r in (doc.get("required_items") or []) if r.item}
+	if package in present_required:
+		return  # ya presente → no duplicar
+	before = doc.get_doc_before_save()
+	now = _applicable_purchasables(doc, package)
+	prev = _applicable_purchasables(before, package) if before else set()
+	if now - prev:  # apareció un comprable aplicable nuevo → precargar el paquete una vez
+		doc.append("required_items", {"item": package, "qty": 1, "auto_generated": 1})
+
+
+def _assign_pending_required_item_names(doc) -> None:
+	"""Asigna el ``name`` nativo (``set_new_name``) a las filas de ``required_items`` que aún no lo tienen.
+
+	Frappe nombra los child rows en ``set_name_in_children``, que corre ANTES de ``validate``; las filas que
+	los autoloads (``_autoload_required_items`` / ``_autoload_procurement_package``) agregan DURANTE ``validate``
+	llegan sin ``name`` y no se re-nombran después, así que persisten al ``db_insert`` con el name asignado aquí.
+	Sin este paso, ``_source_rows`` leería ``ri.name = None`` y ``_generate_scope_items`` materializaría
+	``source_row=NULL``, rompiendo la identidad por ocurrencia ``(source_row, scope_item)`` (resync/poda). Usa el
+	mecanismo nativo de Frappe; no inventa IDs paralelos ni cambia la identidad a ``item_code``."""
+	from frappe.model.naming import set_new_name
+
+	for ri in doc.get("required_items") or []:
+		if not ri.name:
+			set_new_name(ri)
 
 
 def _source_rows(doc) -> list:
@@ -385,9 +427,9 @@ def _append_scope_rows_for_row(doc, src: dict, existing: set) -> int:
 	(``resolve_scope_items_for_item``: child N:N + legacy, habilitados). La identidad es por **fila origen**:
 	no duplica dentro de la misma ocurrencia, pero SÍ materializa por separado dos ocurrencias del mismo
 	Item. Respeta snapshots legacy (no re-materializa un item_code ya cubierto por una fila sin source_row).
-	``existing`` se actualiza in situ. Incluye el Scope Item de abastecimiento si aplica."""
+	``existing`` se actualiza in situ."""
 	item_code = src["item_code"]
-	names = _applicable_scope_items(item_code, doc.get("company"))
+	names = _applicable_scope_items(item_code)
 	if not names:
 		return 0
 	scope_items = frappe.get_all(
@@ -523,16 +565,15 @@ _CATALOG_CONTROLLED_FIELDS = (
 )
 
 
-def _catalog_rows_for_items(item_codes: list, company: str | None) -> dict:
+def _catalog_rows_for_items(item_codes: list) -> dict:
 	"""Scope Items de catálogo habilitados asociados a los item_codes, por la FUENTE ÚNICA
 	(``resolve_scope_items_for_item``: child N:N + legacy), mapeados a los campos del child con clave
-	(item_code, scope_item_name). Un mismo Scope Item puede aplicar a varios Items. Incluye el Scope Item
-	de abastecimiento de la Company (``_applicable_scope_items``) para que el resync NO lo elimine."""
+	(item_code, scope_item_name). Un mismo Scope Item puede aplicar a varios Items."""
 	result: dict = {}
 	codes = list({c for c in (item_codes or []) if c})
 	if not codes:
 		return result
-	per_item = {code: _applicable_scope_items(code, company) for code in codes}
+	per_item = {code: _applicable_scope_items(code) for code in codes}
 	all_names = sorted({n for names in per_item.values() for n in names})
 	if not all_names:
 		return result
@@ -613,7 +654,7 @@ def resync_scope_from_catalog(quotation_name: str) -> dict:
 		)
 
 	item_codes = _source_item_codes(doc)
-	catalog = _catalog_rows_for_items(item_codes, doc.get("company"))
+	catalog = _catalog_rows_for_items(item_codes)
 	current_rows = {src["source_row"] for src in _source_rows(doc)}
 
 	updated = 0

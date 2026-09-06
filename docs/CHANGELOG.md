@@ -2,6 +2,44 @@
 
 ## [No liberado]
 
+### Changed — Gestión de Compras como paquete (issue #55, commit 3)
+- Se **retira** `Proposal Settings.default_procurement_scope_item` y se sustituye por
+  **`default_procurement_package_item`** (Link → Item): un paquete de Gestión de Compras que se agrega **una
+  sola vez** a `required_items` cuando la propuesta contiene ≥1 Item comprable aplicable (vendido o requerido,
+  `is_purchase_item=1`, sin `proposal_skip_procurement`), en lugar de inyectar un Scope Item de compra por
+  **cada** línea comprable. Disparo por diff (comprable nuevo), **sin auto-remove**, respetando la soberanía
+  del usuario. Se elimina la rama de abastecimiento por-ocurrencia de `_applicable_scope_items`. Enmienda a
+  ADR-0017. Tests de procurement reescritos en `test_required_items_autoload.py`.
+- **Migración (obligatoria por sitio):** el valor de `default_procurement_scope_item` deja de soportarse y
+  **no** se automigra; cada Company que lo usaba debe configurar `default_procurement_package_item`. Requiere
+  `bench migrate`. Versión: **0.19.0**.
+
+### Added — Inferencia de Project Type desde paquetes (issue #55, commit 2)
+- Nuevo Custom Field opcional **`Item.proposal_project_type`** (Link → Project Type) — metadata del paquete de
+  alcance. Al crear el Proyecto desde la propuesta, `create_project_from_quotation` infiere
+  `Project.project_type` a partir de los **paquetes presentes en `required_items`** (nunca desde
+  `Quotation.items`): 0 tipos → sin tipo; 1 tipo distinto → se asigna; **≥2 tipos distintos → se bloquea** la
+  creación (fail-closed, identificando paquetes/tipos en conflicto, sin dejar Project a medias). Lector
+  defensivo (`has_field`) para sitios aún sin `migrate`. Allowlist de `hooks.py` actualizado; tests en
+  `test_scope_packages.py`. Requiere `bench migrate` para aplicar el campo.
+
+### Added — Paquetes de alcance sobre Required Items (issue #55, núcleo)
+- Un **paquete de alcance** es un `Item` organizativo (`is_sales_item=0`, normalmente `is_purchase_item=0`) que
+  agrupa Scope Items por la relación N:M y se incorpora a la propuesta como **Required Item**: materializa su
+  alcance en `quotation_scope_items` (`source_type="required"`) por el flujo normal, sin DocType ni motor
+  nuevo. La automatización "Item/Item Group vendido → paquete(s)" es el `required_item_rules` ya existente.
+- **Picker por inferencia (solo UX):** `scope_item_links.scope_package_query` (Items no vendibles, no
+  comprables, con ≥1 Scope Item habilitado) + `get_scope_package_scope_items` (preview). El grid
+  `required_items` conserva su doble propósito (hardware, licencias, partners): **no** se filtra.
+- **UX:** acción **«Agregar paquete de alcance»** en la pestaña Propuesta (solo Borrador) — diálogo que agrega
+  paquetes a `required_items` con dedup contra los presentes y preview de sus Scope Items; la materialización
+  la hace `_generate_scope_items` al guardar. Sin nuevos DocTypes, sin Custom Fields, sin cambios de esquema.
+- Solapamiento entre paquetes = **dos ocurrencias** por `(source_row, scope_item)` (sin dedup global). Enmienda
+  a ADR-0017. Tests: `test_scope_packages.py` (9). *(Commits siguientes del mismo PR: inferencia de Project
+  Type; sustitución del procurement simple por paquete Gestión de Compras + bump 0.19.0.)*
+
+## v0.18.0
+
 ### Added — Sensibilidad de duración del proyecto + resumen financiero (Evaluación Económica, Fase 2C parcial)
 - Nuevo método whitelisted `economic_calendar.get_duration_sensitivity(quotation_name, down_months, up_months)`:
   evalúa la **misma propuesta** a plazos alternativos `base - X` / `base` / `base + Y` **en memoria**, sin
