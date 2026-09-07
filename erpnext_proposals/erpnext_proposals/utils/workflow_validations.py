@@ -46,7 +46,68 @@ def _on_workflow_transition(doc, old_state: str, new_state: str):
 		_fill_traceability(doc, new_state)
 		return
 
+	# → Ganada: handoff operativo (issue #39, Fase 1). La DETECCIÓN de la transición ocurre aquí (en
+	# validate), pero la ACCIÓN (crear Project) se DIFIERE con enqueue_after_commit=True para no producir
+	# efectos secundarios antes de persistir la transición ni revertir `Ganada` si el Project falla.
+	if new_state == "Ganada":
+		# Acciones INDEPENDIENTES (cada una con su propio toggle y su propio job): un fallo de una no
+		# impide la otra. No se encadena la notificación al resultado de la creación del Project.
+		_maybe_enqueue_auto_project(doc)
+		_maybe_enqueue_won_notification(doc)
+		return
+
 	# Aprobada → Enviada al Cliente: optionally add future logic here
+
+
+def _maybe_enqueue_auto_project(doc) -> None:
+	"""Issue #39, Fase 1: si la Company de la Quotation tiene ``auto_create_project_on_won`` activo, encola
+	la creación automática del Project **después del commit** (``enqueue_after_commit=True``) — nunca dentro
+	de ``validate``. Resolución estricta por Company (sin fallback global): si no hay ``Proposal Settings``
+	de esa Company o el toggle está OFF, no hace nada. El job corre como el usuario que dispara la transición
+	(``frappe.enqueue`` captura ``frappe.session.user``): sin Administrator ni elevación de privilegios."""
+	company = doc.get("company")
+	if not company:
+		return
+	settings = frappe.db.get_value("Proposal Settings", {"company": company}, "name")
+	if not settings:
+		return
+	if not frappe.db.get_value("Proposal Settings", settings, "auto_create_project_on_won"):
+		return
+	frappe.enqueue(
+		"erpnext_proposals.erpnext_proposals.utils.project.auto_create_project_on_won",
+		quotation_name=doc.name,
+		enqueue_after_commit=True,
+		queue="short",
+		job_name=f"auto_create_project_on_won::{doc.name}",
+	)
+
+
+def _maybe_enqueue_won_notification(doc) -> None:
+	"""Issue #39, Fase 1 (2ª acción): si la Company tiene ``send_won_notification_email`` activo y un correo
+	destino configurado, encola el envío **después del commit** — nunca en ``validate``. Independiente de la
+	creación del Project. Idempotencia por gating de transición (esta rama solo corre en la transición real a
+	``Ganada``) + dedup nativo (``job_id`` + ``deduplicate=True``): evita correos duplicados por reintentos
+	técnicos sin DocType/estado/log propio. Si el toggle está ON pero falta el correo (config inválida), no
+	envía. El job corre como el usuario que dispara la transición (``frappe.enqueue`` captura la sesión)."""
+	company = doc.get("company")
+	if not company:
+		return
+	s = frappe.db.get_value(
+		"Proposal Settings",
+		{"company": company},
+		["send_won_notification_email", "won_notification_email"],
+		as_dict=True,
+	)
+	if not s or not s.send_won_notification_email or not s.won_notification_email:
+		return
+	frappe.enqueue(
+		"erpnext_proposals.erpnext_proposals.utils.won_notification.send_won_notification_email",
+		quotation_name=doc.name,
+		enqueue_after_commit=True,
+		queue="short",
+		job_id=f"won_notification::{doc.name}",
+		deduplicate=True,
+	)
 
 
 def _validate_blocking(doc):

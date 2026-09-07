@@ -2,6 +2,29 @@
 
 ## [No liberado]
 
+### Added — Automatización al ganar la propuesta: crear Project + notificar por correo (issue #39, Fase 1)
+- **Crear Project:** al transicionar una Quotation a **`Ganada`**, si su Company lo habilita, se **crea
+  automáticamente el Proyecto** reutilizando el flujo existente `create_project_from_quotation` (idempotente:
+  reusa el Project si ya existe, no duplica Tasks). El disparo se detecta en la transición de workflow y la
+  creación se **encola después del commit** (`enqueue_after_commit=True`) — nunca dentro de `validate`; el job
+  corre como el usuario que marca Ganada (sin elevar privilegios) y es **fail-soft** (si un preflight bloquea,
+  la Quotation sigue `Ganada` sin Project parcial y el fallo queda visible en los mecanismos estándar de
+  Frappe; el botón manual sigue como respaldo).
+- **Notificar por correo:** al transicionar a **`Ganada`**, si su Company lo habilita, se **envía un correo**
+  al destino configurado, en un job **post-commit** independiente del Project (un fallo de uno no impide el
+  otro). Usa la **API nativa `Email Template`** (`get_formatted_email`) cuando hay plantilla configurada
+  (subject/cuerpo renderizados con la Quotation como contexto, sin reproducir esa lógica) y un **fallback**
+  simple del app cuando no la hay. Envío por `frappe.sendmail` + Email Queue nativo, enlazado a la Quotation
+  (`reference_doctype`/`reference_name`). Idempotencia nativa: gating por transición + `enqueue(job_id=...,
+  deduplicate=True)`, sin DocType/log/retry propios. Sin CC/BCC/adjuntos.
+- **Configuración por Company** en `Proposal Settings`, sección **«Automatización al ganar la propuesta»**
+  (acciones **independientes**, sin switch maestro): `auto_create_project_on_won` (Check), y para el correo
+  `send_won_notification_email` (Check), `won_notification_email` (destino, **obligatorio** cuando el envío
+  está ON) y `won_notification_email_template` (Link → `Email Template`, opcional). **Todos default OFF/vacío.**
+  Requiere `bench migrate`. Sin fixtures ni JS. Versión: **0.21.0**.
+
+## v0.20.0
+
 ### Added — Aplicar una Quotation/Addendum ganada a un Project existente (issue #59)
 - Nueva operación soportada, propiedad de `erpnext_proposals`, para **incorporar el alcance de una Quotation
   Ganada a un Project que ya existe** sin crear un Project nuevo: materializa sus Scope Items como Tasks
