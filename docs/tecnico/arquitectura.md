@@ -21,7 +21,8 @@ y de gestión.
 | Workflow de aprobación | Validaciones y trazabilidad en transiciones de estado | `utils/workflow_validations.py` | Activo |
 | Lifecycle de Quotation | Hooks de inserción, validación, submit y post-submit | `utils/quotation.py` | Activo |
 | Versionado de propuestas | Crear nueva versión desde propuesta Rechazada | `utils/proposal_versioning.py` | Activo |
-| Creación de proyecto | Crear Proyecto + Tasks desde Quotation Ganada | `utils/project.py` | Activo |
+| Creación de proyecto | Crear/reutilizar Proyecto + Tasks desde Quotation Ganada (`create_project_from_quotation`) | `utils/project.py` | Activo |
+| Aplicar Addendum a Project existente | Incorporar el alcance de una Quotation/Addendum Ganada a un Project **ya existente**, sin crear Project (`apply_addendum_to_project`) — contrato de `pmo` Change Control (issue #59, ADR-0019) | `utils/project.py` | Activo |
 | Matriz de costos | Rebuild periódico de costos por Designation + Activity Type | `utils/cost_matrix.py` | Activo |
 | Permisos | Guard de roles para endpoints críticos | `utils/permissions.py` | Activo |
 | Print Formats | PDF comercial (default genérico), Rentabilidad Estimada (privado) y **SOW** (Statement of Work, opcional por plantilla); helpers Jinja | `print_format/`, `utils/printing.py` | Activo |
