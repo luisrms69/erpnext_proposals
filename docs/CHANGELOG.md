@@ -2,6 +2,30 @@
 
 ## [No liberado]
 
+### Added — Aplicar una Quotation/Addendum ganada a un Project existente (issue #59)
+- Nueva operación soportada, propiedad de `erpnext_proposals`, para **incorporar el alcance de una Quotation
+  Ganada a un Project que ya existe** sin crear un Project nuevo: materializa sus Scope Items como Tasks
+  (reutilizando la Task de fase y deduplicando por ocurrencia). Habilita que el *Integrated Change Control* de
+  `pmo` gobierne cambios de alcance **sin** duplicar la lógica comercial y **sin** que `pmo` escriba
+  `proposal_project`. "Addendum" es simplemente una Quotation usada como cambio comercial (otra versión o de otro
+  grupo); **no** es un DocType nuevo.
+- **Autorización separada:** la Quotation `Ganada` aporta la autoridad **comercial** (se reutilizan los guards de
+  versión/single-live existentes); el permiso `write` sobre el Project destino aporta la autoridad
+  **operacional**. **No** exige Proposals Manager (con `pmo` instalado, el `write` queda owner-only por P4, sin
+  que `erpnext_proposals` dependa de `pmo`).
+- **Idempotente:** reaplicar la misma Quotation al mismo Project no duplica Tasks y conserva las originales; el
+  camino de addendum **nunca** crea un segundo Project.
+- **Atómico** con la operación externa: no hace `commit` propio en ese camino (un fallo revierte alcance y
+  asociación juntos). `create_project_from_quotation` conserva su comportamiento actual (crear/reutilizar Project
+  + commit).
+- **Project Type:** aplicar un Addendum **no** cambia ni valida `Project.project_type`; el Project conserva el
+  tipo con el que fue creado (asimetría deliberada respecto a la creación — ver ADR-0019).
+- Llegar a `Ganada` **no** dispara la aplicación automáticamente (eso es #39, fuera de alcance).
+- Sin cambios de esquema, sin fixtures ni JS: **no** requiere `bench migrate` ni `bench build`. Ver
+  [ADR-0019](adr/0019-aplicar-addendum-a-project-existente.md). Versión: **0.20.0**.
+
+## v0.19.0
+
 ### Changed — Gestión de Compras como paquete (issue #55, commit 3)
 - Se **retira** `Proposal Settings.default_procurement_scope_item` y se sustituye por
   **`default_procurement_package_item`** (Link → Item): un paquete de Gestión de Compras que se agrega **una

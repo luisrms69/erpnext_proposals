@@ -129,20 +129,12 @@ def _resolve_project_type(quotation) -> str | None:
 	)
 
 
-@frappe.whitelist()
-def create_project_from_quotation(quotation_name: str):
-	assert_can_manage_proposals()
-
-	from erpnext_proposals.erpnext_proposals.utils.proposal_versioning import (
-		assert_can_create_project,
-	)
-
-	quotation = frappe.get_doc("Quotation", quotation_name)
-	assert_can_create_project(quotation)  # validates docstatus, state, superseded, project
-
+def _validate_scope_for_project(quotation) -> list:
+	"""Preflight compartido por la creación y por el addendum: valida Proposal Template + filas
+	ejecutables + fase. Se ejecuta ANTES de resolver/crear cualquier Project, para no dejar un Project
+	huérfano si un preflight falla. Devuelve las filas ejecutables (vendibles o internas de costo)."""
 	if not quotation.proposal_template:
 		frappe.throw(_("La Cotización no tiene Proposal Template asignado."))
-
 	# Filas ejecutables: vendibles O internas de costo (participan en costo y Tasks).
 	exec_rows = [
 		r for r in quotation.quotation_scope_items if r.include_in_proposal or r.is_internal_cost_task
@@ -154,7 +146,6 @@ def create_project_from_quotation(quotation_name: str):
 				"Una propuesta de solo licenciamiento no genera Proyecto."
 			)
 		)
-
 	# Toda fila ejecutable debe tener fase — bloqueo explícito (no se inventa fase ni Task suelta).
 	rows_sin_fase = [r for r in exec_rows if not r.phase]
 	if rows_sin_fase:
@@ -165,6 +156,21 @@ def create_project_from_quotation(quotation_name: str):
 				"Asigne una Proposal Phase a todas las actividades ejecutables antes de crear el Proyecto."
 			).format(len(rows_sin_fase), nombres)
 		)
+	return exec_rows
+
+
+@frappe.whitelist()
+def create_project_from_quotation(quotation_name: str):
+	assert_can_manage_proposals()
+
+	from erpnext_proposals.erpnext_proposals.utils.proposal_versioning import (
+		assert_can_create_project,
+	)
+
+	quotation = frappe.get_doc("Quotation", quotation_name)
+	assert_can_create_project(quotation)  # validates docstatus, state, superseded, project
+
+	exec_rows = _validate_scope_for_project(quotation)
 
 	# Project Type inferido de los paquetes (issue #55): se valida ANTES de crear nada — si hay ambigüedad,
 	# se bloquea sin dejar Project a medias.
@@ -198,6 +204,16 @@ def create_project_from_quotation(quotation_name: str):
 			"Quotation", quotation_name, "proposal_project", project.name, update_modified=False
 		)
 
+	res = _materialize_scope_into_project(quotation, project, exec_rows)
+	frappe.db.commit()  # nosemgrep
+	return res
+
+
+def _materialize_scope_into_project(quotation, project, exec_rows) -> dict:
+	"""Materializa las filas ejecutables (`exec_rows`) como Tasks jerárquicas sobre un Project **ya
+	resuelto**. NO crea Project y NO hace `frappe.db.commit()` (composable: el caller decide la
+	transacción). Idempotente por `(project, source_quotation_scope_item)` para las hijas y por
+	`(project, proposal_phase)` para las Task-fase: reejecutar no duplica."""
 	# ── Tasks jerárquicas: Task-fase (padre, is_group) → Task-hija (Scope Item) ──
 	counters = {
 		"parent_created": 0,
@@ -335,8 +351,6 @@ def create_project_from_quotation(quotation_name: str):
 	# ── Rango de cada Task padre de fase (envelope de sus hijas) + rango del Project ──
 	_rollup_phase_dates(contracted, project)
 
-	frappe.db.commit()  # nosemgrep
-
 	return {
 		"project": project.name,
 		"parent_tasks_created": counters["parent_created"],
@@ -351,6 +365,61 @@ def create_project_from_quotation(quotation_name: str):
 		# Project Type inferido desde paquetes (issue #55); None si ningún paquete lo declara.
 		"project_type": project.get("project_type"),
 	}
+
+
+def apply_addendum_to_project(quotation: str, project: str) -> dict:
+	"""Aplica una Quotation/Addendum **Ganada** a un Project **existente**, materializando sus Scope Items
+	como Tasks (reuse + dedup). Contrato consumido por `pmo` Change Control (ADR-0005) vía
+	`frappe.get_attr` — **server-side, NO whitelisted** (PMO no lo llama por HTTP). Garantía estructural:
+	**nunca crea un Project** (llama a la primitive sobre un Project ya resuelto). **NO** hace commit: es
+	atómico con la transacción externa del request de PMO.
+
+	Autoridades separadas: la Quotation `Ganada` aporta la autoridad **comercial** (validada por
+	`assert_can_create_project`: submitted + Ganada + no superseded + single-live del grupo); el permiso
+	`write` sobre el Project destino aporta la autoridad **operacional** (con `pmo` instalado, sus hooks P4
+	lo vuelven owner-only, sin que `erpnext_proposals` dependa de `pmo`). No se exige Proposals Manager.
+
+	Devuelve el mismo resumen (dict) que la materialización. Lanza `frappe.throw`/`PermissionError` en
+	fallo; PMO propaga la excepción y NO marca el CR como aplicado."""
+	from erpnext_proposals.erpnext_proposals.utils.proposal_versioning import assert_can_create_project
+
+	if not project or not frappe.db.exists("Project", project):
+		frappe.throw(_("El Project destino ({0}) no existe.").format(project or "—"))
+	project_doc = frappe.get_doc("Project", project)
+	# Autoridad operacional: escritura efectiva sobre el Project destino (con pmo, P4 => owner-only).
+	project_doc.check_permission("write")
+
+	quotation_doc = frappe.get_doc("Quotation", quotation)
+	# Autoridad comercial + invariantes de versión (reutilizado, sin duplicar guards).
+	assert_can_create_project(quotation_doc)
+	exec_rows = _validate_scope_for_project(quotation_doc)
+
+	# Coherencia con el Project destino (invariantes que la creación garantiza por construcción).
+	if quotation_doc.company != project_doc.company:
+		frappe.throw(
+			_("La Company de la Cotización ({0}) no coincide con la del Project ({1}).").format(
+				quotation_doc.company, project_doc.company
+			)
+		)
+	if quotation_doc.party_name != project_doc.customer:
+		frappe.throw(
+			_("El Customer de la Cotización ({0}) no coincide con el del Project ({1}).").format(
+				quotation_doc.party_name, project_doc.customer
+			)
+		)
+	if quotation_doc.proposal_project and quotation_doc.proposal_project != project:
+		frappe.throw(
+			_("La Cotización ya está asociada a otro Project ({0}).").format(quotation_doc.proposal_project)
+		)
+
+	# Materializa sobre el Project EXISTENTE (sin rama de creación, sin commit).
+	result = _materialize_scope_into_project(quotation_doc, project_doc, exec_rows)
+
+	# Asociación propiedad de erpnext_proposals: se escribe SOLO tras materializar con éxito (ante un fallo
+	# previo nunca queda una asociación engañosa; sin commit interno, un rollback externo revierte todo).
+	if not quotation_doc.proposal_project:
+		frappe.db.set_value("Quotation", quotation, "proposal_project", project, update_modified=False)
+	return result
 
 
 def _resolve_native_dependencies(
