@@ -209,6 +209,24 @@ def create_project_from_quotation(quotation_name: str):
 	return res
 
 
+def auto_create_project_on_won(quotation_name: str) -> None:
+	"""Job post-commit (issue #39, Fase 1): crea el Project al ganar la propuesta **reutilizando**
+	``create_project_from_quotation`` (idempotente, con sus preflights, Project Type, materialización
+	Scope Items → Tasks y su modelo de permisos). No duplica lógica ni crea un segundo camino de generación.
+
+	Guards re-chequeados en el job (el estado pudo cambiar entre encolar y ejecutar): solo actúa si la
+	Quotation sigue ``Ganada`` (``docstatus=1``) y no tiene ya un Project. **Fail-soft:** NO revierte la
+	transición ya commiteada; si un preflight bloquea (p. ej. fila ejecutable sin fase),
+	``create_project_from_quotation`` lanza ANTES de crear nada → no queda Project parcial y el fallo queda
+	visible por los mecanismos estándar de Frappe (Error Log / job fallido). El botón manual sigue de respaldo."""
+	doc = frappe.get_doc("Quotation", quotation_name)
+	if doc.docstatus != 1 or doc.get("workflow_state") != "Ganada":
+		return
+	if doc.get("proposal_project") and frappe.db.exists("Project", doc.proposal_project):
+		return
+	create_project_from_quotation(quotation_name)
+
+
 def _materialize_scope_into_project(quotation, project, exec_rows) -> dict:
 	"""Materializa las filas ejecutables (`exec_rows`) como Tasks jerárquicas sobre un Project **ya
 	resuelto**. NO crea Project y NO hace `frappe.db.commit()` (composable: el caller decide la

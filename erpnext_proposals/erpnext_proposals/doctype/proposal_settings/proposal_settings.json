@@ -18,7 +18,12 @@
   "default_financing_cost_rate",
   "duration_sensitivity_section",
   "duration_sensitivity_down_percent",
-  "duration_sensitivity_up_percent"
+  "duration_sensitivity_up_percent",
+  "automation_on_won_section",
+  "auto_create_project_on_won",
+  "send_won_notification_email",
+  "won_notification_email",
+  "won_notification_email_template"
  ],
  "fields": [
   {
@@ -114,6 +119,43 @@
    "fieldtype": "Percent",
    "label": "Sensibilidad superior (%)",
    "non_negative": 1
+  },
+  {
+   "description": "Acciones que se ejecutan automáticamente al transicionar una Quotation de esta compañía a «Ganada». Cada acción es un toggle independiente; no hay switch maestro. Todos en OFF = automatización desactivada.",
+   "fieldname": "automation_on_won_section",
+   "fieldtype": "Section Break",
+   "label": "Automatización al ganar la propuesta"
+  },
+  {
+   "default": "0",
+   "description": "Si está activo, al pasar la Quotation a «Ganada» se crea automáticamente el Proyecto reutilizando «Crear Proyecto desde Propuesta» (idempotente), en un job posterior al commit. OFF por defecto. El botón manual sigue disponible como respaldo.",
+   "fieldname": "auto_create_project_on_won",
+   "fieldtype": "Check",
+   "label": "Crear Proyecto automáticamente"
+  },
+  {
+   "default": "0",
+   "description": "Si está activo, al pasar la Quotation a «Ganada» se envía un correo de notificación en un job posterior al commit. Acción INDEPENDIENTE de la creación del Project. OFF por defecto.",
+   "fieldname": "send_won_notification_email",
+   "fieldtype": "Check",
+   "label": "Enviar correo de notificación"
+  },
+  {
+   "depends_on": "eval:doc.send_won_notification_email",
+   "description": "Dirección de destino del correo de propuesta ganada (puede ser una lista de distribución). Obligatorio cuando el envío está activado.",
+   "fieldname": "won_notification_email",
+   "fieldtype": "Data",
+   "label": "Correo de notificación",
+   "mandatory_depends_on": "eval:doc.send_won_notification_email",
+   "options": "Email"
+  },
+  {
+   "depends_on": "eval:doc.send_won_notification_email",
+   "description": "Plantilla nativa (Email Template) para el asunto y cuerpo del correo, renderizada con la Quotation como contexto. Opcional: si se deja vacía, se usa un texto simple por defecto.",
+   "fieldname": "won_notification_email_template",
+   "fieldtype": "Link",
+   "label": "Plantilla de correo",
+   "options": "Email Template"
   }
  ],
  "index_web_pages_for_search": 1,

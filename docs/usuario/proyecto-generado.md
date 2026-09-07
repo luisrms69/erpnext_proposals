@@ -16,6 +16,24 @@ Si ya existe un proyecto vinculado, el botón cambia de label a **"Ver / Actuali
 
 Al presionar el botón, el sistema crea el proyecto y las tareas automáticamente y muestra un mensaje con el nombre del proyecto y un enlace para abrirlo.
 
+### Creación automática al ganar (opcional, por Company)
+
+En **Proposal Settings** de cada Company, sección **«Automatización al ganar la propuesta»**, el check
+**«Crear Proyecto automáticamente»** (`auto_create_project_on_won`, **desactivado por defecto**) hace que, al
+pasar una Cotización de esa Company a **Ganada**, el proyecto se cree **solo**, con el mismo comportamiento
+que el botón (idempotente: si ya existe, no lo duplica). La creación ocurre en segundo plano justo después de
+guardar la transición. Si falta algún requisito (p. ej. una actividad sin fase), la Cotización **permanece
+Ganada** y el proyecto **no** se crea a medias: el usuario completa lo que falte y usa el botón manual como
+respaldo. Cada acción de automatización es un toggle independiente; no hay un interruptor maestro.
+
+En esa misma sección hay otra acción independiente: **«Enviar correo de notificación»**
+(`send_won_notification_email`, desactivado por defecto). Si se activa, hay que indicar un **correo de
+notificación** de destino (obligatorio; puede ser una lista de distribución) y, opcionalmente, una **plantilla
+de correo** (`Email Template`). Al pasar la Cotización a **Ganada** se envía el correo en segundo plano
+(independiente de la creación del proyecto: si una falla, la otra sí se ejecuta). Con plantilla, el asunto y el
+cuerpo se toman de ella con los datos de la Cotización; sin plantilla, se usa un texto simple por defecto con un
+enlace a la Cotización.
+
 ---
 
 ## Qué datos pasan de la propuesta al proyecto
