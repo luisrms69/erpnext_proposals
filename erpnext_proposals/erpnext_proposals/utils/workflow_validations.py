@@ -65,6 +65,13 @@ def _maybe_enqueue_auto_project(doc) -> None:
 	de ``validate``. Resolución estricta por Company (sin fallback global): si no hay ``Proposal Settings``
 	de esa Company o el toggle está OFF, no hace nada. El job corre como el usuario que dispara la transición
 	(``frappe.enqueue`` captura ``frappe.session.user``): sin Administrator ni elevación de privilegios."""
+	# Exclusión ESTRUCTURAL de addendas: una addenda nunca crea un Project, ni siquiera con el toggle ON.
+	# `auto_create_project_on_won` aplica únicamente a propuestas normales; para addendas la aplicación al
+	# Project raíz es explícita (PMO → apply_addendum_to_project). No existe un segundo toggle de addenda.
+	from erpnext_proposals.erpnext_proposals.utils.addendum import is_addendum_group
+
+	if is_addendum_group(doc.get("proposal_group")):
+		return
 	company = doc.get("company")
 	if not company:
 		return
