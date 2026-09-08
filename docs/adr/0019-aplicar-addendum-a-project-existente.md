@@ -1,12 +1,13 @@
-# ADR-0019: Aplicar una Quotation/Addendum ganada a un Project existente
+# ADR-0019: Contrato canónico de addendas — creación atómica y aplicación a un Project existente
 
-**Fecha:** 2026-09-06
-**Status:** Propuesto — pendiente de aprobación
-**Rama:** feat/apply-addendum-to-project → version-16
+**Fecha:** 2026-09-06 (§1–§4, #59) · ampliado 2026-09-07 (§5–§6, contrato canónico de addendas)
+**Status:** Aceptado
+**Rama:** feat/apply-addendum-to-project → version-16 (#59); feat/addendum-canonical-contract → version-16 (canónico)
 **Relacionado:** reutiliza los guards de versión de [ADR-0017](0017-required-items-modelo-economico-aditivo.md)
 (paquetes de alcance en `required_items`) y la generación de Project/Tasks descrita en la arquitectura; provee
-el contrato que consume el **Integrated Change Control de `pmo`** (ADR-0005 de `pmo`, ciclo separado). **No**
-es #39 (handoff automático al Ganar) ni #32 (refactor del modelo de alcance).
+el contrato que consume el **Integrated Change Control de `pmo`** (ADR-0005 de `pmo`, ciclo separado). Convive
+con **#39** (handoff automático al Ganar): §5 define la **exclusión estructural** de las addendas de esa
+automatización. **No** es #32 (refactor del modelo de alcance).
 
 ---
 
@@ -24,9 +25,10 @@ En `erpnext_proposals` ya existía `create_project_from_quotation()`, que sabe *
 es "**jamás crear Project**"; (b) el ejecutor real en `pmo` es el **dueño del Project** (P4), no necesariamente
 Proposals Manager; (c) debe ser **atómico** con el request externo de `pmo`.
 
-> **"Addendum" no es una entidad nueva.** Es una **Quotation** usada como modificación comercial (otra versión
-> o una Quotation de otro `proposal_group`). No hay DocType `Addendum` ni `Proposal`; Proposal sigue siendo
-> Quotation.
+> **"Addendum" no es una entidad nueva.** Es una **Quotation** usada como modificación comercial. No hay
+> DocType `Addendum` ni `Proposal`; Proposal sigue siendo Quotation. Su identidad se codifica **enteramente**
+> en el `proposal_group` con el patrón reservado `<ROOT>-ADD-<NN>` (formalizado en §5): no existen campos
+> `addendum_of` / `source_proposal_group`; para el resto de la app `proposal_group` sigue siendo **opaco**.
 
 ## 2. Decisión
 
@@ -126,3 +128,94 @@ automatización amplia al Ganar es **#39** y se mantiene separada.
 - **Whitelistear el helper**: innecesario (llamada server-side por `get_attr`); aumenta superficie. Descartada.
 - **Validar/bloquear Project Type en el Addendum** (opciones B/C del análisis): malinterpreta la semántica de
   `proposal_project_type` (creación-only) o inventa una invariante de homogeneidad inexistente. Descartada.
+
+---
+
+## 5. Contrato canónico de addendas (ampliación 2026-09-07)
+
+Formaliza **qué es** una addenda, **cómo se crea de forma segura** y **cómo se comporta al Ganar**, sin nuevos
+DocTypes, campos ni un segundo sistema de versionado. Toda la semántica vive en un único módulo:
+`erpnext_proposals/utils/addendum.py`. El resto de la app trata `proposal_group` como clave **opaca**.
+
+### 5.1 Namespace reservado `<ROOT>-ADD-<NN>`
+
+- La propuesta **original** conserva su `proposal_group` (el **ROOT**). Cada **addenda** usa un grupo **nuevo**
+  `ROOT-ADD-NN`; sus **revisiones/versiones** conservan exactamente ese grupo (cadena de versionado
+  independiente vía `create_new_proposal_version`, sin cambios).
+- `ROOT-ADD-01` y `ROOT-ADD-02` son **grupos independientes** con su propia cadena single-live.
+- El sufijo `-ADD-<NN>` queda **reservado** y **fail-closed**: `on_quotation_before_insert` rechaza que una
+  Quotation **nueva** introduzca manualmente un grupo que case el patrón. Solo lo permiten dos flujos
+  autorizados, señalados por **flags transitorios** (no persistidos, no seteables por REST):
+  `from_addendum_creation` (creación de addenda) y `from_proposal_versioning` (revisión que conserva el grupo).
+  Compatibilidad histórica: verificado que **0** grupos existentes casan el patrón; no hay reinterpretación de
+  datos previos.
+
+### 5.2 Creación atómica — `create_addendum_quotation(root_quotation: str) -> str`
+
+Una primitive que **solo calcule y devuelva** `ROOT-ADD-NN` **no** garantiza unicidad si la creación de la
+Quotation ocurre después en otra transacción (dos callers leen el mismo `max(NN)` y crean grupos duplicados).
+Por eso la generación de secuencia y la creación son **atómicas** en la misma transacción, con el **mismo
+mecanismo nativo** que el versionado (`SELECT ... FOR UPDATE`):
+
+1. Resuelve el `proposal_group` **root canónico** de la referencia (sube hasta el ROOT real aunque reciba una
+   versión o una addenda).
+2. Adquiere un lock `SELECT ... FOR UPDATE` **por el ROOT** (bloquea las filas del grupo raíz, que siempre
+   existe): serializa cualquier intento concurrente del mismo root **aunque los callers pasen versiones/addendas
+   distintas** del grupo. **No** es un lock por el nombre concreto recibido.
+3. Calcula la siguiente secuencia `ADD-NN` con el estado bajo lock.
+4. Crea la Quotation-addenda en la **misma transacción** con `proposal_group = ROOT-ADD-NN` y
+   `proposal_version = 1`. **No** hace commit manual (atómico con el request del caller).
+
+**Contenido inicial (Alternativa A — la addenda es el DELTA comercial).** Hereda solo contexto comercial seguro
+(Company, Customer/party, moneda, lista de precios, centro de costo) para que sea editable normalmente. **No**
+copia items originales, Scope Items originales, `proposal_project`, snapshot ni `proposal_template`: copiar el
+alcance original haría que la aplicación volviera a materializar trabajo ya existente en el Project. La preventa
+edita el delta (nuevo alcance) antes de someter y Ganar.
+
+### 5.3 Resolución del Project raíz — `resolve_root_project(root_group) -> str`
+
+Única fuente de verdad: `ROOT` → **propuesta Ganada vigente** del grupo raíz → su `proposal_project` → Project.
+**Nunca** `Project.project_name`, inferencia por nombre, búsqueda fuzzy, ni un Project arbitrario provisto por
+el caller.
+
+### 5.4 Comportamiento al Ganar — clasificación central, sin duplicar workflow
+
+Un **único** workflow y la misma transición `→ Ganada` para propuesta normal y addenda. La diferencia es el
+**comportamiento posterior**, decidido por el tipo de `proposal_group`:
+
+- **Propuesta normal Ganada:** acciones comunes (correo) + si `auto_create_project_on_won = 1`, crea/reutiliza
+  Project y materializa Scope Items → Tasks (comportamiento actual, sin cambios).
+- **Addenda Ganada:** acciones comunes (correo) + **NUNCA** crea Project. `auto_create_project_on_won` aplica
+  **solo** a propuestas normales; **no** existe —conceptualmente— un toggle "auto-create para addenda". La
+  exclusión es **estructural**, en tres capas: (a) el gate de encolado no encola; (b) el job revalida y sale;
+  (c) `create_project_from_quotation` es **fail-closed** para addendas (también cubre el botón manual).
+- `Ganada` = **aprobación comercial**. Una addenda **no** termina funcionalmente en `Ganada`: su alcance se
+  incorpora al Project raíz **después**, mediante la **aplicación explícita** gobernada por PMO
+  (`apply_addendum_to_project`). Llegar a `Ganada` **no** aplica la addenda automáticamente.
+
+### 5.5 `apply_addendum_to_project` reforzado para addendas
+
+Cuando la Quotation es una addenda (`is_addendum_group`), además de los guards de §2 (submitted + `Ganada` + no
+superseded + single-live **de su propio grupo** `ROOT-ADD-NN` + coherencia Company/Customer + `proposal_project`):
+deriva el ROOT, **resuelve** el Project raíz (§5.3) y **exige** que el `project` recibido **coincida
+exactamente**. Materializa solo el alcance ejecutable **de esa addenda** sobre el Project existente (reusa
+`_materialize_scope_into_project`), idempotente; asocia `proposal_project` solo tras materializar; **no** crea
+Project; **no** commitea. Reaplicar la misma addenda no duplica; una addenda distinta del mismo root agrega su
+propio alcance al mismo Project.
+
+## 6. Contrato consumible por `pmo`
+
+`pmo` **no** replica regex, parsing, secuencia ni resolución de Project; **no** crea `proposal_group` a mano ni
+escribe `proposal_project`. Consume, server-side (`frappe.get_attr`, **no** whitelisted):
+
+| Primitive | Firma | Devuelve | Excepciones | Condición transaccional | Versión mínima |
+|---|---|---|---|---|---|
+| Crear addenda | `create_addendum_quotation(root_quotation: str) -> str` | `name` de la nueva Quotation `ROOT-ADD-NN` (Borrador) | `frappe.throw` si falta root/permiso | **Atómica**: llamarse **dentro del request** (no encolada); generación+insert en la misma transacción bajo lock por-root | 0.22.0 |
+| Aplicar addenda | `apply_addendum_to_project(quotation: str, project: str) -> dict` | resumen de materialización | `frappe.throw`/`PermissionError`; PMO propaga y NO marca aplicado | **Sin commit interno**: atómico con el request de PMO | 0.20.0 (reforzado 0.22.0) |
+| Resolver Project raíz | `resolve_root_project(root_group: str) -> str` | `name` del Project raíz | `frappe.throw` si no hay Ganada vigente/Project | Solo lectura | 0.22.0 |
+
+**Flujo PMO:** identificar Project/Change Request → solicitar `create_addendum_quotation` → gestionar sus
+estados de Change Control → esperar a que la addenda quede `Ganada` → llamar `apply_addendum_to_project(quotation,
+project)` → **solo tras retorno exitoso** marcar `applied_to_project`/`applied_at`/`applied_quotation` → manejar
+Current Plan, baseline y cierre. Permiso de creación: `assert_can_manage_proposals` (autoría comercial,
+consistente con el versionado).

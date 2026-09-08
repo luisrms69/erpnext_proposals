@@ -2,6 +2,30 @@
 
 ## [No liberado]
 
+### Added — Contrato canónico de addendas `<ROOT>-ADD-<NN>` (ADR-0019 §5–§6)
+- **Identidad de addenda por `proposal_group`:** una addenda es una Quotation cuyo grupo casa el patrón
+  reservado `ROOT-ADD-NN`. La propuesta original conserva su grupo (ROOT); cada addenda usa un grupo **nuevo**
+  y sus revisiones lo conservan (cadena de versionado independiente). Sin campos `addendum_of` nuevos; para el
+  resto de la app `proposal_group` sigue **opaco**. Toda la semántica en un módulo único `utils/addendum.py`.
+- **Creación atómica** `create_addendum_quotation(root_quotation) -> str`: resuelve el ROOT canónico, adquiere
+  un lock `SELECT ... FOR UPDATE` **por el ROOT** (serializa creaciones concurrentes del mismo root aunque los
+  callers pasen versiones/addendas distintas), calcula la secuencia y crea la Quotation-addenda en la **misma
+  transacción** (`proposal_group = ROOT-ADD-NN`, `proposal_version = 1`), **sin commit manual**. La addenda nace
+  como **delta**: hereda solo contexto comercial seguro (Company, Customer, moneda, lista de precios, centro de
+  costo); **no** copia items, Scope Items, `proposal_project`, snapshot ni template originales.
+- **Namespace `-ADD-NN` reservado (fail-closed):** una Quotation normal no puede introducir manualmente un grupo
+  que case el patrón; solo lo permiten la creación de addenda y el versionado legítimo (flags transitorios).
+- **Addenda al Ganar:** mismo workflow y transición `→ Ganada`; la addenda ejecuta las acciones comunes (correo)
+  pero **NUNCA crea Project** (exclusión **estructural** del auto-Project en 3 capas: gate de encolado, job, y
+  `create_project_from_quotation` fail-closed). `auto_create_project_on_won` aplica solo a propuestas normales.
+- **`apply_addendum_to_project` reforzado para addendas:** deriva el ROOT, **resuelve el Project raíz** desde la
+  propuesta Ganada vigente del ROOT (nunca por `Project.project_name`) y **exige** que el `project` recibido
+  coincida exactamente; materializa solo el alcance de esa addenda, idempotente, sin crear Project ni commitear.
+- **Contrato consumible por `pmo`** documentado (firmas, retorno, excepciones, condición transaccional, versión
+  mínima) en ADR-0019 §6. Sin cambios en `pmo`, sin nuevos DocTypes/campos, sin esquema. Versión: **0.22.0**.
+
+## v0.21.0
+
 ### Added — Automatización al ganar la propuesta: crear Project + notificar por correo (issue #39, Fase 1)
 - **Crear Project:** al transicionar una Quotation a **`Ganada`**, si su Company lo habilita, se **crea
   automáticamente el Proyecto** reutilizando el flujo existente `create_project_from_quotation` (idempotente:

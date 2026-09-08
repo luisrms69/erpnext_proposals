@@ -163,11 +163,23 @@ def _validate_scope_for_project(quotation) -> list:
 def create_project_from_quotation(quotation_name: str):
 	assert_can_manage_proposals()
 
+	from erpnext_proposals.erpnext_proposals.utils.addendum import is_addendum_group
 	from erpnext_proposals.erpnext_proposals.utils.proposal_versioning import (
 		assert_can_create_project,
 	)
 
 	quotation = frappe.get_doc("Quotation", quotation_name)
+
+	# Guard fail-closed: una addenda NUNCA crea Project. Su alcance se incorpora al Project raíz existente
+	# mediante `apply_addendum_to_project` (aplicación explícita gobernada por PMO), nunca por esta ruta.
+	if is_addendum_group(quotation.proposal_group):
+		frappe.throw(
+			_(
+				"Una addenda no crea un Proyecto. Su alcance se incorpora al Proyecto de la propuesta raíz "
+				"mediante la aplicación explícita de la addenda."
+			)
+		)
+
 	assert_can_create_project(quotation)  # validates docstatus, state, superseded, project
 
 	exec_rows = _validate_scope_for_project(quotation)
@@ -219,8 +231,14 @@ def auto_create_project_on_won(quotation_name: str) -> None:
 	transición ya commiteada; si un preflight bloquea (p. ej. fila ejecutable sin fase),
 	``create_project_from_quotation`` lanza ANTES de crear nada → no queda Project parcial y el fallo queda
 	visible por los mecanismos estándar de Frappe (Error Log / job fallido). El botón manual sigue de respaldo."""
+	from erpnext_proposals.erpnext_proposals.utils.addendum import is_addendum_group
+
 	doc = frappe.get_doc("Quotation", quotation_name)
 	if doc.docstatus != 1 or doc.get("workflow_state") != "Ganada":
+		return
+	# Defensa en profundidad: aunque `_maybe_enqueue_auto_project` ya excluye addendas al encolar, el job
+	# revalida — una addenda nunca crea Project por esta vía.
+	if is_addendum_group(doc.proposal_group):
 		return
 	if doc.get("proposal_project") and frappe.db.exists("Project", doc.proposal_project):
 		return
@@ -408,9 +426,32 @@ def apply_addendum_to_project(quotation: str, project: str) -> dict:
 	project_doc.check_permission("write")
 
 	quotation_doc = frappe.get_doc("Quotation", quotation)
-	# Autoridad comercial + invariantes de versión (reutilizado, sin duplicar guards).
+	# Autoridad comercial + invariantes de versión (reutilizado, sin duplicar guards). Para una addenda,
+	# `assert_can_create_project` valida single-live DENTRO de su propio grupo ROOT-ADD-NN: ADD-01 y ADD-02
+	# son grupos/versionados independientes.
 	assert_can_create_project(quotation_doc)
 	exec_rows = _validate_scope_for_project(quotation_doc)
+
+	# Semántica de addenda (contrato canónico, centralizado en utils.addendum): si la Quotation pertenece
+	# al namespace -ADD-NN, el Project destino NO es arbitrario. Se deriva el ROOT, se resuelve el Project
+	# desde la propuesta raíz Ganada vigente (nunca por nombre) y DEBE coincidir exactamente con el `project`
+	# recibido. Una addenda nunca crea Project (esta primitive no tiene rama de creación).
+	from erpnext_proposals.erpnext_proposals.utils.addendum import (
+		is_addendum_group,
+		resolve_root_group,
+		resolve_root_project,
+	)
+
+	if is_addendum_group(quotation_doc.proposal_group):
+		root = resolve_root_group(quotation_doc.proposal_group)
+		resolved_project = resolve_root_project(root)
+		if project != resolved_project:
+			frappe.throw(
+				_(
+					"El Project recibido ({0}) no coincide con el Project de la propuesta raíz ({1}). "
+					"Una addenda solo puede aplicarse al Project de su grupo raíz."
+				).format(project, resolved_project)
+			)
 
 	# Coherencia con el Project destino (invariantes que la creación garantiza por construcción).
 	if quotation_doc.company != project_doc.company:

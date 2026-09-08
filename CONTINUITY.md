@@ -1,140 +1,90 @@
 # CONTINUITY.md — erpnext_proposals
 
-**Fecha:** 2026-09-04
-**Rama activa:** `feat/catalog-loader-clear-fields` (base `upstream/version-16` = v0.17.0; versión objetivo **0.18.0**)
-**Tarea actual:** **`clear_fields` en `catalog_loader`** — mecanismo genérico, opt-in e idempotente para que un
-catálogo declare `"clear_fields": ["<campo>", ...]` y vacíe campos de un registro existente (nuevo
-`_seed_clear_fields`, `LOADER_CAPS_VERSION`→11). Resuelve que `update_content` no anulaba un campo que
-**desaparece** del catálogo (caso `Proposal Template.sow_print_format` del pack Actiglobal 1.10.0). Opt-in
-(ausencia ≠ borrar), valida campo (existe/no obligatorio/no sistema/no tabla), respeta `update_content`/`dry_run`.
-Tests `test_catalog_clear_fields.py` (7). Suite **591** verde; ruff/format/semgrep/mkdocs limpios.
-**Pendiente (siguiente paso, tras merge):** declarar `clear_fields:["sow_print_format"]` en el pack Actiglobal
-1.10.0 y aplicar en `proposals-acti.dev` para borrar el PF `SOW - Consultoría Microsoft`.
-
----
-
-### Historial previo (v0.17.0, PR #56 mergeado, release v0.17.0)
-Campaña **v0.17.0** publicada como **PR #56** (base `version-16`). CI *Frappe Linter* falló por
-`frappe-translation-trailing-spaces` (espacio inicial dentro de `_()` en `economic_calendar.py:50`, introducido
-por `5fc3d52`); corregido moviendo el espacio fuera del `_()`. **Lección:** el preflight debe incluir **Semgrep
-diff-aware** además de ruff/format/prettier/mkdocs (documentado en `CLAUDE.md` · Antes de cada PR). Todo verde
-(**584** tests).
-
-## Financiamiento CAPEX = plazo contractual único (hecho)
-
-El financiamiento del CAPEX ya NO tiene plazo propio: usa `proposal_contract_term_months` (plazo único de la
-propuesta). Se **eliminaron** `proposal_financing_term_months` (Quotation) y `default_financing_term_months`
-(Proposal Settings) — fixture, allowlist de `hooks.py`, UI/JS, precarga (`_default_financing` solo precarga la
-tasa) y tests. `_effective_financing` lee el plazo del contrato; si el financiamiento está activo y el plazo es
-`≤0` → error fail-closed (aplica a CAPEX-only). **Correspondencia cuota→periodo:** cuota `k` (1-based) → `Mes k-1`
-(0-based); con plazo `T`, cuotas `1..T` ocupan `Mes 0..T-1` (no annuity-due; el PMT sigue vencido). El
-financiamiento **nunca** extiende `economic_horizon_months` (se retiró `financing_extends_horizon`); solo el
-esfuerzo lo extiende (`labor_beyond_term`). UI: sin input de plazo; pista derivada read-only «Plazo: N meses
-(plazo contractual)». ADR-0018 §15. Tests: `test_economic_calendar.py` (41–63). Pendiente de limpieza: el Custom
-Field huérfano `proposal_financing_term_months` sigue en la BD de sites ya migrados (migrate no borra custom
-fields eliminados del fixture); su borrado es una escritura de BD que requiere autorización (sin patch).
-
-## Tema 3 — color de fase + rango autocalculado (definitivo)
-
-`Proposal Phase.color` (Color) se congela en `Task.color` de la Task padre (snapshot; las hijas no lo heredan).
-**`planned_duration_days` fue RECHAZADO y eliminado** (campo, código, ventana mínima, tests): el rango de la
-fase se **autocalcula** = envelope de sus hijas (`inicio=min`, `fin=max`); fase sin hijas fechadas → sin fechas.
-`Project.expected_end_date` = fin más tardío del plan; `expected_start_date` = ancla (fecha de la Cotización).
-Sin segundo scheduler ni auto-expansión posterior (eso es del app `pmo`). Tests: `test_phase_color_range.py`.
-
-## Tema 2 — nombre del Project con Proposal Group al final (hecho)
-
-`create_project_from_quotation` construye `project_name` con el **Grupo de propuesta al final**
-(`_build_project_name`): base = `proposal_title` (o `<cliente> — <grupo>`) + separador + Grupo; no duplica si
-la base ya termina con el grupo; sin grupo conserva la base; respeta el límite 140 (Data) truncando solo la
-base. La idempotencia se mantiene por `quotation.proposal_project` (no por el nombre). Tests:
-`test_project_name.py`.
-
-## Tema 1 — identidad de Scope Items por fila origen (hecho)
-
-La identidad de `Quotation Scope Item` pasa de `(item_code, scope_item)` a **`(source_row, scope_item)`**:
-se materializa **por FILA ORIGEN** (cada `Quotation Item`/`Proposal Required Item`), no por `item_code`. Dos
-filas del mismo Item → materializaciones independientes; `qty` no multiplica; Item compartido → una por Item.
-Campos nuevos read-only en `Quotation Scope Item`: `source_type` (`sold`/`required`) + `source_row` (name de
-la child row origen; Frappe lo asigna antes de `validate`). Generación/add-missing/resync respetan la identidad
-por fila origen; snapshots **legacy** sin `source_row` conservan la semántica por `item_code` (sin backfill).
-`create_project_from_quotation` resuelve dependencias **por ocurrencia** (elimina el *last-wins* por
-`scope_code`): `S1@A1→S2@A1`, `S1@A2→S2@A2`; cross-ocurrencia ambigua → no se inventa regla, se omite y se
-reporta (`dependencies_ambiguous`). Task sigue 1 por Quotation Scope Item. Prerequisito para repetir un Item:
-`Selling Settings · Allow Item to Be Added Multiple Times`. Tests: `test_scope_item_row_identity.py` (10).
-
-## Campaña previa (Evaluación Económica, commit `870ffcb`)
+**Fecha:** 2026-09-07
+**Rama activa:** `feat/addendum-canonical-contract` (base `upstream/version-16` = v0.21.0; versión objetivo **0.22.0**)
+**Tarea actual:** Contrato canónico de addendas `<ROOT>-ADD-<NN>` — implementado y validado; en ciclo `/ship`.
 
 ---
 
 ## Recuperación rápida
 
-Sobre Fase 1 (Items requeridos + costo aditivo) y 1 bis (autoload + procurement por Company), esta campaña
-añade la **Evaluación Económica** completa. Fuente única: **`utils/economic_calendar.get_economic_evaluation`**
-(`get_economic_calendar` la proyecta). El reporte de lectura/aprobación es el Print Format `Rentabilidad
-Estimada` (mismo botón «Vista previa/Descargar rentabilidad» + adjunto oficial). **La pestaña «Evaluación
-Económica» de la Quotation fue retirada** (no se mantienen dos superficies); en el cliente solo queda la UX de
-financiamiento. Ver **ADR-0018**.
+Estoy trabajando en:
+Formalización del **contrato canónico de addendas** en `erpnext_proposals`: semántica única en
+`utils/addendum.py` (reconocimiento/parseo/root, namespace reservado, resolución de Project raíz, creación
+atómica), exclusión estructural de addendas del auto-Project y refuerzo de `apply_addendum_to_project`.
 
-## Qué se implementó en la campaña
+Plan que estoy siguiendo:
+Instrucciones del usuario en la sesión (contrato aprobado punto por punto) + ADR-0019 §5–§6.
 
-**Fase 2A + hardening:** naturaleza NRC/MRC/CAPEX por comportamiento económico por Item/Item Group en
-`Proposal Settings`; calendario relativo `Mes 0…N`; freeze histórico por línea; invariantes `_assert_reconciled`
-→ `EconomicEvaluationError`; determinismo; cadencia recurrente inválida = error; MRC exige plazo; `term_months`
-≠ `economic_horizon_months`.
+Objetivo inmediato:
+Cerrar el ciclo git: `/ship commit` → (si verde) `/ship push` → (si alineado) `/ship pr` contra `version-16`.
+**Detenerse antes del merge** (el merge lo hace el usuario).
 
-**Fase 2B — financiamiento del CAPEX** (capa aditiva; NO toca `total_cost`/`margin` de 2A):
-- Amortización PMT vencida mensual (`_amortize`) + `_effective_financing`; capa `financial_cost` /
-  `total_cost_with_financing` / `margin_after_financing`.
-- Defaults por Company (`default_financing_term_months`/`default_financing_cost_rate`) = **solo precarga** al
-  activar (`_default_financing`); tras eso la **Quotation es autoritativa** — el motor lee tasa/plazo del doc
-  **sin fallback** (una **tasa 0 % explícita es válida**). Freeze por **inmutabilidad** (`allow_on_submit=0`).
-- Custom fields en Quotation: `proposal_financing_enabled/_financed_amount/_financing_term_months/
-  _financing_annual_cost_rate/_financing_fees_amount` (+ section break). Fail-closed (financiado ≤0/>CAPEX,
-  plazo ≤0, tasa <0, comisiones <0, financiamiento sin CAPEX → error). Invariantes 2B en `_assert_reconciled`.
+Criterio de avance:
+Commit con gates verdes (datos-cliente, documental, ruff, mkdocs --strict) y sin cambios inesperados;
+push alineado con el mismo HEAD; PR abierto contra `version-16` con bump 0.22.0.
 
-**Reporte `Rentabilidad Estimada` (presentación, aprobado):** estructura narrativa, paginación por contenido.
-- **APU por componente vendido:** precio → insumos (costo externo, `unit × qty` en CAPEX) → esfuerzo (actividad
-  · perfil · horas · tarifa, + **resumen por perfil**) → costo integrado → margen.
-- **Required Items = costos requeridos**, no productos con margen negativo: bloque «Costos requeridos no
-  asignados» (no hay vínculo de dato Item vendido → Required Item; **sin prorrateo**).
-- **Puente** «Resultado integrado»: margen directo de vendidos − no asignados = operativo − financiero = final.
-- Anexo: **amortización** + **matriz de trazabilidad temporal** compacta (una fila por patrón; recurrentes en
-  rango, financiamiento resumido) + **controles de reconciliación**.
-- Campos descriptivos del motor (sin tocar totales): `unit_price`, `impact_label`, `financeable`,
-  `integrated_cost`, `margin_pct`, `effort`, `effort_by_profile`, `effort_totals`, bloque `apu`, `temporal`.
-- La pestaña de la Quotation se retiró: se eliminaron los custom fields `proposal_economic_tab` /
-  `proposal_economic_evaluation_html` (solo-UI) del fixture, del allowlist de `hooks.py` y de los sites dev.
+---
 
-## Decisiones vigentes que no están en el código
+## Estado actual
 
-- El reporte oficial se genera por **Gotenberg** (Chromium) → PDF limpio; el perfil del PF sigue `legacy`
-  (wkhtmltopdf) porque `proposal_gotenberg_url` **no está configurado** en el entorno de desarrollo. Adoptar
-  Gotenberg de forma estable requiere esa config (ADR-0015). No se hicieron hacks de URL local; el PF oculta la
-  barra de acciones del print-view (`.action-banner`) por CSS.
-- No existe relación de dato Item vendido → Required Item; por eso los costos requeridos quedan en el pool «no
-  asignados». Resolver esa relación queda fuera de alcance de esta campaña.
-- Coexisten dos fuentes económicas: `get_economic_evaluation` (nueva, canónica) y el legacy
-  `get_profitability_data` (Script Report `Profitability Estimate`). No tocar ahora; deprecación a decidir.
+### Ya cerrado
+- `utils/addendum.py`: `is_addendum_group`/`parse_addendum_group`/`resolve_root_group`,
+  `assert_group_not_reserved` (fail-closed), `resolve_root_project`, `create_addendum_quotation` (atómica,
+  lock `FOR UPDATE` por ROOT, addenda = delta sin copiar items/scope/`proposal_project`/template).
+- Guards integrados: `quotation.py` (namespace reservado en `before_insert`), `workflow_validations.py`
+  (exclusión auto-Project al encolar), `project.py` (job + `create_project_from_quotation` fail-closed +
+  match del Project raíz en `apply_addendum_to_project`).
+- `tests/test_addendum.py` (19 tests) — verde. Suite completa 676/677.
+- Docs: ADR-0019 §5–§6, CHANGELOG (`[No liberado]`), arquitectura.md. `__version__` → 0.22.0.
 
-## No repetir
+### En progreso
+- `/ship commit` de la rama.
 
-- **Fuente única de cálculo:** todo (Script Report / PF / PDF) consume `get_economic_evaluation`; no
-  reimplementar totales ni la distribución temporal en ningún consumidor.
-- NRC/MRC/CAPEX es **presentación** inferida de la config; preventa **no** clasifica por línea ni captura
-  cadencias. El importe sale de la propuesta; sin re-captura de precio.
-- Cadencia inválida / MRC sin plazo → **error explícito**, nunca fallback silencioso.
-- QtWebKit (wkhtmltopdf sin parchar) **no** soporta `var()` CSS ni gradientes → hex literal, sin flexbox; KPIs
-  en tablas. Válido en wkhtmltopdf y Gotenberg.
+### Pendiente inmediato
+1. Confirmar commit (mensaje `feat(proposals): contrato canónico de addendas <ROOT>-ADD-<NN> (v0.22.0)`).
+2. `/ship push` si el commit queda verde.
+3. `/ship pr` contra `version-16`; detenerse antes del merge.
 
-## Próximo paso
+### No repetir
+- No volver a cambiar la versión (ya en 0.22.0).
+- No intentar corregir `test_09b` (#60): falla **ambiental** local (`allow_multiple_items=1`), pasa en CI.
+  No manipular `Selling Settings` para verde artificial.
+- No tocar `pmo`. No agregar campos `addendum_of`. No crear ADR nuevo (ADR-0019 ampliado).
+- La primitive NO es "calcular string y crear después": generación+insert atómicos bajo lock por ROOT.
 
-Commit de control (sin push/PR). Para publicar: `/ship push` (autorización aparte) → `/ship pr` hacia
-`version-16` (con gate de versionado contra `upstream/main`). Fase 2C (cobros/cash flow, VPN/TIR,
-FX/escalamiento) queda diferida.
+---
 
-## Plan que estoy siguiendo
+## Decisiones vigentes
+- `proposal_group` sigue **opaco** para el resto de la app; solo `utils/addendum.py` conoce la semántica.
+- `Ganada` = aprobación comercial. Una addenda NUNCA crea Project; su alcance se incorpora al Project raíz
+  **después**, por aplicación explícita gobernada por PMO (`apply_addendum_to_project`).
+- Addenda-delta vacía: se inicializan totales en 0 (ERPNext hace early-return sin items y deja totales en None).
+- Contrato consumible por `pmo` documentado en ADR-0019 §6 (firmas/excepciones/condición transaccional/versión).
 
-Campaña de Evaluación Económica (ADR-0018), rama `feat/required-items`. Estado: **implementada, endurecida y
-con presentación aprobada; lista para commit de control**. Suite: **548/548**. `ruff`/`format`/`prettier`/
-`mkdocs --strict`: limpios.
+---
+
+## Archivos relevantes ahora
+
+### Leer primero
+- `erpnext_proposals/erpnext_proposals/utils/addendum.py` (módulo canónico)
+- `docs/adr/0019-aplicar-addendum-a-project-existente.md` (§5–§6)
+
+### Probablemente editar
+- Ninguno (implementación cerrada; solo ciclo git).
+
+### No tocar
+- `pmo` (repo externo). `Selling Settings` en el site de tests.
+
+---
+
+## Riesgos / cuidados
+- Semgrep no está instalado localmente (no modificar el ambiente sin permiso). Revisión manual conforme;
+  CI lo aplica sobre el diff.
+- `one_offs/scan_groups.py` es gitignored — nunca commitear.
+
+---
+
+## Información faltante
+- Ninguna para cerrar el PR. La aplicación real desde `pmo` (creación + aplicación de addenda end-to-end)
+  se ejercita en el ciclo de `pmo`, fuera de este PR.

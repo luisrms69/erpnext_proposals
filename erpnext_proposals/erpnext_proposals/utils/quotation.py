@@ -24,6 +24,14 @@ def on_quotation_before_insert(doc, method=None):
 	if not doc.get("proposal_group") and doc.get("crm_deal"):
 		doc.proposal_group = doc.get("crm_deal")
 
+	# Namespace reservado -ADD-NN (fail-closed): una Quotation normal creada manualmente no puede
+	# introducir un grupo de addenda. Solo lo permiten los flujos autorizados (creación de addenda /
+	# versionado que conserva el grupo), señalados por flags transitorios. Semántica centralizada en
+	# utils.addendum — proposal_group sigue siendo opaco para el resto de la app.
+	from erpnext_proposals.erpnext_proposals.utils.addendum import assert_group_not_reserved
+
+	assert_group_not_reserved(doc)
+
 	has_previous = bool(getattr(doc, "previous_proposal", None))
 	has_group = bool(getattr(doc, "proposal_group", None))
 
