@@ -134,25 +134,30 @@ def _validate_blocking(doc):
 
 
 def _warn_non_blocking(doc):
-	scope_rows = [r for r in doc.quotation_scope_items if r.include_in_proposal]
+	from erpnext_proposals.erpnext_proposals.utils.cost_matrix import get_designation_cost
 
-	missing_activity = sum(1 for r in scope_rows if not r.activity_type)
-	missing_rate = 0
-	for r in scope_rows:
-		if r.activity_type:
-			rate = frappe.db.get_value("Activity Type", r.activity_type, "costing_rate") or 0
-			if not rate:
-				missing_rate += 1
+	# Filas costables = las mismas que costea el reporte (vendibles O internas de costo).
+	scope_rows = [r for r in doc.quotation_scope_items if r.include_in_proposal or r.is_internal_cost_task]
+
+	# Costo laboral incompleto = filas SIN tarifa resoluble. `Activity Type` NO es requisito: el motor
+	# (`get_designation_cost`) resuelve por tarifa específica (Designation + Activity Type), por tarifa
+	# GENERAL de la Designation (`is_general_rate=1`) o por Activity Type. Solo se marca incompleto cuando
+	# ninguna fuente resuelve una tarifa (`sin_datos` → 0). No se exige Activity Type.
+	missing_rate = sum(
+		1 for r in scope_rows if not flt(get_designation_cost(r.designation, r.activity_type)[0])
+	)
 
 	company_currency = (
 		frappe.db.get_value("Company", doc.company, "default_currency") if doc.company else None
 	)
 
 	msgs = []
-	if missing_activity:
-		msgs.append(_("{0} tarea(s) sin activity_type — costo laboral incompleto.").format(missing_activity))
 	if missing_rate:
-		msgs.append(_("{0} tarea(s) sin costing_rate — costo laboral incompleto.").format(missing_rate))
+		msgs.append(
+			_(
+				"{0} tarea(s) sin tarifa de costo resoluble (Designation sin tarifa) — costo laboral incompleto."
+			).format(missing_rate)
+		)
 	if company_currency and doc.currency != company_currency:
 		msgs.append(
 			_("Moneda de Quotation ({0}) difiere de moneda base ({1}).").format(

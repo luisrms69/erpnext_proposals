@@ -2,6 +2,17 @@
 
 ## [No liberado]
 
+### Fixed — Warning de costeo alineado con `get_designation_cost` (Activity Type opcional)
+- `_warn_non_blocking` (transición a «En Revisión») ya no marca «costo laboral incompleto» por la sola
+  ausencia de `Activity Type` cuando la Designation tiene una **tarifa general válida** en Proposal Cost
+  Matrix. El warning ahora consulta el **mismo motor de costeo** (`get_designation_cost`: tarifa específica
+  Designation+Activity Type → tarifa **general** por Designation `is_general_rate=1` → Activity Type) y solo
+  advierte cuando **ninguna** fuente resuelve una tarifa (`sin_datos`). Evalúa las filas costables reales
+  (vendibles **o** internas de costo). **No** modifica el motor de costeo ni `get_designation_cost`.
+  Versión: **0.22.1**.
+
+## v0.22.0
+
 ### Added — Contrato canónico de addendas `<ROOT>-ADD-<NN>` (ADR-0019 §5–§6)
 - **Identidad de addenda por `proposal_group`:** una addenda es una Quotation cuyo grupo casa el patrón
   reservado `ROOT-ADD-NN`. La propuesta original conserva su grupo (ROOT); cada addenda usa un grupo **nuevo**
