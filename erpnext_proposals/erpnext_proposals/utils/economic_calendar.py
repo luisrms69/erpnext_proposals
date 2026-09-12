@@ -140,8 +140,12 @@ def _distribute_over_months(offset_days: int, duration_days: int, is_milestone, 
 
 
 def _labor_rate_source(row, is_frozen: bool) -> tuple:
-	"""Tarifa laboral por hora + **fuente**: snapshot congelado en submitted; en vivo (Cost Matrix) en Borrador."""
-	if is_frozen and row.get("rate_locked") and flt(row.get("costing_rate")):
+	"""Tarifa laboral por hora + **fuente**: snapshot congelado en submitted; en vivo (Cost Matrix) en Borrador.
+
+	`rate_locked=1` significa tarifa **CONGELADA** — incluso si `costing_rate=0` (un 0 legítimamente congelado
+	NO debe reconsultar la Cost Matrix vigente). Solo se resuelve en vivo cuando NO está locked (Borrador o
+	fila submitted sin snapshot; esta última la bloquea `project_economics._assert_frozen_economics`)."""
+	if is_frozen and row.get("rate_locked"):
 		return flt(row.get("costing_rate")), (row.get("rate_source") or "frozen")
 	rate, source = get_designation_cost(row.get("designation"), row.get("activity_type"))
 	return flt(rate), source

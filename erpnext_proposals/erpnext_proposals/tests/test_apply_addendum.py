@@ -151,7 +151,7 @@ class TestApplyAddendum(unittest.TestCase):
 
 	# ── Helpers ──────────────────────────────────────────────────────────────
 
-	def _quotation(self, company, cc, customer, ganada=True, group=None):
+	def _quotation(self, company, cc, customer, ganada=True, group=None, addendum=False):
 		doc = frappe.get_doc(
 			{
 				"doctype": "Quotation",
@@ -168,13 +168,16 @@ class TestApplyAddendum(unittest.TestCase):
 				"items": [{"item_code": ITEM, "item_name": ITEM, "qty": 1, "rate": 1000, "uom": "Nos"}],
 			}
 		)
+		if addendum:
+			# Grupo reservado ROOT-ADD-NN: solo se admite con el flag transitorio de creación de addenda.
+			doc.flags.from_addendum_creation = True
 		doc.insert(ignore_permissions=True, ignore_mandatory=True)
 		self.__class__._q.append(doc.name)
 		if ganada:
 			doc.reload()
 			doc.flags.ignore_mandatory = True
 			doc.flags.ignore_links = True
-			doc.submit()
+			doc.submit()  # before_submit → freeze_proposal + assert_economic_snapshot_complete
 			frappe.db.set_value("Quotation", doc.name, "workflow_state", "Ganada", update_modified=False)
 		return frappe.get_doc("Quotation", doc.name)
 
@@ -183,6 +186,13 @@ class TestApplyAddendum(unittest.TestCase):
 		res = create_project_from_quotation(a.name)
 		self.__class__._p.append(res["project"])
 		return a, res["project"]
+
+	def _addendum(self, root_doc, company=None, cc=None, customer=CUST_A, ganada=True, seq=1):
+		"""Addenda canónica ``ROOT-ADD-NN`` del grupo de ``root_doc`` (Opción A: solo addendas se aplican)."""
+		grp = f"{root_doc.proposal_group}-ADD-{seq:02d}"
+		return self._quotation(
+			company or self.company, cc or self.cc, customer, ganada=ganada, group=grp, addendum=True
+		)
 
 	def _tasks(self, project):
 		return set(frappe.get_all("Task", filters={"project": project}, pluck="name"))
@@ -208,10 +218,10 @@ class TestApplyAddendum(unittest.TestCase):
 	# ── Tests ────────────────────────────────────────────────────────────────
 
 	def test_apply_adds_tasks_reuses_project(self):
-		_a, proj = self._base_project()
+		a, proj = self._base_project()
 		a_tasks = self._tasks(proj)
 		n_projects = frappe.db.count("Project")
-		b = self._quotation(self.company, self.cc, CUST_A)
+		b = self._addendum(a)
 		res = apply_addendum_to_project(b.name, proj)
 		self.assertEqual(res["project"], proj)
 		self.assertEqual(frappe.db.get_value("Quotation", b.name, "proposal_project"), proj)
@@ -221,8 +231,8 @@ class TestApplyAddendum(unittest.TestCase):
 		self.assertGreater(len(now), len(a_tasks), "Tasks de B agregadas")
 
 	def test_second_application_idempotent(self):
-		_a, proj = self._base_project()
-		b = self._quotation(self.company, self.cc, CUST_A)
+		a, proj = self._base_project()
+		b = self._addendum(a)
 		apply_addendum_to_project(b.name, proj)
 		after1 = self._tasks(proj)
 		res2 = apply_addendum_to_project(b.name, proj)
@@ -230,58 +240,54 @@ class TestApplyAddendum(unittest.TestCase):
 		self.assertEqual(res2["tasks_created"], 0)
 
 	def test_addendum_never_creates_project(self):
-		_a, proj = self._base_project()
+		a, proj = self._base_project()
 		n = frappe.db.count("Project")
-		b = self._quotation(self.company, self.cc, CUST_A)
+		b = self._addendum(a)
 		apply_addendum_to_project(b.name, proj)
 		self.assertEqual(frappe.db.count("Project"), n, "el path de addendum nunca crea Project")
 
+	def test_normal_group_rejected(self):
+		"""Opción A: una Quotation de grupo NORMAL no puede aplicarse a un Project existente."""
+		_a, proj = self._base_project()
+		b = self._quotation(self.company, self.cc, CUST_A)  # grupo normal, NO addenda
+		with self.assertRaises(ValidationError):
+			apply_addendum_to_project(b.name, proj)
+
 	def test_project_must_exist(self):
-		b = self._quotation(self.company, self.cc, CUST_A)
+		a, _proj = self._base_project()
+		b = self._addendum(a)
 		with self.assertRaises(ValidationError):
 			apply_addendum_to_project(b.name, "PROJ-NO-EXISTE-ADD")
 
 	def test_company_mismatch(self):
-		_a, proj = self._base_project()  # company A
-		b = self._quotation(self.company_b, self.cc_b, CUST_A)  # company B, mismo customer
+		a, proj = self._base_project()  # company A
+		b = self._addendum(a, company=self.company_b, cc=self.cc_b)  # addenda con company B
 		with self.assertRaises(ValidationError):
 			apply_addendum_to_project(b.name, proj)
 
 	def test_customer_mismatch(self):
-		_a, proj = self._base_project()  # customer A
-		b = self._quotation(self.company, self.cc, CUST_B)  # customer B, misma company
+		a, proj = self._base_project()  # customer A
+		b = self._addendum(a, customer=CUST_B)  # addenda con customer B
 		with self.assertRaises(ValidationError):
 			apply_addendum_to_project(b.name, proj)
 
-	def test_already_linked_to_other_project(self):
-		_a, proj = self._base_project()
+	def test_wrong_project_rejected(self):
+		"""Una addenda solo se aplica al Project de su root; a otro Project falla cerrado."""
+		a, _proj = self._base_project()
 		_a2, proj2 = self._base_project()
-		b = self._quotation(self.company, self.cc, CUST_A)
-		apply_addendum_to_project(b.name, proj)  # asocia b -> proj
+		b = self._addendum(a)
 		with self.assertRaises(ValidationError):
 			apply_addendum_to_project(b.name, proj2)
 
-	def test_guard_not_ganada_reused(self):
-		_a, proj = self._base_project()
-		b = self._quotation(self.company, self.cc, CUST_A, ganada=False)  # Borrador
+	def test_guard_not_ganada(self):
+		a, proj = self._base_project()
+		b = self._addendum(a, ganada=False)  # Borrador
 		with self.assertRaises(ValidationError):
 			apply_addendum_to_project(b.name, proj)
 
-	def test_guard_single_live_violation_reused(self):
-		# El invariante single-live se enforce en escritura (no se pueden crear dos vivas en un grupo);
-		# aquí forzamos el estado inválido por db.set_value para verificar el guard DEFENSIVO que
-		# `apply_addendum` reutiliza vía assert_can_create_project.
-		_a, proj = self._base_project()
-		grp = "ADD-GRP-" + frappe.generate_hash(length=5)
-		self._quotation(self.company, self.cc, CUST_A, ganada=True, group=grp)  # 1ª viva en grp
-		b2 = self._quotation(self.company, self.cc, CUST_A, ganada=True)  # viva en su propio grupo
-		frappe.db.set_value("Quotation", b2.name, "proposal_group", grp, update_modified=False)
-		with self.assertRaises(ValidationError):
-			apply_addendum_to_project(b2.name, proj)
-
 	def test_no_internal_commit_in_addendum_path(self):
-		_a, proj = self._base_project()  # este create SÍ commitea (antes del patch)
-		b = self._quotation(self.company, self.cc, CUST_A)
+		a, proj = self._base_project()  # este create SÍ commitea (antes del patch)
+		b = self._addendum(a)
 		calls = {"n": 0}
 		orig = frappe.db.commit
 
@@ -296,8 +302,8 @@ class TestApplyAddendum(unittest.TestCase):
 		self.assertEqual(calls["n"], 0, "el path de addendum no debe hacer frappe.db.commit()")
 
 	def test_failure_mid_materialization_no_association(self):
-		_a, proj = self._base_project()
-		b = self._quotation(self.company, self.cc, CUST_A)
+		a, proj = self._base_project()
+		b = self._addendum(a)
 		orig = project_mod._materialize_scope_into_project
 
 		def _boom(*a, **k):
@@ -315,8 +321,8 @@ class TestApplyAddendum(unittest.TestCase):
 		)
 
 	def test_permission_write_required_and_no_proposals_manager(self):
-		_a, proj = self._base_project()
-		b = self._quotation(self.company, self.cc, CUST_A)
+		a, proj = self._base_project()
+		b = self._addendum(a)
 		writer = self._ensure_user("add-writer@example.com", ["Projects User"])
 		reader = self._ensure_user("add-reader@example.com", ["Blogger"])
 		if "Projects User" not in frappe.get_roles(writer):

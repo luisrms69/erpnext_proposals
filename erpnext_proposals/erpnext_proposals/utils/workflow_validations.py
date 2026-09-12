@@ -26,6 +26,16 @@ def on_quotation_validate_workflow(doc, method=None):
 def _on_workflow_transition(doc, old_state: str, new_state: str):
 	"""Dispatch validation and traceability logic based on the state transition."""
 
+	# Defensa en profundidad (invariante de producto): una propuesta ya submitted+congelada no puede avanzar
+	# por workflow si su economía congelada está incompleta (corrupción/regresión). Misma validación canónica
+	# que el submit y el contrato económico. Se EXCLUYE la transición Borrador→En Revisión: es la que
+	# SUBMIT+congela (Frappe fija docstatus=1 ANTES de validar, y el freeze corre en esta misma transición y
+	# en before_submit); esa ruta la valida `on_quotation_before_submit` DESPUÉS del freeze.
+	if doc.docstatus == 1 and not (old_state == "Borrador" and new_state == "En Revision"):
+		from erpnext_proposals.erpnext_proposals.utils.quotation import assert_economic_snapshot_complete
+
+		assert_economic_snapshot_complete(doc)
+
 	# Borrador → En Revision: validate, warn, FREEZE proposal and attach PDFs
 	# Note: Rechazada → Borrador is impossible at doc level since Rechazada has
 	# doc_status=1. Frappe blocks all transitions from submitted to draft natively.

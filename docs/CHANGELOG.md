@@ -2,6 +2,31 @@
 
 ## [No liberado]
 
+### Added — Contrato económico canónico Project ↔ Quotations (ADR-0020)
+- **`utils/project_economics.py`**: `get_project_authorized_economics(project)` responde el **autorizado
+  vigente** del Project = **Original (root) + Σ(addendas aplicadas)** por magnitud independiente (revenue,
+  cost, margin, labor, external); `authorized_margin_pct` **derivado** (nunca sumado). `financing_excluded`.
+  Fuente única = motor de Evaluación Económica (`totals`, sin financiamiento); no reimplementa fórmulas.
+- **`sync_project_authorized_cost(project)`** espeja `Project.estimated_costing = authorized_cost`
+  (`set_value(update_modified=False)`, sin `save()`/`update_costing`): idempotente, desde cero, sin flag; una
+  edición manual se corrige al siguiente sync. Integrado en `create_project_from_quotation` (post-materialize,
+  pre-commit) y `apply_addendum_to_project` (post-asociación, sin commit interno → rollback atómico externo).
+- **Raíz canónica** resuelta por `proposal_project` (Ganada+submitted+no superseded+grupo normal, **exactamente
+  una**; 0 o >1 → fail-closed); addendas aplicadas por `proposal_project==project`. No usa `pmo` ni
+  `PMO Change Request.impact_amount`.
+- **Cambio de #59 (contrato):** `apply_addendum_to_project` ahora acepta **solo addendas `ROOT-ADD-NN`**; una
+  Quotation de grupo normal ya no puede aplicarse a un Project existente (`1 Project = 1 raíz + N addendas`).
+  `pmo` no se ve afectado. Tests heredados migrados al flujo canónico.
+- **Invariante de congelamiento validado (defensa en profundidad):** validación canónica única
+  `assert_economic_snapshot_complete` reutilizada por `before_submit`, transiciones de workflow y el contrato
+  económico — una propuesta formal nunca opera con datos vivos ni con snapshot incompleto (fail-closed).
+- **Fix (motor):** `rate_locked=1` con `costing_rate=0` es congelamiento **válido** (0 legítimo) y ya no
+  reconsulta la Cost Matrix; alineado en `economic_calendar._labor_rate_source` **y** `profitability_estimate`.
+- **Moneda v1:** solo moneda base con `conversion_rate≈1`; moneda incompatible bloquea la sync (sin FX).
+  Sin migración/backfill/patches. Sin tocar `pmo`. Versión: **0.23.0**.
+
+## v0.22.1
+
 ### Fixed — Warning de costeo alineado con `get_designation_cost` (Activity Type opcional)
 - `_warn_non_blocking` (transición a «En Revisión») ya no marca «costo laboral incompleto» por la sola
   ausencia de `Activity Type` cuando la Designation tiene una **tarifa general válida** en Proposal Cost

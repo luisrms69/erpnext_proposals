@@ -61,7 +61,9 @@ def get_profitability_data(quotation_name: str) -> dict:
 
 	for row in scope_rows_raw:
 		# Use frozen snapshot for submitted quotations; recalculate for drafts.
-		use_frozen = is_submitted and row.rate_locked and flt(row.costing_rate)
+		# rate_locked=1 => tarifa CONGELADA (incluso 0): un 0 legítimamente congelado NO reconsulta la Cost
+		# Matrix vigente (paridad con economic_calendar._labor_rate_source).
+		use_frozen = is_submitted and row.rate_locked
 
 		if use_frozen:
 			costing_rate = flt(row.costing_rate)
