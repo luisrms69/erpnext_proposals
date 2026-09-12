@@ -162,6 +162,10 @@ def on_quotation_before_update_after_submit(doc, method=None):
 def on_quotation_before_submit(doc, method=None):
 	"""Fallback freeze at submit time for documents without a prior snapshot."""
 	freeze_proposal(doc)
+	# Endurecimiento (defensa en profundidad): tras congelar, exigir que el snapshot quedó COMPLETO. Si el
+	# freeze dejó algo sin poblar (bug/regresión), el submit FALLA — una propuesta formal nunca existe sin
+	# snapshot económico completo. Nunca hay fallback a datos vivos.
+	assert_economic_snapshot_complete(doc)
 
 
 def _dependency_codes_map(scope_item_names: list) -> dict:
@@ -935,6 +939,48 @@ def _freeze_economic_behavior(doc) -> None:
 		row.economic_behavior = behavior
 		row.billing_interval = interval or ""
 		row.billing_interval_count = int(count or 0)
+
+
+def assert_economic_snapshot_complete(doc) -> None:
+	"""Validación CANÓNICA ÚNICA del invariante de producto: una propuesta formal nunca existe/avanza sin
+	snapshot económico COMPLETO. Reutilizada por: ``on_quotation_before_submit`` (tras ``freeze_proposal``),
+	las transiciones de workflow de propuestas submitted, y el contrato económico (``project_economics``).
+
+	Exige, por línea: cada Scope Item costable (vendible o interno de costo) con ``rate_locked``; cada Item
+	vendido con ``proposal_cost_locked`` + ``proposal_economic_behavior``; cada Required con ``cost_locked`` +
+	``economic_behavior``. Si falta algo → fail-closed (nunca se opera con datos vivos). No repara ni
+	reconstruye: solo detecta corrupción/regresión. (Nota: ``rate_locked=1`` con ``costing_rate=0`` es un
+	congelamiento válido — un 0 legítimo; ver ``economic_calendar._labor_rate_source``.)
+
+	Solo aplica a propuestas FORMALES: las que se congelan tienen ``proposal_template`` (``freeze_proposal``
+	retorna temprano sin template; y la transición a En Revisión / ``create_project`` lo exigen). Una
+	Quotation SIN template no es una propuesta formal y nunca se congela → no se le exige snapshot (mismo
+	gate que el freeze; evita falsos positivos en cálculos en vivo/aislados)."""
+	if not doc.get("proposal_template"):
+		return
+	missing = []
+	for row in doc.get("quotation_scope_items") or []:
+		if (row.get("include_in_proposal") or row.get("is_internal_cost_task")) and not row.get(
+			"rate_locked"
+		):
+			missing.append(f"Scope '{row.get('code') or row.get('scope_item')}': sin rate_locked")
+	for row in doc.get("items") or []:
+		if not row.get("proposal_cost_locked"):
+			missing.append(f"Item '{row.get('item_code')}': sin proposal_cost_locked")
+		if not row.get("proposal_economic_behavior"):
+			missing.append(f"Item '{row.get('item_code')}': sin proposal_economic_behavior")
+	for row in doc.get("required_items") or []:
+		if not row.get("cost_locked"):
+			missing.append(f"Required '{row.get('item')}': sin cost_locked")
+		if not row.get("economic_behavior"):
+			missing.append(f"Required '{row.get('item')}': sin economic_behavior")
+	if missing:
+		frappe.throw(
+			_(
+				"Snapshot económico incompleto en {0}: una propuesta formal no puede existir ni avanzar sin "
+				"congelamiento completo (fail-closed, sin datos vivos). Faltantes: {1}"
+			).format(doc.name, "; ".join(missing[:8]))
+		)
 
 
 def attach_proposal_pdfs(doc) -> None:

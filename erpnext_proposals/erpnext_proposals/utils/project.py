@@ -217,6 +217,11 @@ def create_project_from_quotation(quotation_name: str):
 		)
 
 	res = _materialize_scope_into_project(quotation, project, exec_rows)
+	# Contrato económico: espeja Project.estimated_costing con el autorizado (root recién creado) ANTES del
+	# commit existente, para que un fallo económico no deje un Project económicamente incompleto.
+	from erpnext_proposals.erpnext_proposals.utils.project_economics import sync_project_authorized_cost
+
+	sync_project_authorized_cost(project.name)
 	frappe.db.commit()  # nosemgrep
 	return res
 
@@ -442,16 +447,25 @@ def apply_addendum_to_project(quotation: str, project: str) -> dict:
 		resolve_root_project,
 	)
 
-	if is_addendum_group(quotation_doc.proposal_group):
-		root = resolve_root_group(quotation_doc.proposal_group)
-		resolved_project = resolve_root_project(root)
-		if project != resolved_project:
-			frappe.throw(
-				_(
-					"El Project recibido ({0}) no coincide con el Project de la propuesta raíz ({1}). "
-					"Una addenda solo puede aplicarse al Project de su grupo raíz."
-				).format(project, resolved_project)
-			)
+	# Opción A (contrato económico): SOLO addendas canónicas «ROOT-ADD-NN» pueden aplicarse a un Project
+	# existente. Una propuesta de grupo normal nunca es un "cambio" aplicable → el modelo queda por
+	# construcción «1 Project = 1 raíz + N addendas», que hace válido el invariante de root única.
+	if not is_addendum_group(quotation_doc.proposal_group):
+		frappe.throw(
+			_(
+				"apply_addendum_to_project solo acepta addendas canónicas «ROOT-ADD-NN». Una Cotización de "
+				"grupo normal ({0}) no puede aplicarse a un Project existente."
+			).format(quotation_doc.proposal_group)
+		)
+	root = resolve_root_group(quotation_doc.proposal_group)
+	resolved_project = resolve_root_project(root)
+	if project != resolved_project:
+		frappe.throw(
+			_(
+				"El Project recibido ({0}) no coincide con el Project de la propuesta raíz ({1}). "
+				"Una addenda solo puede aplicarse al Project de su grupo raíz."
+			).format(project, resolved_project)
+		)
 
 	# Coherencia con el Project destino (invariantes que la creación garantiza por construcción).
 	if quotation_doc.company != project_doc.company:
@@ -478,6 +492,13 @@ def apply_addendum_to_project(quotation: str, project: str) -> dict:
 	# previo nunca queda una asociación engañosa; sin commit interno, un rollback externo revierte todo).
 	if not quotation_doc.proposal_project:
 		frappe.db.set_value("Quotation", quotation, "proposal_project", project, update_modified=False)
+	# Contrato económico: la asociación ya quedó fijada (el helper identifica las addendas aplicadas por
+	# proposal_project==project). Recomputa el autorizado COMPLETO (root + addendas aplicadas) y espeja
+	# Project.estimated_costing. Sin commit interno: un fallo aquí revierte Tasks + asociación +
+	# estimated_costing con la transacción externa de PMO.
+	from erpnext_proposals.erpnext_proposals.utils.project_economics import sync_project_authorized_cost
+
+	sync_project_authorized_cost(project)
 	return result
 
 
