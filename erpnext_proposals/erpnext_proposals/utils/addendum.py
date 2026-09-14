@@ -21,10 +21,13 @@ Concurrencia: la generación de la secuencia ``ADD-NN`` y la creación de la Quo
 `create_new_proposal_version`). No existe "reservar el string ahora y crear después".
 """
 
+import hashlib
+import json
 import re
 
 import frappe
 from frappe import _
+from frappe.utils import flt
 
 from erpnext_proposals.erpnext_proposals.utils.permissions import assert_can_manage_proposals
 
@@ -247,3 +250,125 @@ def create_addendum_quotation(root_quotation: str) -> str:
 	new_doc.flags.skip_scope_generation = True
 	new_doc.insert(ignore_permissions=True, ignore_mandatory=True)
 	return new_doc.name
+
+
+# ── Huella canónica del delta de addenda (ADR-0019 §7.2; porción económica vía ADR-0020) ──────────
+
+
+def _canon_dependency_codes(raw) -> list:
+	"""Canonicaliza `dependency_scope_item_codes` (almacenado como JSON string de una lista de códigos) a
+	una lista ordenada de strings. Neutraliza diferencias irrelevantes de serialización (espaciado, orden):
+	solo importa el CONJUNTO de códigos declarado. Vacío/invalido → []."""
+	if not raw:
+		return []
+	try:
+		parsed = json.loads(raw) if isinstance(raw, str) else raw
+	except ValueError, TypeError:
+		return []
+	if not isinstance(parsed, list):
+		return []
+	return sorted(str(c) for c in parsed)
+
+
+def _canon_sort(rows: list) -> list:
+	"""Ordena las filas por su representación canónica preservando MULTIPLICIDAD (no deduplica): el orden
+	FÍSICO de los child rows deja de influir, pero dos filas idénticas siguen contando como dos."""
+	return sorted(rows, key=lambda r: json.dumps(r, sort_keys=True, ensure_ascii=False))
+
+
+def _addendum_delta_payload(doc) -> dict:
+	"""Construye el payload SEMÁNTICO CONGELADO del delta de la addenda (sin identificadores técnicos).
+
+	- Ingreso (Quotation Item): item_code, uom, qty, rate, net_amount + comportamiento económico congelado
+	  (proposal_economic_behavior / proposal_billing_interval / _count) — la porción económica del delta se
+	  define/consume vía ADR-0020, para que un cambio de recurrencia (NRC/MRC/CAPEX) NO produzca la misma huella.
+	- Labor (Quotation Scope Item): code, estimated_hours, activity_type, designation, costing_rate (rate
+	  congelado) + planificación (offset/duración/milestone/dependencias canonicalizadas).
+	- External (Proposal Required Item): item, qty, uom, frozen_cost_rate, economic_behavior, billing_interval/_count.
+
+	Valores numéricos normalizados con `flt(x, 6)` para estabilidad; strings None → "". Multiplicidad preservada."""
+	revenue = [
+		{
+			"item_code": r.get("item_code") or "",
+			"uom": r.get("uom") or "",
+			"qty": flt(r.get("qty"), 6),
+			"rate": flt(r.get("rate"), 6),
+			"net_amount": flt(r.get("net_amount"), 6),
+			"economic_behavior": r.get("proposal_economic_behavior") or "",
+			"billing_interval": r.get("proposal_billing_interval") or "",
+			"billing_interval_count": int(r.get("proposal_billing_interval_count") or 0),
+		}
+		for r in (doc.get("items") or [])
+	]
+	labor = [
+		{
+			"code": s.get("code") or "",
+			"estimated_hours": flt(s.get("estimated_hours"), 6),
+			"activity_type": s.get("activity_type") or "",
+			"designation": s.get("designation") or "",
+			"costing_rate": flt(s.get("costing_rate"), 6),
+			"planned_start_offset_days": flt(s.get("planned_start_offset_days"), 6),
+			"planned_duration_days": flt(s.get("planned_duration_days"), 6),
+			"is_milestone": int(bool(s.get("is_milestone"))),
+			"dependency_scope_item_codes": _canon_dependency_codes(s.get("dependency_scope_item_codes")),
+		}
+		for s in (doc.get("quotation_scope_items") or [])
+	]
+	external = [
+		{
+			"item": r.get("item") or "",
+			"qty": flt(r.get("qty"), 6),
+			"uom": r.get("uom") or "",
+			"frozen_cost_rate": flt(r.get("frozen_cost_rate"), 6),
+			"economic_behavior": r.get("economic_behavior") or "",
+			"billing_interval": r.get("billing_interval") or "",
+			"billing_interval_count": int(r.get("billing_interval_count") or 0),
+		}
+		for r in (doc.get("required_items") or [])
+	]
+	return {
+		"revenue": _canon_sort(revenue),
+		"labor": _canon_sort(labor),
+		"external": _canon_sort(external),
+	}
+
+
+def _canonical_hash(payload: dict) -> str:
+	"""SHA-256 de la serialización canónica determinista (claves ordenadas, sin espacios, UTF-8)."""
+	canonical = json.dumps(payload, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
+	return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def get_addendum_delta_fingerprint(quotation: str) -> str:
+	"""Huella canónica y estable del delta SEMÁNTICO CONGELADO de una addenda formal (ADR-0019 §7.2; la
+	porción económica se define/consume vía ADR-0020). **Read-only, server-side, NO whitelisted.**
+
+	Fail-closed: exige addenda canónica `ROOT-ADD-NN`, formal (`docstatus >= 1`) y snapshot económico
+	completo (`assert_economic_snapshot_complete`). No hay huella estable para un Borrador. La huella depende
+	SOLO del contenido semántico congelado (no de `name`, versión, `proposal_project`, timestamps ni IDs
+	técnicos): una nueva versión con el mismo delta produce la MISMA huella. Preserva multiplicidad de filas.
+
+	Consumo futuro por `pmo` (registro de gobernanza + guard de `apply`, fail-closed). Este bloque entrega
+	solo la primitive; `pmo` no calcula la huella, la consume. No persiste nada."""
+	doc = frappe.get_doc("Quotation", quotation)
+
+	if not is_addendum_group(doc.get("proposal_group")):
+		frappe.throw(
+			_("get_addendum_delta_fingerprint solo aplica a addendas canónicas «ROOT-ADD-NN» ({0}).").format(
+				doc.get("proposal_group") or "—"
+			)
+		)
+	if int(doc.docstatus or 0) < 1:
+		frappe.throw(
+			_(
+				"La huella del delta solo es estable en una addenda formal (docstatus ≥ 1). "
+				"Un Borrador no tiene huella comparable."
+			)
+		)
+
+	# Integridad del snapshot congelado (fail-closed): nunca se calcula huella sobre datos incompletos.
+	from erpnext_proposals.erpnext_proposals.utils.quotation import assert_economic_snapshot_complete
+
+	assert_economic_snapshot_complete(doc)
+
+	return _canonical_hash(_addendum_delta_payload(doc))
