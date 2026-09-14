@@ -128,6 +128,8 @@ def _maybe_enqueue_won_notification(doc) -> None:
 
 
 def _validate_blocking(doc):
+	from erpnext_proposals.erpnext_proposals.utils.addendum import is_addendum_group
+
 	errors = []
 
 	if not doc.proposal_template:
@@ -136,7 +138,11 @@ def _validate_blocking(doc):
 	if not doc.proposal_cost_center:
 		errors.append(_("La Cotización debe tener un Proposal Cost Center asignado."))
 
-	if not flt(doc.net_total):
+	# Gate de venta neta: obligatorio SOLO para propuestas root (grupo normal). Una addenda `ROOT-ADD-NN`
+	# puede tener net_total 0 (cambio de costo/plan/absorción o puramente contractual); exigirle venta neta > 0
+	# bloquearía formalizarla. `proposal_template` y `proposal_cost_center` siguen siendo obligatorios para
+	# ambos (requisito de formalización — ver ADR-0015 de pmo / ADR-0019 §7.1). Change Control v2, bloque B1.
+	if not is_addendum_group(doc.get("proposal_group")) and not flt(doc.net_total):
 		errors.append(_("La venta neta no puede ser cero."))
 
 	if errors:
