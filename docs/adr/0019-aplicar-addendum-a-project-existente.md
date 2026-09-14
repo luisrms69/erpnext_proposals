@@ -227,6 +227,12 @@ Ampliación motivada por **Change Control v2** de `pmo` (ADR-0015 de `pmo`). La 
 
 ### 7.1 Aplicación en dos fases (apply-split)
 
+> **Supersede el orden histórico.** Las secciones §2 y §5.5 describen el orden previo
+> ("preflight/validar → materializar Tasks → después asociar `proposal_project`") para
+> `apply_addendum_to_project`. Esta §7.1 **supersede ese orden**: la asociación + sincronización económica
+> ocurre **siempre** en la fase 1, y la materialización de Tasks pasa a la fase 2 **condicional**. No se
+> reescribe la historia de §2/§5.5; para `apply_addendum_to_project` prevalece §7.1.
+
 `apply_addendum_to_project` se estructura explícitamente en **dos fases** (la firma pública no cambia):
 
 - **SIEMPRE (fase 1):** valida Addenda `Ganada`; valida root/coherencia/canonicalidad; asocia
@@ -295,8 +301,16 @@ external de la huella** (§7.2). Una revisión que los pierda (a) alteraría el 
 (b) produciría una **huella distinta para el "mismo" delta**, rompiendo el guard de re-aprobación de `pmo`
 (ADR-0015 de `pmo`, D6).
 
-**Cambio necesario (registrado en el plan):** `create_new_proposal_version()` debe **copiar también
-`required_items`** (con su congelamiento: `cost_locked`, `frozen_cost_rate`, `economic_behavior`,
-`billing_interval`/`count`), igual que ya hace con `quotation_scope_items`. Se implementa en el **bloque B3**
-(huella del delta) como prerrequisito de una huella estable entre versiones; **no** se implementa en este
-bloque documental (Bloque 0).
+**Cambio necesario (registrado en el plan) — copiar la fila semántica, NO el snapshot congelado.**
+`create_new_proposal_version()` debe **copiar también `required_items`**, pero **solo su contenido semántico
+de entrada** — `item`, `qty`, `uom`, `auto_generated` —, siguiendo el patrón real del versionado:
+`_copy_item()` **no** arrastra el snapshot de costo del Item vendido (solo copia contenido/precio) y
+`_copy_scope_item()` **no** arrastra `cost_per_hour`/`total_cost` (se recalculan en revisión). Los campos del
+**snapshot congelado** de `Proposal Required Item` — `frozen_cost_rate`, `frozen_cost_source`, `cost_locked`,
+`economic_behavior`, `billing_interval`, `billing_interval_count` (todos `read_only`) — **NO se copian**: se
+**vuelven a resolver y congelar** cuando la nueva versión reingresa a `En Revisión` (mismo mecanismo de freeze
+vigente). Consecuencia **deseada**: si el costo cambió al re-congelar, la **huella cambia** (§7.2) y **exige
+re-aprobación** del Project Owner (ADR-0015 de `pmo`, D6/D7) — el comportamiento correcto. Copiar el snapshot
+congelado sería inconsistente con el versionado (dejaría un costo viejo que la re-formalización debe recalcular)
+y ocultaría un cambio económico real. Se implementa en el **bloque B3**; **no** en este bloque documental
+(Bloque 0).
