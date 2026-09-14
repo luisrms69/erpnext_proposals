@@ -219,3 +219,84 @@ estados de Change Control → esperar a que la addenda quede `Ganada` → llamar
 project)` → **solo tras retorno exitoso** marcar `applied_to_project`/`applied_at`/`applied_quotation` → manejar
 Current Plan, baseline y cierre. Permiso de creación: `assert_can_manage_proposals` (autoría comercial,
 consistente con el versionado).
+
+## 7. Enmienda 2026-09-14 — Change Control v2 (aclaración de aplicación + huella del delta)
+
+Ampliación motivada por **Change Control v2** de `pmo` (ADR-0015 de `pmo`). La dependencia sigue siendo
+`pmo → erpnext_proposals`: este app **no** conoce el Change Request.
+
+### 7.1 Aplicación en dos fases (apply-split)
+
+`apply_addendum_to_project` se estructura explícitamente en **dos fases** (la firma pública no cambia):
+
+- **SIEMPRE (fase 1):** valida Addenda `Ganada`; valida root/coherencia/canonicalidad; asocia
+  `proposal_project`; **recomputa/sincroniza** la economía autorizada del Project (`sync_project_authorized_cost`).
+- **SOLO si existen Scope Items ejecutables (fase 2):** ejecuta la validación de scope/fases correspondiente
+  (`_validate_scope_for_project`, que incluye Proposal Template/Phase) y **materializa Tasks**
+  (`_materialize_scope_into_project`, idempotente por `source_quotation_scope_item`).
+
+Consecuencia: una addenda **económica-only**, de **costo absorbido**, de **solo Required Items**,
+**puramente contractual** o de **delta $0 sin scope ejecutable** (sin filas de scope ejecutable) **se
+aplica** —asocia `proposal_project` + sincroniza economía— **sin materializar Tasks** ni **inventar** Tasks
+que la addenda no describe. La economía autorizada se recomputa siempre; su resultado **puede quedar
+idéntico** (una addenda $0 no necesariamente lo cambia). Un delta de **+esfuerzo** se representa como Scope
+Item de la addenda → **Task delta separada** trazable a la addenda; **no** se muta la Task original (mutación
+de horas de una Task existente es gap conocido, fuera de v1).
+
+**Aclaración — el apply-split NO relaja `proposal_template` ni `proposal_cost_center`.** Ambos siguen siendo
+**requisitos del WORKFLOW** para **formalizar** la Addenda (salir de Borrador / alcanzar `Ganada`): toda
+addenda formal —incluida la económica-only— ya llega **con** su Template y su Cost Center. El apply-split
+gobierna únicamente la **materialización de Tasks** (fase 2 se ejecuta solo si hay Scope Items ejecutables);
+la validación de scope/fases de la fase 2 no es la que "exige" el Template, sino que el Template ya existía por
+el workflow. **Son problemas distintos:** formalizar (workflow) vs. materializar (apply-split).
+
+### 7.2 Nuevo contrato read-only: huella canónica del delta
+
+`get_addendum_delta_fingerprint(quotation: str) -> str` (read-only, versión mínima futura; server-side, **no**
+whitelisted). Devuelve una **huella canónica y semántica** del **delta congelado gobernado** de esa versión de
+addenda. Cubre el **delta COMPLETO** (esta ADR gobierna scope + planificación; la **porción económica** se
+define/consume vía ADR-0020):
+
+- **Campos gobernados incluidos:**
+  - Ingreso: por Item — `item_code`, `uom`, `qty`, precio (`net_amount`/`rate`).
+  - Labor: por Quotation Scope Item — `code`, `estimated_hours`, `activity_type`, `designation` (rate congelado
+    vía ADR-0020).
+  - External: por Proposal Required Item — `item`, `qty`, `frozen_cost_rate`, `economic_behavior`,
+    `billing_interval`/`count`.
+  - Planificación a nivel scope-item — `planned_start_offset_days`, `planned_duration_days`, `is_milestone`,
+    `dependency_scope_item_codes`.
+- **Semántica, no técnica:** **NO** incluye `name`, nombres de child rows, timestamps, `proposal_version`,
+  `proposal_project` ni IDs que cambien al versionar. Una **nueva versión con el mismo delta produce la misma
+  huella**. Preserva la **multiplicidad** de filas, **normalizadas y ordenadas canónicamente** (claves
+  ordenadas, serialización estable; mismo patrón `canonical_json` + hash).
+- **Estable solo en `docstatus>=1`** (congelado); en Borrador no hay huella comparable.
+- **Consumo por `pmo`:** registro de gobernanza (versión + huella aprobadas al `CR Approved`) y guard de `apply`
+  (huella `Ganada` == aprobada, **fail-closed**). `pmo` **no** calcula la huella; la consume.
+
+### 7.3 Cambio de workflow asociado
+
+El único cambio de workflow es quitar el gate `net_total>0` para grupos `ROOT-ADD-NN` (ver enmienda de
+ADR-0020). Freeze y coherencia (`assert_economic_snapshot_complete`) intactos.
+
+### 7.4 Hallazgo verificado — `required_items` se PIERDEN al versionar una addenda (cambio necesario)
+
+Verificación de solo lectura sobre el código real (`utils/proposal_versioning.py::create_new_proposal_version`
+y `utils/quotation.py::validate`), documentada aquí porque afecta la integridad del delta gobernado (§7.2):
+
+- `create_new_proposal_version()` copia explícitamente `items`, `taxes`, `payment_terms_template`,
+  `payment_schedule`, `proposal_sections_snapshot` y `quotation_scope_items`. **NO copia `required_items`.**
+- Además fija `flags.skip_scope_generation = True`; el hook `validate` **retorna** antes de
+  `_autoload_required_items()` (y también retorna por `previous_proposal` + scope ya copiado). Por tanto los
+  `required_items` **tampoco se reconstruyen** por autoload en la nueva versión.
+
+**Conclusión:** hoy una **nueva versión de una addenda pierde sus `required_items`**. Esto es inaceptable bajo
+Change Control v2: los Proposal Required Item aportan a la economía autorizada (ADR-0020) y a la **porción
+external de la huella** (§7.2). Una revisión que los pierda (a) alteraría el autorizado sin decisión humana y
+(b) produciría una **huella distinta para el "mismo" delta**, rompiendo el guard de re-aprobación de `pmo`
+(ADR-0015 de `pmo`, D6).
+
+**Cambio necesario (registrado en el plan):** `create_new_proposal_version()` debe **copiar también
+`required_items`** (con su congelamiento: `cost_locked`, `frozen_cost_rate`, `economic_behavior`,
+`billing_interval`/`count`), igual que ya hace con `quotation_scope_items`. Se implementa en el **bloque B3**
+(huella del delta) como prerrequisito de una huella estable entre versiones; **no** se implementa en este
+bloque documental (Bloque 0).
