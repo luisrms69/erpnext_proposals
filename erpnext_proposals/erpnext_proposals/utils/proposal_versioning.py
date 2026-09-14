@@ -249,6 +249,22 @@ def _copy_scope_item(scope) -> dict:
 	}
 
 
+def _copy_required_item(row) -> dict:
+	"""Copia SOLO el contenido semántico de un Proposal Required Item a la nueva versión (ADR-0019 §7.4).
+
+	Se copian `item`, `qty`, `uom` y `auto_generated` (el input de la propuesta). NO se copian los snapshots
+	congelados (`frozen_cost_rate`, `frozen_cost_source`, `cost_locked`, `economic_behavior`,
+	`billing_interval`, `billing_interval_count`): la nueva versión nace en Borrador y el freeze normal los
+	vuelve a resolver y congelar al re-formalizar. Copiarlos ocultaría un cambio de costo/comportamiento que
+	el fingerprint deberá detectar. Copia explícita (no `as_dict()`) para no arrastrar campos técnicos."""
+	return {
+		"item": row.item,
+		"qty": row.qty,
+		"uom": row.uom,
+		"auto_generated": row.auto_generated,
+	}
+
+
 # ── Public API ────────────────────────────────────────────────────────────────
 
 
@@ -323,6 +339,10 @@ def create_new_proposal_version(quotation_name: str, reason: str, summary: str =
 			# captured_on). No se consultan Proposal Template ni Proposal Section maestros al versionar.
 			"proposal_sections_snapshot": old.proposal_sections_snapshot,
 			"quotation_scope_items": [_copy_scope_item(s) for s in old.quotation_scope_items],
+			# Required Items: se conserva el input semántico (item/qty/uom/auto_generated). Los snapshots
+			# congelados NO se copian — el freeze los repuebla al re-formalizar (ADR-0019 §7.4, B3). Con
+			# skip_scope_generation=True el flujo normal no los reconstruye, por eso se copian aquí.
+			"required_items": [_copy_required_item(r) for r in old.get("required_items") or []],
 		}
 	)
 

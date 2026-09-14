@@ -8,6 +8,7 @@ No dependency on proposals.dev or SAL-QTN-* quotations.
 import unittest
 
 import frappe
+from frappe.utils import flt
 
 from erpnext_proposals.erpnext_proposals.tests.fiscal_year import (
 	cleanup_fiscal_year,
@@ -26,11 +27,22 @@ class TestProposalVersioning(unittest.TestCase):
 		super().setUpClass()
 		cls._setup_masters()
 		cls._created_fy = ensure_current_fiscal_year()
+		cls._extra = []  # Quotations creadas por tests B3 (limpieza en tearDownClass)
 		cls.v1 = cls._make_submitted_rejected_quotation()
 		cls.v1_fresh = cls._make_submitted_rejected_quotation(suffix="_fresh")
 
 	@classmethod
 	def tearDownClass(cls):
+		for name in getattr(cls, "_extra", []):
+			if name and frappe.db.exists("Quotation", name):
+				try:
+					doc = frappe.get_doc("Quotation", name)
+					if doc.docstatus == 1:
+						doc.flags.ignore_linked_doctypes = True
+						doc.cancel()
+					frappe.delete_doc("Quotation", name, force=True, ignore_permissions=True)
+				except Exception:
+					pass
 		for attr in ("v1", "v1_fresh", "_v2_name"):
 			name = getattr(cls, attr, None)
 			if name and isinstance(name, str) and frappe.db.exists("Quotation", name):
@@ -104,6 +116,22 @@ class TestProposalVersioning(unittest.TestCase):
 				}
 			).insert(ignore_permissions=True)
 		cls.item = "_Test Version Item"
+
+		# Items para Required Items (sin Scope Items de catálogo → no generan scope ejecutable). B3.
+		for code in ("_Test Version Req A", "_Test Version Req B"):
+			if not frappe.db.exists("Item", code):
+				frappe.get_doc(
+					{
+						"doctype": "Item",
+						"item_code": code,
+						"item_name": code,
+						"item_group": ig,
+						"stock_uom": "Nos",
+						"is_stock_item": 0,
+					}
+				).insert(ignore_permissions=True)
+		cls.req_a = "_Test Version Req A"
+		cls.req_b = "_Test Version Req B"
 
 		cls.cost_center = frappe.db.get_value(
 			"Cost Center", {"is_group": 0, "company": cls.company}, "name"
@@ -181,6 +209,100 @@ class TestProposalVersioning(unittest.TestCase):
 
 	def _fresh_doc(self, name):
 		return frappe.get_doc("Quotation", name)
+
+	# ── B3 helper: Rechazada submitted con Required Items ──────────────────────
+	def _rejected_with_required(self, required):
+		"""Quotation submitted+Rechazada con Required Items (input semántico + snapshots congelados por el
+		freeze del submit). `required` = lista de (item, qty)."""
+		doc = frappe.get_doc(
+			{
+				"doctype": "Quotation",
+				"quotation_to": "Customer",
+				"party_name": self.customer,
+				"company": self.company,
+				"currency": "MXN",
+				"transaction_date": frappe.utils.today(),
+				"proposal_group": f"TEST-REQ-{frappe.generate_hash(length=6)}",
+				"proposal_template": self.proposal_template,
+				"proposal_title": "Test Req Proposal",
+				"items": [
+					{"item_code": self.item, "item_name": self.item, "qty": 1, "rate": 5000, "uom": "Nos"}
+				],
+				"required_items": [{"item": it, "qty": q, "uom": "Nos"} for (it, q) in required],
+			}
+		)
+		doc.insert(ignore_permissions=True, ignore_mandatory=True)
+		self.__class__._extra.append(doc.name)
+		if self.cost_center:
+			frappe.db.set_value(
+				"Quotation", doc.name, "proposal_cost_center", self.cost_center, update_modified=False
+			)
+		doc.reload()
+		doc.flags.ignore_mandatory = True
+		doc.flags.ignore_links = True
+		doc.submit()  # before_submit → freeze → congela frozen_cost_rate/cost_locked/economic_behavior
+		frappe.db.set_value("Quotation", doc.name, "workflow_state", "Rechazada", update_modified=False)
+		return frappe.get_doc("Quotation", doc.name)
+
+	def _version_of(self, old_name, reason="Regresión Required Items B3"):
+		v2_name = create_new_proposal_version(old_name, reason=reason)
+		self.__class__._extra.append(v2_name)
+		return frappe.get_doc("Quotation", v2_name)
+
+	# ── B3: required_items preservados al versionar (ADR-0019 §7.4) ────────────
+	def test_b3_01_required_items_preserved_semantics(self):
+		"""#1 La nueva versión conserva nº de filas + item/qty/uom/auto_generated."""
+		old = self._rejected_with_required([(self.req_a, 3)])
+		self.assertEqual(len(old.required_items), 1)
+		v2 = self._version_of(old.name)
+		self.assertEqual(len(v2.required_items), 1, "misma cantidad de Required Items")
+		r = v2.required_items[0]
+		self.assertEqual(r.item, self.req_a)
+		self.assertEqual(r.qty, 3)
+		self.assertEqual(r.uom, "Nos")
+		self.assertEqual(r.auto_generated, old.required_items[0].auto_generated, "auto_generated se conserva")
+
+	def test_b3_02_multiple_required_items_preserved(self):
+		"""#2 Multiplicidad y valores de cada fila se conservan."""
+		old = self._rejected_with_required([(self.req_a, 2), (self.req_b, 5)])
+		v2 = self._version_of(old.name)
+		by_item = {r.item: r for r in v2.required_items}
+		self.assertEqual(set(by_item), {self.req_a, self.req_b})
+		self.assertEqual(by_item[self.req_a].qty, 2)
+		self.assertEqual(by_item[self.req_b].qty, 5)
+
+	def test_b3_03_frozen_snapshot_not_inherited(self):
+		"""#3 El snapshot económico anterior NO se hereda: la nueva versión nace en Borrador."""
+		old = self._rejected_with_required([(self.req_a, 1)])
+		# La versión anterior (submitted) SÍ tiene snapshot congelado.
+		self.assertTrue(old.required_items[0].cost_locked, "precondición: la anterior está congelada")
+		v2 = self._version_of(old.name)
+		r = v2.required_items[0]
+		self.assertFalse(r.cost_locked, "cost_locked no se hereda")
+		self.assertIn(flt(r.frozen_cost_rate), (0.0,), "frozen_cost_rate no se hereda")
+		self.assertFalse(r.frozen_cost_source, "frozen_cost_source no se hereda")
+		self.assertFalse(r.economic_behavior, "economic_behavior no se hereda")
+		self.assertFalse(r.billing_interval, "billing_interval no se hereda")
+		self.assertFalse(r.billing_interval_count, "billing_interval_count no se hereda")
+
+	def test_b3_04_refreeze_on_formalization_repopulates(self):
+		"""#4 Al re-formalizar (submit → freeze) los snapshots vuelven a poblarse y
+		assert_economic_snapshot_complete sigue pasando (no lanza)."""
+		old = self._rejected_with_required([(self.req_a, 1)])
+		v2 = self._version_of(old.name)
+		v2.flags.ignore_mandatory = True
+		v2.flags.ignore_links = True
+		v2.submit()  # before_submit → freeze + assert_economic_snapshot_complete (lanzaría si incompleto)
+		v2.reload()
+		r = v2.required_items[0]
+		self.assertTrue(r.cost_locked, "el freeze recongela cost_locked")
+		self.assertTrue(r.economic_behavior, "el freeze recongela economic_behavior")
+
+	def test_b3_05_no_required_items_unchanged(self):
+		"""#5 Versión sin Required Items: comportamiento intacto (0 filas, sin error)."""
+		old = self._rejected_with_required([])  # rechazada dedicada, sin Required Items
+		v2 = self._version_of(old.name, reason="Regresión sin required B3")
+		self.assertEqual(list(v2.get("required_items") or []), [])
 
 	# ── Schema tests ──────────────────────────────────────────────────────────
 
