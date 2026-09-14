@@ -4,8 +4,12 @@ Project **existente** utilizando la lógica propia de `erpnext_proposals`.
 Cubre: reuse del Project + materialización de Tasks de B conservando las de A; idempotencia; garantía de
 que el path de addendum **nunca crea Project**; ausencia de `frappe.db.commit()` interno en ese path;
 coherencia company/customer; `proposal_project` (vacío/igual/distinto); guards comerciales reutilizados
-(`assert_can_create_project`); separación de permisos (WRITE sobre Project, sin exigir Proposals Manager);
-y fallo a mitad de materialización sin dejar asociación engañosa.
+(`assert_can_create_project`); separación de permisos (WRITE sobre Project, sin exigir Proposals Manager).
+
+**Apply-split (Change Control v2 B2, ADR-0019 §7.1):** Fase 1 SIEMPRE asocia + sincroniza economía; Fase 2
+materializa Tasks SOLO si hay scope ejecutable. Cubre: addenda sin scope ejecutable (0 Tasks); solo Required
+Items; net_total == 0; delta contractual $0 (autorizado sin cambio); idempotencia sin scope; y atomicidad por
+rollback de la transacción externa ante fallo en la fase económica o en la materialización (sin commit interno).
 """
 
 import unittest
@@ -13,6 +17,7 @@ import unittest
 import frappe
 from frappe.exceptions import PermissionError as FrappePermissionError
 from frappe.exceptions import ValidationError
+from frappe.utils import flt
 
 from erpnext_proposals.erpnext_proposals.tests.company import (
 	get_test_company,
@@ -36,6 +41,9 @@ from erpnext_proposals.erpnext_proposals.utils.project import (
 
 TEMPLATE = "_ADD Template"
 ITEM = "_ADD Item"
+# Item SIN Scope Items de catálogo asociados → una addenda construida sobre él genera 0 filas de scope
+# ejecutable (apply-split B2: económica-only / solo Required / delta $0 / contractual).
+ITEM_NS = "_ADD Item NoScope"
 CO_B = "_ADD Co B"
 CO_B_ABBR = "_ADDB"
 CUST_A = "_ADD Cust A"
@@ -67,18 +75,19 @@ class TestApplyAddendum(unittest.TestCase):
 				).insert(ignore_permissions=True)
 		if not frappe.db.exists("UOM", "Nos"):
 			frappe.get_doc({"doctype": "UOM", "uom_name": "Nos"}).insert(ignore_permissions=True)
-		if not frappe.db.exists("Item", ITEM):
-			frappe.get_doc(
-				{
-					"doctype": "Item",
-					"item_code": ITEM,
-					"item_name": ITEM,
-					"item_group": ig,
-					"stock_uom": "Nos",
-					"is_stock_item": 0,
-					"is_sales_item": 1,
-				}
-			).insert(ignore_permissions=True)
+		for code in (ITEM, ITEM_NS):
+			if not frappe.db.exists("Item", code):
+				frappe.get_doc(
+					{
+						"doctype": "Item",
+						"item_code": code,
+						"item_name": code,
+						"item_group": ig,
+						"stock_uom": "Nos",
+						"is_stock_item": 0,
+						"is_sales_item": 1,
+					}
+				).insert(ignore_permissions=True)
 		if not frappe.db.exists("Proposal Template", TEMPLATE):
 			frappe.get_doc(
 				{"doctype": "Proposal Template", "template_name": TEMPLATE, "description": "t"}
@@ -151,7 +160,18 @@ class TestApplyAddendum(unittest.TestCase):
 
 	# ── Helpers ──────────────────────────────────────────────────────────────
 
-	def _quotation(self, company, cc, customer, ganada=True, group=None, addendum=False):
+	def _quotation(
+		self,
+		company,
+		cc,
+		customer,
+		ganada=True,
+		group=None,
+		addendum=False,
+		item=ITEM,
+		rate=1000,
+		required=None,
+	):
 		doc = frappe.get_doc(
 			{
 				"doctype": "Quotation",
@@ -165,7 +185,8 @@ class TestApplyAddendum(unittest.TestCase):
 				"proposal_template": TEMPLATE,
 				"proposal_cost_center": cc,
 				"proposal_title": "ADD " + frappe.generate_hash(length=4),
-				"items": [{"item_code": ITEM, "item_name": ITEM, "qty": 1, "rate": 1000, "uom": "Nos"}],
+				"items": [{"item_code": item, "item_name": item, "qty": 1, "rate": rate, "uom": "Nos"}],
+				"required_items": [{"item": c, "qty": 1, "uom": "Nos"} for c in (required or [])],
 			}
 		)
 		if addendum:
@@ -188,10 +209,28 @@ class TestApplyAddendum(unittest.TestCase):
 		return a, res["project"]
 
 	def _addendum(self, root_doc, company=None, cc=None, customer=CUST_A, ganada=True, seq=1):
-		"""Addenda canónica ``ROOT-ADD-NN`` del grupo de ``root_doc`` (Opción A: solo addendas se aplican)."""
+		"""Addenda canónica ``ROOT-ADD-NN`` del grupo de ``root_doc`` (Opción A: solo addendas se aplican).
+		Construida sobre ``ITEM`` (ligado a Scope Items de catálogo) → SÍ tiene scope ejecutable."""
 		grp = f"{root_doc.proposal_group}-ADD-{seq:02d}"
 		return self._quotation(
 			company or self.company, cc or self.cc, customer, ganada=ganada, group=grp, addendum=True
+		)
+
+	def _addendum_noscope(self, root_doc, seq=1, rate=1000, required=None):
+		"""Addenda canónica SIN scope ejecutable (apply-split B2): construida sobre ``ITEM_NS`` (sin Scope
+		Items de catálogo) → 0 filas ejecutables. ``rate=0`` la vuelve un delta económico $0; ``required``
+		agrega Proposal Required Items (costo externo por el motor económico, sin generar Tasks)."""
+		grp = f"{root_doc.proposal_group}-ADD-{seq:02d}"
+		return self._quotation(
+			self.company,
+			self.cc,
+			CUST_A,
+			ganada=True,
+			group=grp,
+			addendum=True,
+			item=ITEM_NS,
+			rate=rate,
+			required=required,
 		)
 
 	def _tasks(self, project):
@@ -301,13 +340,99 @@ class TestApplyAddendum(unittest.TestCase):
 			frappe.db.commit = orig
 		self.assertEqual(calls["n"], 0, "el path de addendum no debe hacer frappe.db.commit()")
 
-	def test_failure_mid_materialization_no_association(self):
+	# ── B2 apply-split: Fase 1 (SIEMPRE asociar + sync) / Fase 2 (SOLO si hay scope ejecutable) ────────
+
+	def test_no_exec_scope_associates_syncs_zero_tasks(self):
+		"""#2 Addenda SIN scope ejecutable: se asocia, sincroniza economía y crea 0 Tasks (Fase 2 omitida),
+		sin fallar por validación de scope/fase."""
 		a, proj = self._base_project()
-		b = self._addendum(a)
+		before = self._tasks(proj)
+		b = self._addendum_noscope(a, seq=1)
+		res = apply_addendum_to_project(b.name, proj)
+		self.assertEqual(res["project"], proj)
+		self.assertEqual(res["tasks_created"], 0)
+		self.assertFalse(res["scope_materialized"])
+		self.assertEqual(frappe.db.get_value("Quotation", b.name, "proposal_project"), proj)
+		self.assertEqual(self._tasks(proj), before, "no debe crear Tasks")
+
+	def test_only_required_items_applies_zero_tasks(self):
+		"""#3 Addenda solo con Required Items (costo externo por el motor económico): se aplica, 0 Tasks."""
+		a, proj = self._base_project()
+		before = self._tasks(proj)
+		b = self._addendum_noscope(a, seq=2, rate=0, required=[ITEM_NS])
+		res = apply_addendum_to_project(b.name, proj)
+		self.assertEqual(res["tasks_created"], 0)
+		self.assertFalse(res["scope_materialized"])
+		self.assertEqual(frappe.db.get_value("Quotation", b.name, "proposal_project"), proj)
+		self.assertEqual(self._tasks(proj), before)
+
+	def test_net_total_zero_addenda_applies(self):
+		"""#4 Addenda económica con net_total == 0: puede aplicarse; 0 Tasks; economía se recomputa."""
+		a, proj = self._base_project()
+		b = self._addendum_noscope(a, seq=3, rate=0)
+		self.assertEqual(flt(frappe.db.get_value("Quotation", b.name, "net_total")), 0.0)
+		res = apply_addendum_to_project(b.name, proj)
+		self.assertEqual(res["tasks_created"], 0)
+		self.assertEqual(frappe.db.get_value("Quotation", b.name, "proposal_project"), proj)
+
+	def test_contractual_delta_zero_authorized_unchanged(self):
+		"""#5 Addenda puramente contractual / delta $0: queda aplicada aunque el autorizado no cambie."""
+		a, proj = self._base_project()
+		before = flt(frappe.db.get_value("Project", proj, "estimated_costing"))
+		b = self._addendum_noscope(a, seq=4, rate=0)  # sin costo ni revenue → delta $0
+		res = apply_addendum_to_project(b.name, proj)
+		after = flt(frappe.db.get_value("Project", proj, "estimated_costing"))
+		self.assertEqual(after, before, "un delta $0 no cambia el costo autorizado")
+		self.assertEqual(res["tasks_created"], 0)
+		self.assertEqual(frappe.db.get_value("Quotation", b.name, "proposal_project"), proj)
+
+	def test_no_scope_reapplication_idempotent(self):
+		"""#8 Reaplicar una addenda sin scope es idempotente (no duplica economía ni Tasks)."""
+		a, proj = self._base_project()
+		b = self._addendum_noscope(a, seq=5)
+		apply_addendum_to_project(b.name, proj)
+		before = self._tasks(proj)
+		res2 = apply_addendum_to_project(b.name, proj)
+		self.assertEqual(res2["tasks_created"], 0)
+		self.assertEqual(self._tasks(proj), before)
+		self.assertEqual(frappe.db.get_value("Quotation", b.name, "proposal_project"), proj)
+
+	def test_failure_during_economic_sync_rolls_back(self):
+		"""#6 Fallo durante la sincronización económica (Fase 1): tras el rollback de la transacción externa
+		no debe quedar `proposal_project` ni materialización parcial."""
+		from erpnext_proposals.erpnext_proposals.utils import project_economics as pe_mod
+
+		a, proj = self._base_project()  # committed
+		before_tasks = self._tasks(proj)
+		b = self._addendum(a)  # exec-scope: el sync corre ANTES de materializar
+		orig = pe_mod.sync_project_authorized_cost
+
+		def _boom(*a, **k):
+			raise RuntimeError("sync boom")
+
+		pe_mod.sync_project_authorized_cost = _boom
+		try:
+			with self.assertRaises(RuntimeError):
+				apply_addendum_to_project(b.name, proj)
+		finally:
+			pe_mod.sync_project_authorized_cost = orig
+			frappe.db.rollback()
+		self.assertFalse(
+			frappe.db.get_value("Quotation", b.name, "proposal_project"),
+			"una sync económica fallida no debe dejar proposal_project asociado",
+		)
+		self.assertEqual(self._tasks(proj), before_tasks, "no debe quedar materialización parcial")
+
+	def test_failure_during_materialization_rolls_back(self):
+		"""#7 Fallo durante la materialización de Tasks (Fase 2, DESPUÉS de la fase económica): toda la
+		operación se revierte con la transacción externa (sin commit interno) — ni asociación ni Tasks."""
+		a, proj = self._base_project()
+		before_tasks = self._tasks(proj)
+		b = self._addendum(a)  # exec-scope → Fase 2 corre
 		orig = project_mod._materialize_scope_into_project
 
 		def _boom(*a, **k):
-			raise RuntimeError("boom")
+			raise RuntimeError("materialize boom")
 
 		project_mod._materialize_scope_into_project = _boom
 		try:
@@ -315,10 +440,12 @@ class TestApplyAddendum(unittest.TestCase):
 				apply_addendum_to_project(b.name, proj)
 		finally:
 			project_mod._materialize_scope_into_project = orig
+			frappe.db.rollback()
 		self.assertFalse(
 			frappe.db.get_value("Quotation", b.name, "proposal_project"),
-			"un fallo en la materialización no debe dejar proposal_project asociado",
+			"un fallo de materialización tras la fase económica no debe dejar proposal_project asociado",
 		)
+		self.assertEqual(self._tasks(proj), before_tasks, "no debe quedar materialización parcial")
 
 	def test_permission_write_required_and_no_proposals_manager(self):
 		a, proj = self._base_project()

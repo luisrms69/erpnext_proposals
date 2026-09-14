@@ -2,58 +2,67 @@
 
 **Fecha:** 2026-09-14
 **Rama activa:** `feat/addenda-change-control-v2` (base `upstream/version-16` = v0.23.0)
-**Tarea actual:** Change Control v2 — **Bloque B1 cerrado** (gate de venta neta root vs addenda). B2 NO iniciado.
+**Tarea actual:** Change Control v2 — **B1 y B2 cerrados**. B3 NO iniciado.
 
 ---
 
 ## Recuperación rápida
 
 Estoy trabajando en:
-Change Control v2 de `erpnext_proposals`. El Bloque 0 documental (ADR-0019 §7) ya está cerrado; no se
-rediseña el contrato. B1 implementa el único cambio funcional del bloque.
+Change Control v2 de `erpnext_proposals`. Bloque 0 documental cerrado (ADR-0019 §7); no se rediseña el
+contrato. B1 (gate de venta neta) y B2 (apply-split) implementados.
 
 Plan que estoy siguiendo:
-Contrato B1 entregado por el usuario + ADR-0019 §7 (B0).
+Contratos B1/B2 entregados por el usuario + ADR-0019 §7 / §7.1.
 
 Objetivo inmediato:
-B1 validado → commit + push en `feat/addenda-change-control-v2`. **No** PR, **no** tag/Release, **no** B2.
+B2 validado → commit + push en `feat/addenda-change-control-v2`. **No** PR, **no** tag/Release, **no** B3.
 
 Criterio de avance:
-Commit real revisable por el usuario antes de autorizar B2.
+Commit real revisable por el usuario antes de autorizar B3.
 
 ---
 
 ## Estado actual
 
-### Ya cerrado (B1)
-- `_validate_blocking` (transición Borrador→En Revisión): el gate `net_total>0` aplica **solo** a propuestas
-  root (grupo normal). Una addenda canónica `ROOT-ADD-NN` puede formalizarse con `net_total==0`. Reutiliza
-  `is_addendum_group()` (sin regex/parsing nuevo). `proposal_template` y `proposal_cost_center` siguen
-  obligatorios para AMBOS. Sin gate alternativo de "contenido económico".
-- `tests/test_net_total_gate.py` (nuevo): 10 tests (root 0 bloquea / root >0 pasa / addenda 0 pasa /
-  addenda sin template|cost center bloquea, etc.). 10/10.
+### Ya cerrado
+- **B1** (`workflow_validations.py`): gate `net_total>0` solo para root (grupo normal); addenda `ROOT-ADD-NN`
+  puede formalizarse con `net_total==0`. `tests/test_net_total_gate.py` (10). Commit `3b58830`.
+- **B2** (`utils/project.py`, apply-split ADR-0019 §7.1): `apply_addendum_to_project` reordenado:
+  - **Fase 1 — SIEMPRE:** asocia `proposal_project` → `sync_project_authorized_cost(project)`.
+  - **Fase 2 — SOLO si hay scope ejecutable** (`include_in_proposal OR is_internal_cost_task`):
+    `_validate_scope_for_project` + `_materialize_scope_into_project`. Sin scope ejecutable: 0 Tasks,
+    devuelve dict con `scope_materialized=False`.
+  - Sin commit interno; atomicidad por rollback de la transacción externa. `tests/test_apply_addendum.py`
+    ampliado a 18 (6 nuevos B2: sin scope, solo Required, net_total 0, delta $0, idempotencia sin scope,
+    y 2 de rollback ante fallo de sync / materialización).
 
 ### Pendiente inmediato
-1. B2 (NO iniciar sin autorización). Fuera de B1: apply-split, fingerprint, `required_items` al versionar, `pmo`.
+1. B3 (NO iniciar sin autorización). Fuera de B2: fingerprint `get_addendum_delta_fingerprint`, fix de
+   `required_items` en `create_new_proposal_version`, `pmo`, nuevos campos/DocTypes, cambios de workflow.
 
 ### No repetir
-- No introducir regex/parsing nuevo de addenda: usar `is_addendum_group()`.
-- No relajar `proposal_template`/`proposal_cost_center` para addendas.
-- No tocar freeze, `assert_economic_snapshot_complete`, workflow/estados, ni `utils/addendum.py`.
+- No reintroducir `_validate_scope_for_project` incondicional al inicio de `apply_addendum_to_project`
+  (bloqueaba addendas económicas-only). El orden es: guards → Fase 1 → Fase 2 condicional.
+- No relajar `proposal_template`/`proposal_cost_center` para addendas. No inventar Tasks.
 - `test_09b_duplicate_item_line_rejected_by_erpnext` (#60) falla solo local (`allow_multiple_items=1`); pasa en CI.
 
 ---
 
 ## Decisiones vigentes
-- La distinción root vs addenda para el gate de venta neta se decide por `is_addendum_group(proposal_group)`
-  (documentado en ADR-0019 §7.1 / línea 284).
+- Apply-split: la asociación se escribe ANTES del sync (el contrato económico identifica las addendas por
+  `proposal_project==project`). La materialización corre DESPUÉS de la fase económica; un fallo en cualquier
+  fase revierte todo con la transacción externa (sin commit interno).
+- El test heredado `test_failure_mid_materialization_no_association` se migró a
+  `test_failure_during_materialization_rolls_back` (modelo de rollback), porque el nuevo orden asocia antes
+  de materializar. Cambio dirigido por el contrato B2, no para ocultar un fallo.
 
 ---
 
 ## Archivos relevantes ahora
 ### Leer primero
-- `erpnext_proposals/erpnext_proposals/utils/workflow_validations.py` (`_validate_blocking`)
-- `docs/adr/0019-aplicar-addendum-a-project-existente.md` (§7)
+- `erpnext_proposals/erpnext_proposals/utils/project.py` (`apply_addendum_to_project`)
+- `docs/adr/0019-aplicar-addendum-a-project-existente.md` (§7.1)
 ### No tocar
 - `utils/addendum.py`, freeze, `assert_economic_snapshot_complete`, `pmo`.
 
@@ -63,4 +72,4 @@ Commit real revisable por el usuario antes de autorizar B2.
 - `test_09b` (#60) es la única falla de suite y es ambiental local (no del cambio).
 
 ## Información faltante
-- Definición concreta de B2 (se recibirá del usuario tras revisar el commit de B1).
+- Definición concreta de B3 (se recibirá del usuario tras revisar el commit de B2).
