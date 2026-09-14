@@ -34,10 +34,15 @@ Commit real revisable antes de autorizar el bloque siguiente (integración/guard
 - **Fingerprint** (`utils/addendum.py`, ADR-0019 §7.2): `get_addendum_delta_fingerprint(quotation) -> str`
   (read-only, server-side, NO whitelisted). SHA-256 de un payload canónico (revenue/labor/external) del delta
   SEMÁNTICO CONGELADO. Fail-closed: addenda canónica + `docstatus>=1` + `assert_economic_snapshot_complete`.
-  Incluye la porción económica congelada de las líneas vendidas (`proposal_economic_behavior`/interval/count)
-  vía ADR-0020, para que un cambio de recurrencia no produzca la misma huella. Helpers: `_addendum_delta_payload`,
-  `_canonical_hash`, `_canon_sort` (preserva multiplicidad, ordena por representación canónica),
-  `_canon_dependency_codes` (parsea el JSON y ordena por conjunto). `tests/test_addendum_fingerprint.py` (24).
+  Commit inicial `75a6e56`; **corrección de revisión (pendiente de commit):**
+  - `labor` ahora incluye los campos de MATERIALIZACIÓN: `item_code`, `phase`, `include_in_proposal`,
+    `is_internal_cost_task` (deciden ejecutabilidad y Task-fase; sin ellos dos versiones con distinta
+    ejecutabilidad/fase producían la misma huella). Se EXCLUYEN `title`/`description`/`deliverable` (narrativos).
+  - `_canon_dependency_codes`: **fail-closed** (valor presente no interpretable como lista → lanza, no `[]`),
+    semántica de **conjunto** (dedupe: `["A","A"]==["A"]`). Se corrigió además un `except ValueError, TypeError:`
+    sin paréntesis (heredado del commit inicial) → `except (ValueError, TypeError):`.
+  - Incluye porción económica de líneas vendidas (`proposal_economic_behavior`/interval/count) vía ADR-0020.
+  - `tests/test_addendum_fingerprint.py` (32): +flags/phase/item_code sensibles, deps fail-closed/dedupe/vacío.
 
 ### Pendiente inmediato
 1. Integración con `pmo` (registro de la huella aprobada + guard de `apply` fail-closed). **NO iniciar sin

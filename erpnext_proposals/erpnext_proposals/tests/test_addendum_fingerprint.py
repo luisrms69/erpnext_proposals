@@ -78,6 +78,10 @@ def _sold(**over):
 def _scope(**over):
 	base = {
 		"code": "S1",
+		"item_code": ITEM,
+		"phase": "DISC",
+		"include_in_proposal": 1,
+		"is_internal_cost_task": 0,
 		"estimated_hours": 4,
 		"activity_type": "AT",
 		"designation": "DES",
@@ -135,6 +139,27 @@ class TestFingerprintCanonicalization(unittest.TestCase):
 
 	def test_08_costing_rate_changes_hash(self):
 		b = _doc(items=[_sold()], scope=[_scope(costing_rate=999)], required=[_req()])
+		self.assertNotEqual(_fp(self._base()), _fp(b))
+
+	def test_08a_include_in_proposal_changes_hash(self):
+		"""Materialización: cambiar `include_in_proposal` (ejecutabilidad) cambia la huella."""
+		b = _doc(items=[_sold()], scope=[_scope(include_in_proposal=0)], required=[_req()])
+		self.assertNotEqual(_fp(self._base()), _fp(b))
+
+	def test_08b_is_internal_cost_task_changes_hash(self):
+		"""Materialización: cambiar `is_internal_cost_task` (ejecutabilidad interna) cambia la huella."""
+		b = _doc(items=[_sold()], scope=[_scope(is_internal_cost_task=1)], required=[_req()])
+		self.assertNotEqual(_fp(self._base()), _fp(b))
+
+	def test_08c_phase_changes_hash(self):
+		"""Materialización: cambiar `phase` (Task-fase donde se materializa) cambia la huella."""
+		b = _doc(items=[_sold()], scope=[_scope(phase="IMPL")], required=[_req()])
+		self.assertNotEqual(_fp(self._base()), _fp(b))
+
+	def test_08d_item_code_changes_hash(self):
+		"""Materialización: cambiar `item_code` (atribución de la fila al Item vendido, y subject de la Task)
+		cambia la huella."""
+		b = _doc(items=[_sold()], scope=[_scope(item_code="_FP Item Other")], required=[_req()])
 		self.assertNotEqual(_fp(self._base()), _fp(b))
 
 	def test_09_required_item_changes_hash(self):
@@ -221,6 +246,31 @@ class TestFingerprintCanonicalization(unittest.TestCase):
 		a = _doc(scope=[_scope(dependency_scope_item_codes='["A","B"]')])
 		b = _doc(scope=[_scope(dependency_scope_item_codes='["B","A"]')])
 		self.assertEqual(_fp(a), _fp(b))
+
+	def test_15c_dependency_duplicates_set_semantics(self):
+		"""Las dependencias son un CONJUNTO: `["A","A"]` canonicaliza IGUAL que `["A"]` (multiplicidad
+		sin significado — así las consume `_resolve_native_dependencies`)."""
+		a = _doc(scope=[_scope(dependency_scope_item_codes='["A","A"]')])
+		b = _doc(scope=[_scope(dependency_scope_item_codes='["A"]')])
+		self.assertEqual(_fp(a), _fp(b))
+
+	def test_dep_invalid_json_fail_closed(self):
+		"""JSON inválido presente → fail-closed (no se degrada a []), para no ocultar dependencia corrupta."""
+		with self.assertRaises(ValidationError):
+			_fp(_doc(scope=[_scope(dependency_scope_item_codes="{no-es-json")]))
+
+	def test_dep_not_list_fail_closed(self):
+		"""JSON válido pero que NO es una lista → fail-closed."""
+		with self.assertRaises(ValidationError):
+			_fp(_doc(scope=[_scope(dependency_scope_item_codes='{"a": 1}')]))
+
+	def test_dep_empty_forms_ok(self):
+		"""Vacío legítimo (None / "" / "[]") canonicaliza como [] sin lanzar; los tres son equivalentes."""
+		h_none = _fp(_doc(scope=[_scope(dependency_scope_item_codes=None)]))
+		h_empty = _fp(_doc(scope=[_scope(dependency_scope_item_codes="")]))
+		h_brackets = _fp(_doc(scope=[_scope(dependency_scope_item_codes="[]")]))
+		self.assertEqual(h_none, h_empty)
+		self.assertEqual(h_empty, h_brackets)
 
 
 # ══ Nivel 2 — integración con addendas reales congeladas ════════════════════════════════════════════

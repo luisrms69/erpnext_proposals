@@ -256,18 +256,28 @@ def create_addendum_quotation(root_quotation: str) -> str:
 
 
 def _canon_dependency_codes(raw) -> list:
-	"""Canonicaliza `dependency_scope_item_codes` (almacenado como JSON string de una lista de códigos) a
-	una lista ordenada de strings. Neutraliza diferencias irrelevantes de serialización (espaciado, orden):
-	solo importa el CONJUNTO de códigos declarado. Vacío/invalido → []."""
+	"""Canonicaliza `dependency_scope_item_codes` a una lista ordenada y SIN duplicados de códigos.
+
+	Las dependencias son un **CONJUNTO** de predecesores (`_resolve_native_dependencies` las consume como
+	`set`): la multiplicidad no tiene significado, por eso `["A","A"]` y `["A"]` canonicalizan IGUAL, y el orden
+	de serialización es irrelevante (se ordena).
+
+	**Fail-closed (huella de gobernanza):** un valor PRESENTE que no pueda interpretarse como una lista válida
+	de códigos LANZA — no se degrada silenciosamente a `[]`, lo que ocultaría una dependencia corrupta tras una
+	huella falsamente válida. Solo el vacío LEGÍTIMO (`None` / `""` / `"[]"`) canonicaliza como `[]`."""
 	if not raw:
 		return []
 	try:
 		parsed = json.loads(raw) if isinstance(raw, str) else raw
 	except ValueError, TypeError:
-		return []
+		frappe.throw(
+			_("dependency_scope_item_codes no es un JSON válido y no puede canonicalizarse: {0}").format(raw)
+		)
 	if not isinstance(parsed, list):
-		return []
-	return sorted(str(c) for c in parsed)
+		frappe.throw(
+			_("dependency_scope_item_codes debe ser una lista de códigos; se recibió: {0}").format(raw)
+		)
+	return sorted({str(c) for c in parsed})
 
 
 def _canon_sort(rows: list) -> list:
@@ -283,7 +293,12 @@ def _addendum_delta_payload(doc) -> dict:
 	  (proposal_economic_behavior / proposal_billing_interval / _count) — la porción económica del delta se
 	  define/consume vía ADR-0020, para que un cambio de recurrencia (NRC/MRC/CAPEX) NO produzca la misma huella.
 	- Labor (Quotation Scope Item): code, estimated_hours, activity_type, designation, costing_rate (rate
-	  congelado) + planificación (offset/duración/milestone/dependencias canonicalizadas).
+	  congelado) + MATERIALIZACIÓN (`item_code`, `phase`, `include_in_proposal`, `is_internal_cost_task`) +
+	  planificación (offset/duración/milestone/dependencias canonicalizadas). Los flags deciden si la fila es
+	  ejecutable (genera Task/costo) y `phase` decide la Task-fase donde se materializa; sin ellos dos versiones
+	  con distinta ejecutabilidad/fase producirían la misma huella. Se EXCLUYEN `title`/`description`/`deliverable`
+	  (narrativos: solo cambian el texto de la Task, no el trabajo/costo/fase/ejecutabilidad/dependencias; la
+	  identidad gobernada es `code`).
 	- External (Proposal Required Item): item, qty, uom, frozen_cost_rate, economic_behavior, billing_interval/_count.
 
 	Valores numéricos normalizados con `flt(x, 6)` para estabilidad; strings None → "". Multiplicidad preservada."""
@@ -303,6 +318,10 @@ def _addendum_delta_payload(doc) -> dict:
 	labor = [
 		{
 			"code": s.get("code") or "",
+			"item_code": s.get("item_code") or "",
+			"phase": s.get("phase") or "",
+			"include_in_proposal": int(bool(s.get("include_in_proposal"))),
+			"is_internal_cost_task": int(bool(s.get("is_internal_cost_task"))),
 			"estimated_hours": flt(s.get("estimated_hours"), 6),
 			"activity_type": s.get("activity_type") or "",
 			"designation": s.get("designation") or "",
