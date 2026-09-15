@@ -100,3 +100,25 @@ se mezclan monedas. La normalización multidivisa es un cambio posterior explíc
   como fuente única (núcleo `_evaluate_doc`; se evita el gate de permiso HTTP del wrapper porque la sync es
   derivación de sistema autorizada por WRITE sobre el Project).
 - **Normalización FX en este bloque:** fuera de alcance; se falla cerrado ante moneda incompatible.
+
+## 5. Enmienda 2026-09-14 — Change Control v2 (addenda $0, gate `net_total`, porción económica de la huella)
+
+Ampliación motivada por **Change Control v2** de `pmo` (ADR-0015 de `pmo`). `pmo` sigue siendo consumidor
+posterior; este app no conoce el Change Request.
+
+- **Addenda de $0 válida.** Una addenda puede tener delta económico cero. Se **asocia** al Project y
+  **participa en la recomputación** del autorizado (`sync_project_authorized_cost`); el resultado **puede
+  quedar idéntico**. Una addenda $0 **no** "mueve" necesariamente el autorizado: documenta un cambio formal.
+  "Aplicar" **no** equivale a "crear Tasks" (ver ADR-0019 §7.1).
+- **Gate `net_total`.** El bloqueo `net_total>0` (workflow `Propuesta Comercial`, transición
+  Borrador→En Revisión, `_validate_blocking`) aplica **solo a grupos root**. Para grupos `ROOT-ADD-NN` **no**
+  se exige `net_total>0` (una addenda de costo/plan/absorción sin ingreso puede avanzar). Se conservan el
+  freeze y la coherencia (`assert_economic_snapshot_complete`). Este cambio de gate **no toca**
+  `proposal_template`; la validación de Template/Phase para **materializar scope** se rige por el apply-split
+  (ADR-0019 §7.1, fase 2). **Sin gate manual nuevo** ni segunda definición de "contenido económico".
+- **Porción económica de la huella del delta.** La huella canónica del delta se **define en ADR-0019 §7.2**
+  (delta completo: economía + scope + planificación). Su **parte económica** — magnitudes por Item / Quotation
+  Scope Item / Proposal Required Item (ingreso; labor = `estimated_hours` × rate congelado; external = `qty` ×
+  `frozen_cost_rate`) — se toma de la Evaluación Económica ([ADR-0018](0018-evaluacion-economica-por-periodos.md))
+  y del contrato de este ADR, **sin recalcular ni persistir**. Determinista y **sin datos técnicos**
+  (`name`/child names/timestamps/IDs); reglas de canonicalización en ADR-0019 §7.2.

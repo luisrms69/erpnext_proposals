@@ -409,11 +409,19 @@ def _materialize_scope_into_project(quotation, project, exec_rows) -> dict:
 
 
 def apply_addendum_to_project(quotation: str, project: str) -> dict:
-	"""Aplica una Quotation/Addendum **Ganada** a un Project **existente**, materializando sus Scope Items
-	como Tasks (reuse + dedup). Contrato consumido por `pmo` Change Control (ADR-0005) vía
-	`frappe.get_attr` — **server-side, NO whitelisted** (PMO no lo llama por HTTP). Garantía estructural:
-	**nunca crea un Project** (llama a la primitive sobre un Project ya resuelto). **NO** hace commit: es
-	atómico con la transacción externa del request de PMO.
+	"""Aplica una **addenda canónica Ganada** a un Project **existente** (apply-split, ADR-0019 §7.1).
+
+	**Fase 1 — SIEMPRE:** asocia `proposal_project` y sincroniza la economía autorizada del Project. Se
+	ejecuta para toda addenda válida y Ganada, aunque NO tenga scope ejecutable (económica-only, costo
+	absorbido, solo Required, delta $0 o puramente contractual). **Fase 2 — SOLO si hay scope ejecutable**
+	(`include_in_proposal` O `is_internal_cost_task`): valida y materializa los Scope Items como Tasks
+	(reuse + dedup). Sin scope ejecutable: la addenda queda correctamente aplicada con 0 Tasks (no se
+	inventan Tasks).
+
+	Contrato consumido por `pmo` Change Control (ADR-0005) vía `frappe.get_attr` — **server-side, NO
+	whitelisted** (PMO no lo llama por HTTP). Garantía estructural: **nunca crea un Project** (llama a la
+	primitive sobre un Project ya resuelto). **NO** hace commit: es atómico con la transacción externa del
+	request de PMO (un fallo en cualquier fase revierte asociación + sync + materialización juntas).
 
 	Autoridades separadas: la Quotation `Ganada` aporta la autoridad **comercial** (validada por
 	`assert_can_create_project`: submitted + Ganada + no superseded + single-live del grupo); el permiso
@@ -435,7 +443,6 @@ def apply_addendum_to_project(quotation: str, project: str) -> dict:
 	# `assert_can_create_project` valida single-live DENTRO de su propio grupo ROOT-ADD-NN: ADD-01 y ADD-02
 	# son grupos/versionados independientes.
 	assert_can_create_project(quotation_doc)
-	exec_rows = _validate_scope_for_project(quotation_doc)
 
 	# Semántica de addenda (contrato canónico, centralizado en utils.addendum): si la Quotation pertenece
 	# al namespace -ADD-NN, el Project destino NO es arbitrario. Se deriva el ROOT, se resuelve el Project
@@ -485,21 +492,43 @@ def apply_addendum_to_project(quotation: str, project: str) -> dict:
 			_("La Cotización ya está asociada a otro Project ({0}).").format(quotation_doc.proposal_project)
 		)
 
-	# Materializa sobre el Project EXISTENTE (sin rama de creación, sin commit).
-	result = _materialize_scope_into_project(quotation_doc, project_doc, exec_rows)
-
-	# Asociación propiedad de erpnext_proposals: se escribe SOLO tras materializar con éxito (ante un fallo
-	# previo nunca queda una asociación engañosa; sin commit interno, un rollback externo revierte todo).
+	# ── Apply-split (ADR-0019 §7.1, Change Control v2 B2) ────────────────────────────────────────────
+	# Fase 1 — SIEMPRE: asociar + sincronizar economía. Se ejecuta para TODA addenda válida y Ganada,
+	# aunque NO tenga scope ejecutable. La asociación se escribe ANTES del sync porque el contrato
+	# económico identifica las addendas aplicadas por proposal_project==project: recomputa el autorizado
+	# COMPLETO (root + addendas aplicadas) y espeja Project.estimated_costing. Sin commit interno: un fallo
+	# aquí (o en la Fase 2) revierte asociación + estimated_costing + Tasks con la transacción externa.
 	if not quotation_doc.proposal_project:
 		frappe.db.set_value("Quotation", quotation, "proposal_project", project, update_modified=False)
-	# Contrato económico: la asociación ya quedó fijada (el helper identifica las addendas aplicadas por
-	# proposal_project==project). Recomputa el autorizado COMPLETO (root + addendas aplicadas) y espeja
-	# Project.estimated_costing. Sin commit interno: un fallo aquí revierte Tasks + asociación +
-	# estimated_costing con la transacción externa de PMO.
 	from erpnext_proposals.erpnext_proposals.utils.project_economics import sync_project_authorized_cost
 
 	sync_project_authorized_cost(project)
-	return result
+
+	# Fase 2 — SOLO si hay scope ejecutable (misma semántica que el resto de la app: vendible O interna de
+	# costo). Sin filas ejecutables NO se valida scope/fase ni se materializan Tasks: la addenda queda
+	# aplicada con 0 Tasks (económica-only, solo Required, delta $0, contractual). No se inventan Tasks.
+	has_exec_scope = any(
+		r.include_in_proposal or r.is_internal_cost_task for r in quotation_doc.quotation_scope_items
+	)
+	if has_exec_scope:
+		exec_rows = _validate_scope_for_project(quotation_doc)
+		result = _materialize_scope_into_project(quotation_doc, project_doc, exec_rows)
+		result["scope_materialized"] = True
+		return result
+
+	return {
+		"project": project,
+		"parent_tasks_created": 0,
+		"parent_tasks_reused": 0,
+		"parent_tags_applied": 0,
+		"tasks_created": 0,
+		"tasks_skipped": 0,
+		"dependencies_created": 0,
+		"dependencies_ambiguous": 0,
+		"undatable_tasks": [],
+		"project_type": project_doc.get("project_type"),
+		"scope_materialized": False,
+	}
 
 
 def _resolve_native_dependencies(

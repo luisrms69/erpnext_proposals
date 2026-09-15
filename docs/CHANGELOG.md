@@ -2,6 +2,34 @@
 
 ## [No liberado]
 
+### Change Control v2 — gate de venta neta, apply-split, versionado de Required Items y huella de delta
+
+Bloques B1–B3 + huella canónica del delta de addenda (ADR-0019 §7.1/§7.2/§7.4). Preparan el guard de
+re-aprobación de `pmo` **sin** tocar `pmo`. Objetivo: **v0.24.0**.
+
+- **B1 — Gate de venta neta (`utils/workflow_validations.py`):** en la transición Borrador→En Revisión el
+  gate `net_total>0` aplica **solo** a propuestas root (grupo normal). Una addenda canónica `ROOT-ADD-NN`
+  puede formalizarse con `net_total==0` (cambio de costo/plan/absorción o puramente contractual). Reutiliza
+  `is_addendum_group()`; `proposal_template`/`proposal_cost_center` siguen obligatorios para ambas.
+- **B2 — Apply-split (`utils/project.py`, `apply_addendum_to_project`):** **Fase 1 SIEMPRE** asocia
+  `proposal_project` y sincroniza la economía autorizada; **Fase 2 SOLO si hay scope ejecutable**
+  (`include_in_proposal OR is_internal_cost_task`) valida y materializa Tasks. Una addenda económica-only /
+  solo Required / delta $0 / contractual se aplica con 0 Tasks. Sin commit interno (atómico por rollback
+  externo). No cambia su firma pública.
+- **B3 — Versionado de Required Items (`utils/proposal_versioning.py`):** `create_new_proposal_version`
+  ahora copia `required_items` con `_copy_required_item` — **solo** `item`/`qty`/`uom`/`auto_generated`, nunca
+  los snapshots congelados (los repuebla el freeze al re-formalizar). Corrige que se perdieran al versionar.
+- **Huella canónica del delta (`utils/addendum.py`):** `get_addendum_delta_fingerprint(quotation) -> str`
+  (read-only, server-side, **no** whitelisted). SHA-256 de un payload canónico (revenue/labor/external) del
+  delta **semántico congelado**, incluidos los campos de materialización (`item_code`, `phase`,
+  `include_in_proposal`, `is_internal_cost_task`) y la porción económica congelada de líneas vendidas (vía
+  ADR-0020). Fail-closed: addenda canónica + `docstatus>=1` + `assert_economic_snapshot_complete`; dependencias
+  con serialización inválida **lanzan** (no se degradan a `[]`) y se canonicalizan como conjunto. Preserva
+  multiplicidad; ignora identificadores técnicos (una nueva versión con el mismo delta produce la misma huella).
+- Sin cambios de schema/fixtures/DocType. No requiere `bench migrate`. `pmo` no se toca en este bloque.
+
+## v0.23.0
+
 ### Added — Contrato económico canónico Project ↔ Quotations (ADR-0020)
 - **`utils/project_economics.py`**: `get_project_authorized_economics(project)` responde el **autorizado
   vigente** del Project = **Original (root) + Σ(addendas aplicadas)** por magnitud independiente (revenue,
