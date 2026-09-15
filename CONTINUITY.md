@@ -2,7 +2,7 @@
 
 **Fecha:** 2026-09-14
 **Rama activa:** `feat/addenda-change-control-v2` (base `upstream/version-16` = v0.23.0)
-**Tarea actual:** Change Control v2 — **B1, B2, B3 y fingerprint cerrados**. Integración con `pmo` NO iniciada.
+**Tarea actual:** Change Control v2 — **B1, B2, B3 y fingerprint cerrados**; cerrando con **PR contra `version-16`** (bump **0.24.0**). Integración con `pmo` NO iniciada.
 
 ---
 
