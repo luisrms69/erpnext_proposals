@@ -39,8 +39,11 @@ Commit real revisable antes de autorizar el bloque siguiente (integración/guard
     `is_internal_cost_task` (deciden ejecutabilidad y Task-fase; sin ellos dos versiones con distinta
     ejecutabilidad/fase producían la misma huella). Se EXCLUYEN `title`/`description`/`deliverable` (narrativos).
   - `_canon_dependency_codes`: **fail-closed** (valor presente no interpretable como lista → lanza, no `[]`),
-    semántica de **conjunto** (dedupe: `["A","A"]==["A"]`). Se corrigió además un `except ValueError, TypeError:`
-    sin paréntesis (heredado del commit inicial) → `except (ValueError, TypeError):`.
+    semántica de **conjunto** (dedupe: `["A","A"]==["A"]`).
+  - **Causa raíz del `except` sin paréntesis:** `ruff format` (0.15.12 local) **elimina** los paréntesis del
+    tuple `except (ValueError, TypeError):` → forma sin paréntesis. Fix definitivo: `# fmt: skip` en esa línea
+    para que ruff (local y CI v0.14.10) preserve `except (ValueError, TypeError):`. Verificado: ruff format no
+    la altera, ruff check pasa, `py_compile` + import real OK. Commit `78c79bf` (parcial) + corrección publicada.
   - Incluye porción económica de líneas vendidas (`proposal_economic_behavior`/interval/count) vía ADR-0020.
   - `tests/test_addendum_fingerprint.py` (32): +flags/phase/item_code sensibles, deps fail-closed/dedupe/vacío.
 

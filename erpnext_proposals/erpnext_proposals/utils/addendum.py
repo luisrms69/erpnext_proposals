@@ -269,7 +269,7 @@ def _canon_dependency_codes(raw) -> list:
 		return []
 	try:
 		parsed = json.loads(raw) if isinstance(raw, str) else raw
-	except ValueError, TypeError:
+	except (ValueError, TypeError):  # fmt: skip
 		frappe.throw(
 			_("dependency_scope_item_codes no es un JSON válido y no puede canonicalizarse: {0}").format(raw)
 		)
