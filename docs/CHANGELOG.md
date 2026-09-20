@@ -2,6 +2,24 @@
 
 ## [No liberado]
 
+### Added — Loader: `is_purchase_item` y `economic_behavior_rules` declarativos (v0.25.0)
+
+Amplía la capacidad del catálogo/loader (`catalog_data/catalog_loader.py`) para reproducir la configuración
+canónica de productos como servicios recurrentes no-comprables (p. ej. `Legal Officer as a Service`). Sin
+rediseño de arquitectura; consume el modelo de comportamiento económico ya existente (ADR-0018).
+
+- **`_seed_items` administra `is_purchase_item`:** cuando el catálogo lo declara, fija el valor (clave
+  ausente = no tocar, default de ERPNext). Idempotente y respeta `dry_run`/`update_content`. Permite declarar
+  un servicio propio como no-comprable (`is_purchase_item=0`), evitando además el autoload del paquete de Compras.
+- **Nuevo `_seed_economic_behavior_rules`:** siembra declarativa e idempotente de las reglas
+  `economic_behavior_rules` del child de `Proposal Settings`, **por Company**. Identidad `(company, source_type,
+  source)`. No duplica, no borra reglas no declaradas, no toca otros campos de Proposal Settings; `update_content`
+  actualiza `economic_behavior`/`interval`/`interval_count` si difieren; `dry_run` reporta create/update/unchanged.
+  Registrada en `capabilities()`; se ejecuta tras `_seed_items` (la regla referencia el Item por Dynamic Link).
+- Sin cambios de schema/fixtures. No toca Print Format, Proposal Template, Sections ni `facturacion_mexico`.
+
+## v0.24.0
+
 ### Change Control v2 — gate de venta neta, apply-split, versionado de Required Items y huella de delta
 
 Bloques B1–B3 + huella canónica del delta de addenda (ADR-0019 §7.1/§7.2/§7.4). Preparan el guard de

@@ -131,6 +131,7 @@ def capabilities() -> dict:
 	caps = {
 		"caps_version": LOADER_CAPS_VERSION,
 		"items": callable(globals().get("_seed_items")),
+		"economic_behavior_rules": callable(globals().get("_seed_economic_behavior_rules")),
 		"scope_explicit_null": callable(globals().get("_managed_fields")),
 		"print_formats": callable(globals().get("_seed_print_formats")),
 		"protected_print_formats": bool(PROTECTED_PRINT_FORMATS),
@@ -200,6 +201,11 @@ def run(catalog_path: str | None = None, dry_run: bool = True, update_content: b
 		# facturacion_mexico): el loader simplemente no tiene esa capacidad. Los Items referencian
 		# UOM/Item Groups existentes; su validez la garantizan los campos Link nativos de Frappe.
 		_seed_items(data.get("items", []), report, dry_run, update_content)
+		# Reglas de comportamiento económico (recurring/one_time/infrastructure) por Company. Se siembran
+		# DESPUÉS de los Items: la regla referencia el Item (Dynamic Link) y éste debe existir para validar.
+		_seed_economic_behavior_rules(
+			data.get("economic_behavior_rules", []), report, dry_run, update_content
+		)
 		_seed_scope_items(data["scope_items"], report, dry_run, update_content)
 		# Condiciones de pago corporativas (NO fiscales): Payment Terms y su Template. Los Payment
 		# Terms deben existir antes de referenciarse en el Template.
@@ -542,6 +548,10 @@ def _seed_items(items: list, report: dict, dry_run: bool, update_content: bool =
 		"stock_uom",
 		"is_stock_item",
 		"is_sales_item",
+		# Comprable: administrado explícitamente cuando el catálogo lo declara (un servicio propio como
+		# `Legal Officer as a Service` es no-comprable → is_purchase_item=0). Clave ausente = no tocar
+		# (default de ERPNext). Evita, además, que el autoload de Compras inyecte el paquete de procurement.
+		"is_purchase_item",
 		"description",
 		# Contenido general de la propuesta (Text Editor). Se administran igual que el resto:
 		# clave presente fija el valor, null explícito limpia, clave ausente no toca.
@@ -583,6 +593,64 @@ def _seed_items(items: list, report: dict, dry_run: bool, update_content: bool =
 			report["updated"].append(f"{label}: {diffs}")
 		else:
 			report["conflicts"].append(f"{label}: {diffs}")
+
+
+_ECON_RULE_FIELDS = ("economic_behavior", "interval", "interval_count")
+
+
+def _seed_economic_behavior_rules(
+	rules: list, report: dict, dry_run: bool, update_content: bool = False
+) -> None:
+	"""Crea/actualiza idempotentemente reglas de comportamiento económico — child
+	``economic_behavior_rules`` de ``Proposal Settings``, por Company (ADR-0018). Identidad de una regla:
+	``(company, source_type, source)``.
+
+	- No borra reglas NO declaradas (solo administra las del catálogo).
+	- No toca ningún otro campo de Proposal Settings.
+	- ``update_content=True`` actualiza el comportamiento/intervalo/conteo si difieren; si no, conflicto.
+	- Idempotente: una segunda corrida no produce cambios.
+
+	Cada regla del catálogo trae: ``company, source_type, source, economic_behavior, interval,
+	interval_count``. Se agrupa por Company para abrir cada Proposal Settings una sola vez."""
+	by_company: dict = {}
+	for r in rules:
+		by_company.setdefault(r["company"], []).append(r)
+	for company, crules in by_company.items():
+		if not frappe.db.exists("Proposal Settings", company):
+			for r in crules:
+				report["conflicts"].append(
+					f"Economic Behavior Rule '{company}/{r.get('source')}': no existe Proposal Settings de la Company"
+				)
+			continue
+		doc = frappe.get_doc("Proposal Settings", company)
+		existing = {(row.source_type, row.source): row for row in (doc.get("economic_behavior_rules") or [])}
+		dirty = False
+		for r in crules:
+			label = f"Economic Behavior Rule '{company}/{r['source']}'"
+			desired = {f: r.get(f) for f in _ECON_RULE_FIELDS}
+			row = existing.get((r["source_type"], r["source"]))
+			if row is None:
+				if not dry_run:
+					doc.append(
+						"economic_behavior_rules",
+						{"source_type": r["source_type"], "source": r["source"], **desired},
+					)
+					dirty = True
+				report["created"].append(label)
+				continue
+			diffs = ", ".join(f for f in _ECON_RULE_FIELDS if _norm(row.get(f)) != _norm(desired.get(f)))
+			if not diffs:
+				report["unchanged"].append(label)
+			elif update_content:
+				if not dry_run:
+					for f in _ECON_RULE_FIELDS:
+						row.set(f, desired.get(f))
+					dirty = True
+				report["updated"].append(f"{label}: {diffs}")
+			else:
+				report["conflicts"].append(f"{label}: {diffs}")
+		if dirty and not dry_run:
+			doc.save(ignore_permissions=True)
 
 
 def _seed_payment_terms(terms: list, report: dict, dry_run: bool, update_content: bool = False) -> None:
