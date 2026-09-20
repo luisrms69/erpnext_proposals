@@ -147,6 +147,185 @@ class TestCatalogLoader(unittest.TestCase):
 				frappe.delete_doc("Proposal Phase", phase, force=True, ignore_permissions=True)
 			frappe.db.commit()  # nosemgrep — limpieza de fixtures de test
 
+	def test_is_purchase_item_managed(self):
+		"""`is_purchase_item` administrado por el catálogo: crea con 0; actualiza 1→0 con
+		update_content; idempotente. Clave ausente = no tocar (no cubierto aquí)."""
+		import os
+		import tempfile
+
+		from erpnext_proposals.erpnext_proposals.tests.company import get_test_item_group
+
+		code = "_DEMO-NOPURCH"
+		grp = get_test_item_group()
+		uom = "Nos" if frappe.db.exists("UOM", "Nos") else frappe.db.get_value("UOM", {}, "name")
+
+		def _cat(is_purchase):
+			return {
+				"version": "t",
+				"catalog": "demo_purch",
+				"phases": [],
+				"sections": [],
+				"versioned": [],
+				"items": [
+					{
+						"item_code": code,
+						"item_name": "Demo NoPurch",
+						"item_group": grp,
+						"stock_uom": uom,
+						"is_stock_item": 0,
+						"is_sales_item": 1,
+						"is_purchase_item": is_purchase,
+					}
+				],
+				"scope_items": [],
+				"templates": [],
+			}
+
+		def _run(is_purchase, **kw):
+			fd, path = tempfile.mkstemp(suffix=".json")
+			try:
+				with os.fdopen(fd, "w", encoding="utf-8") as fh:
+					json.dump(_cat(is_purchase), fh)
+				return catalog_loader.run(catalog_path=path, **kw)
+			finally:
+				os.remove(path)
+
+		try:
+			_run(0, dry_run=False)
+			self.assertEqual(frappe.db.get_value("Item", code, "is_purchase_item"), 0)
+			rep = _run(0, dry_run=False)
+			self.assertFalse(any(code in u for u in rep["updated"]))
+			frappe.db.set_value("Item", code, "is_purchase_item", 1)
+			frappe.db.commit()  # nosemgrep — fixture de test
+			rep = _run(0, dry_run=False, update_content=True)
+			self.assertEqual(frappe.db.get_value("Item", code, "is_purchase_item"), 0)
+			self.assertTrue(any(code in u for u in rep["updated"]))
+			rep = _run(0, dry_run=False)
+			self.assertFalse(any(code in u for u in rep["updated"]))
+		finally:
+			if frappe.db.exists("Item", code):
+				frappe.delete_doc("Item", code, force=True, ignore_permissions=True)
+			frappe.db.commit()  # nosemgrep — limpieza de fixtures de test
+
+	def test_economic_behavior_rules_managed(self):
+		"""`economic_behavior_rules` por Company: crea una vez, idempotente, no duplica, respeta reglas
+		ajenas no declaradas y reporta dry_run correctamente."""
+		import os
+		import tempfile
+
+		from erpnext_proposals.erpnext_proposals.tests.company import (
+			get_test_company,
+			get_test_item_group,
+		)
+
+		company = get_test_company()
+		if not company:
+			raise unittest.SkipTest("No Company on test site.")
+		grp = get_test_item_group()
+		uom = "Nos" if frappe.db.exists("UOM", "Nos") else frappe.db.get_value("UOM", {}, "name")
+		code, other = "_DEMO-REC-ITEM", "_DEMO-OTHER-RULE-ITEM"
+
+		if not frappe.db.exists("Proposal Settings", company):
+			try:
+				frappe.get_doc({"doctype": "Proposal Settings", "company": company}).insert(
+					ignore_permissions=True
+				)
+			except Exception:
+				raise unittest.SkipTest("No se pudo crear Proposal Settings en el site de test.")
+		# El Item de la regla AJENA debe existir (source es Dynamic Link a Item).
+		if not frappe.db.exists("Item", other):
+			frappe.get_doc(
+				{
+					"doctype": "Item",
+					"item_code": other,
+					"item_name": other,
+					"item_group": grp,
+					"stock_uom": uom,
+					"is_stock_item": 0,
+					"is_sales_item": 1,
+				}
+			).insert(ignore_permissions=True)
+		ps = frappe.get_doc("Proposal Settings", company)
+		ps.append(
+			"economic_behavior_rules",
+			{"source_type": "Item", "source": other, "economic_behavior": "one_time"},
+		)
+		ps.save(ignore_permissions=True)
+		frappe.db.commit()  # nosemgrep — fixture de test
+
+		def _cat():
+			return {
+				"version": "t",
+				"catalog": "demo_rec",
+				"phases": [],
+				"sections": [],
+				"versioned": [],
+				"items": [
+					{
+						"item_code": code,
+						"item_name": "Demo Rec",
+						"item_group": grp,
+						"stock_uom": uom,
+						"is_stock_item": 0,
+						"is_sales_item": 1,
+					}
+				],
+				"economic_behavior_rules": [
+					{
+						"company": company,
+						"source_type": "Item",
+						"source": code,
+						"economic_behavior": "recurring",
+						"interval": "Month",
+						"interval_count": 1,
+					}
+				],
+				"scope_items": [],
+				"templates": [],
+			}
+
+		def _run(**kw):
+			fd, path = tempfile.mkstemp(suffix=".json")
+			try:
+				with os.fdopen(fd, "w", encoding="utf-8") as fh:
+					json.dump(_cat(), fh)
+				return catalog_loader.run(catalog_path=path, **kw)
+			finally:
+				os.remove(path)
+
+		def _rows(src):
+			return [
+				r
+				for r in frappe.get_doc("Proposal Settings", company).economic_behavior_rules
+				if r.source == src
+			]
+
+		try:
+			rep = _run(dry_run=True)
+			self.assertTrue(any(code in c for c in rep["created"]))
+			self.assertEqual(len(_rows(code)), 0)
+			_run(dry_run=False)
+			created = _rows(code)
+			self.assertEqual(len(created), 1)
+			self.assertEqual(created[0].economic_behavior, "recurring")
+			self.assertEqual(created[0].interval, "Month")
+			self.assertEqual(int(created[0].interval_count), 1)
+			self.assertEqual(len(_rows(other)), 1)
+			rep2 = _run(dry_run=False)
+			self.assertTrue(any(code in u for u in rep2["unchanged"]))
+			self.assertEqual(len(_rows(code)), 1)
+		finally:
+			ps = frappe.get_doc("Proposal Settings", company)
+			ps.set(
+				"economic_behavior_rules",
+				[r for r in ps.economic_behavior_rules if r.source not in (code, other)],
+			)
+			ps.save(ignore_permissions=True)
+			for c in (code, other):
+				if frappe.db.exists("Item", c):
+					frappe.delete_doc("Item", c, force=True, ignore_permissions=True)
+			frappe.db.commit()  # nosemgrep — limpieza de fixtures de test
+
 	def test_scope_erpnext_items_n2m(self):
 		"""El loader administra la relación N:N `erpnext_items` del Scope Item: sincroniza exactamente
 		cuando la clave está presente (agrega/quita, sin duplicar), no toca si se omite, limpia con lista
