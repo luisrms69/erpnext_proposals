@@ -412,6 +412,15 @@ def create_new_proposal_version(quotation_name: str, reason: str, summary: str =
 	for parent_field, child_doctype in _CHILD_TABLES.items():
 		values[parent_field] = [_copy_row(child_doctype, r) for r in (old.get(parent_field) or [])]
 
+	# B5: compatibilidad puntual de ENTRADA. Una Rechazada legacy que solo tiene
+	# `proposal_sections_snapshot` (sin filas materializadas) se convierte UNA VEZ a filas
+	# `proposal_sections` para el nuevo Draft. Los históricos no se tocan; el nuevo Draft renderiza
+	# solo desde filas (sin renderer legacy paralelo).
+	if not values.get("proposal_sections") and (old.get("proposal_sections_snapshot") or "").strip():
+		from erpnext_proposals.erpnext_proposals.utils.quotation import _convert_legacy_snapshot_to_rows
+
+		values["proposal_sections"] = _convert_legacy_snapshot_to_rows(old.proposal_sections_snapshot)
+
 	# ── TRANSFORM: identidad del nuevo documento · cadena de versiones · workflow · downstream ──
 	values.update(
 		{

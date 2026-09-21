@@ -855,6 +855,45 @@ def _build_proposal_section_rows(doc) -> list:
 		)
 
 
+def _convert_legacy_snapshot_to_rows(raw) -> list:
+	"""Convierte UNA VEZ un `proposal_sections_snapshot` legacy (JSON) a filas `proposal_sections`.
+
+	Compatibilidad de ENTRADA únicamente: al versionar una Rechazada histórica que aún NO tiene filas
+	materializadas, su snapshot congelado se traduce a filas para el nuevo Draft (que desde entonces
+	renderiza SOLO desde filas — no se mantiene un renderer legacy paralelo). Los documentos históricos
+	no se modifican. Fail-closed: entradas sin contenido se descartan; si la Proposal Section de origen
+	ya no existe, se conserva el contenido como fila manual (`proposal_section` vacío) sin romper el Link.
+	"""
+	if not (raw or "").strip():
+		return []
+	try:
+		data = json.loads(raw)
+	except ValueError, TypeError:
+		return []
+	if not isinstance(data, list):
+		return []
+	rows = []
+	for e in data:
+		if not isinstance(e, dict):
+			continue
+		content = e.get("content") or ""
+		if not content.strip():
+			continue
+		src = e.get("source_section") or ""
+		rows.append(
+			{
+				"sequence": int(e.get("sequence") or 0),
+				"proposal_section": src if (src and frappe.db.exists("Proposal Section", src)) else None,
+				"title": e.get("title") or "",
+				"content": content,
+				"hide_title": int(e.get("hide_title") or 0),
+				"is_executive_summary": int(e.get("is_executive_summary") or 0),
+			}
+		)
+	rows.sort(key=lambda r: r["sequence"])
+	return rows
+
+
 def _build_sections_snapshot(doc) -> list:
 	"""Serializa las Sections del Template al snapshot (Jinja crudo, no HTML renderizado).
 
