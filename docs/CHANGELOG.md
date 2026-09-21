@@ -2,6 +2,23 @@
 
 ## [No liberado]
 
+### Fixed — Reparación canónica de snapshots económicos LEGACY (v0.25.2)
+
+Nuevo helper administrativo `utils/legacy_repair.repair_legacy_economic_snapshot(quotation_name, dry_run=True)`
+para desbloquear Quotations históricas formalizadas ANTES del modelo económico (ADR-0017/ADR-0018) que hoy
+fallan el guard `assert_economic_snapshot_complete` al avanzar el workflow (Enviada al Cliente → Ganada) o
+al crear Project. Escribe el snapshot con la semántica **equivalente al pasado** (costo externo
+`legacy_pre_economic_model` con rate 0 y locked + `economic_behavior=one_time` sin recurrencia); **no**
+reconstruye desde datos vivos (Item Price / last_purchase / Proposal Settings actuales). **Fail-closed:**
+exige `docstatus=1` + `proposal_template`, **no sobrescribe** snapshots existentes, **aborta** ante estados
+parciales/ambiguos o Scope Items costables sin `rate_locked` (no inventa costo laboral), **re-valida con el
+guard canónico antes de persistir**, persiste atómicamente (ORM, submitted-safe) y deja un **Comment** de
+trazabilidad. `dry_run=True` por defecto; **idempotente**; **solo por `quotation_name`** (sin backfill
+masivo). No modifica el flujo normal ni desactiva el guard. Tests: 7 casos. Tras la reparación, la
+transición Enviada→Ganada y `project_economics` (Project) pasan el guard compartido.
+
+## v0.25.1
+
 ### Fixed — Resolver del Print Format comercial tolerante a overrides *stale* en Borrador (v0.25.1)
 
 `dynamic_commercial_print_format` ahora usa `Quotation.proposal_print_format` **solo si es elegible**

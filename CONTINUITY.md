@@ -1,75 +1,66 @@
 # CONTINUITY.md — erpnext_proposals
 
 **Fecha:** 2026-09-20
-**Rama activa:** `fix/commercial-pf-resolver-stale-override` (base `upstream/version-16` = v0.25.0; objetivo **0.25.1**)
-**Tarea actual:** Fix del resolver de Print Format comercial ante `proposal_print_format` stale/inelegible en Borrador.
+**Rama activa:** `fix/legacy-economic-snapshot-repair` (base `upstream/version-16` = v0.25.1; objetivo **0.25.2**)
+**Tarea actual:** Hotfix — reparación canónica de snapshots económicos LEGACY (compatibilidad histórica).
 
 ---
 
 ## Recuperación rápida
 
 Estoy trabajando en:
-Corregir de forma genérica el manejo de `Quotation.proposal_print_format` cuando quedó apuntando a un
-Print Format inelegible (inexistente / `doc_type != Quotation` / `disabled=1`) — p. ej. tras versionar
-un PF (base → V1). Antes: `dynamic_commercial_print_format` devolvía el override sin validar → `get_print`
-lanzaba `DoesNotExistError` al usar "Descargar PDF Borrador".
+Helper administrativo `utils/legacy_repair.repair_legacy_economic_snapshot(quotation_name, dry_run=True)` para
+desbloquear Quotations históricas (pre-ADR-0017/0018) que fallan `assert_economic_snapshot_complete` al
+avanzar workflow (Enviada→Ganada) o crear Project. Caso concreto en prod: SAL-QTN-2026-00001.
 
 Plan que estoy siguiendo:
-Opción C aprobada = resolver tolerante en Draft + sync que repuebla el override inelegible, con un helper
-único de elegibilidad. Sin tocar documentos congelados (ADR-0011).
+Diseño aprobado por el usuario (fail-closed, semántica legacy one_time/costo 0, sin datos vivos) + guard de
+elegibilidad legacy por cutoff objetivo (creation de los Custom Fields del modelo económico en el site).
 
 Objetivo inmediato:
-`/ship` completo hasta release v0.25.1 contra `version-16`.
+`/ship` hasta PR + CI verde contra `version-16`. Detener ANTES del merge (el merge lo hace el usuario).
 
 Criterio de avance:
-Suite verde (salvo #60 ambiental), CI verde, auditoría de aditividad aprobada (ADITIVO/SEGURO).
+8/8 tests del hotfix; suite 770/771 (única falla ambiental #60); CI verde.
 
 ---
 
 ## Estado actual
 
 ### Ya cerrado
-- `is_eligible_print_format(pf_name)`: fuente única de elegibilidad (delega en `get_print_format_status`).
-- `dynamic_commercial_print_format`: primer candidato ELEGIBLE entre override → Template → DEFAULT; si
-  ninguno elegible, `frappe.throw` claro. Path congelado (`resolve_commercial_print_format` con
-  `proposal_effective_print_format`) sin cambios.
-- `sync_proposal_print_format_from_template`: repuebla el override también cuando quedó inelegible; nunca
-  pisa una selección manual válida; solo si el PF de la plantilla es elegible.
-- Tests: 11 casos nuevos en `test_print_format_resolution.py` (20/20 en el módulo; suite 762/763, única
-  falla ambiental #60 `test_09b`).
-- Bump `__version__` 0.25.1 + CHANGELOG.
+- `repair_legacy_economic_snapshot`: fail-closed (existe, docstatus=1, proposal_template), no sobrescribe,
+  aborta ante parcial/ambiguo y ante Scope costable sin rate_locked, re-valida con el guard canónico,
+  persiste atómico (ORM db_set) + Comment de trazabilidad, dry_run por defecto, idempotente, solo por nombre.
+- Guard de elegibilidad LEGACY: cutoff = MIN(creation) de `Quotation Item-proposal_cost_locked` /
+  `proposal_economic_behavior`. creation < cutoff → elegible; posterior con snapshot vacío → aborta
+  (posible corrupción). dry-run reporta creation/workflow_state/legacy_cutoff/legacy_eligible.
+- Bump 0.25.2 + CHANGELOG. Tests: 8 casos (test_legacy_economic_repair).
 
 ### Pendiente inmediato
-1. `/ship` completo (commit → push → pr → merge --release) → tag/Release v0.25.1.
-2. Aparte (pack privado, otro repo): corte 1.27.0 con el delta LOAS/PF/Section/Payment Term.
+1. `/ship commit → push → pr → CI`. **Detener antes del merge** (lo hace el usuario en GitHub).
+2. Después (separado): release 0.25.2 · desplegar solo erpnext_proposals a prod · dry-run del repair sobre
+   SAL-QTN-2026-00001 · revisar · reparación real.
 
 ### No repetir
-- El fix es de la APP; los cambios de contenido (Item LOAS, Sections, PF html, Payment Term) viven en el
-  PACK privado, no en este repo.
-- `test_09b` (#60) falla solo local (`allow_multiple_items=1`); pasa en CI.
-
----
-
-## Decisiones vigentes
-- Elegibilidad de PF centralizada en un único helper; no duplicar el criterio (query Link / validación /
-  status / resolver / sync lo comparten).
-- Congelados intactos: `proposal_effective_print_format` conserva prioridad absoluta (ADR-0011).
+- El repair NO usa datos vivos (Item Price/last_purchase/Proposal Settings) ni hace backfill masivo.
+- Solo repara docs demostrablemente pre-modelo (cutoff objetivo por Custom Field creation).
+- `test_09b` (#60) falla solo local; pasa en CI.
 
 ---
 
 ## Archivos relevantes ahora
 ### Leer primero
-- `erpnext_proposals/erpnext_proposals/utils/print_format.py` (resolver + sync + `is_eligible_print_format`).
-- `erpnext_proposals/erpnext_proposals/tests/test_print_format_resolution.py`.
+- `erpnext_proposals/erpnext_proposals/utils/legacy_repair.py`
+- `erpnext_proposals/erpnext_proposals/tests/test_legacy_economic_repair.py`
 
 ### No tocar
-- PF html / Sections / Template / pack (viven en el pack privado), producción, `facturacion_mexico`.
+- Guard `assert_economic_snapshot_complete` (no se desactiva); producción; pack; fiscal.
 
 ---
 
-## Riesgos / cuidados
-- Auditoría de retroactividad aprobada: no-recurrentes byte-equivalentes a 1.26.0; 0 submitted con V1 en
-  producción; PF base e Implementación intactos. Veredicto ADITIVO/SEGURO.
+## Decisiones vigentes
+- Semántica legacy = one_time + costo externo 0 (`legacy_pre_economic_model`), equivalente al pasado.
+- Elegibilidad legacy por cutoff objetivo per-site (creation de Custom Fields del modelo económico).
 
 ## Información faltante
-- Ninguna para cerrar el PR.
+- Ninguna para cerrar el PR. Merge/despliegue/repair real = pasos posteriores del usuario.
