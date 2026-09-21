@@ -153,39 +153,178 @@ def _validate_proposal_version_sequential(doc) -> None:
 		)
 
 
-# ── Copy helpers — explicit field lists, no ignored mandatory ────────────────
+# ── Copia metadata-driven: heredar por defecto todo el estado comercial ──────────
+#
+# Principio (regla de negocio): una nueva versión CONSERVA por defecto todo el avance comercial de la
+# anterior. Solo se excluye/reset/recalcula lo que tenga una razón demostrable por pertenecer a:
+# identidad del nuevo documento · workflow · cadena de versiones · artefactos downstream · snapshots/
+# frozen · cálculos técnicos derivados.
+#
+# El conjunto a copiar se DERIVA de `frappe.get_meta` (padre + cada child table gestionada): se copia
+# cada campo de valor con `no_copy == 0` que NO esté en EXCLUDE[doctype], UNIÓN los FORCE_INCLUDE
+# (campos `no_copy=1` que sí queremos), y luego se aplican los TRANSFORM en create_new_proposal_version.
+# Así, cualquier campo nuevo (custom o nativo) se hereda por defecto; solo las excepciones se enumeran.
 
-
-def _copy_item(item) -> dict:
-	return {
-		"item_code": item.item_code,
-		"item_name": item.item_name,
-		"description": item.description,
-		"qty": item.qty,
-		"uom": item.uom,
-		"rate": item.rate,
-		"price_list_rate": item.price_list_rate,
-		"discount_percentage": item.discount_percentage,
-		"item_tax_template": item.item_tax_template,
-		"warehouse": item.warehouse,
-		# Contenido general congelado del Item: se conserva de la versión anterior (línea Quotation Item),
-		# NUNCA se relee el Item maestro al versionar.
-		"proposal_methodology": item.get("proposal_methodology"),
-		"proposal_expected_result": item.get("proposal_expected_result"),
-		"proposal_scope_limit": item.get("proposal_scope_limit"),
-		# Alcance específico manual de la contratación: se hereda a la nueva versión (editable en el
-		# nuevo Borrador). No proviene del Item ni del catálogo.
-		"proposal_specific_scope": item.get("proposal_specific_scope"),
+# Campos de framework que nunca se copian (Frappe los gestiona / autoname).
+_SYS_EXCLUDE = frozenset(
+	{
+		"name",
+		"owner",
+		"creation",
+		"modified",
+		"modified_by",
+		"docstatus",
+		"idx",
+		"amended_from",
+		"naming_series",
+		"doctype",
+		"parent",
+		"parentfield",
+		"parenttype",
 	}
+)
+
+# Tipos de campo sin valor (layout / presentación) — no se copian.
+_LAYOUT_FT = frozenset(
+	{"Section Break", "Column Break", "Tab Break", "HTML", "Button", "Fold", "Heading", "Image"}
+)
+
+# EXCLUDE por DocType: campos `no_copy=0` que NO deben heredarse literalmente (con su categoría).
+_EXCLUDE = {
+	"Quotation": frozenset(
+		{
+			# cadena de versiones (fijados por TRANSFORM)
+			"proposal_version",
+			"previous_proposal",
+			"superseded_by_proposal",
+			"proposal_revision_reason",
+			"proposal_revision_summary",
+			# workflow / ciclo de vida (nueva Draft)
+			"workflow_state",
+			"status",
+			# artefacto downstream (Proyecto solo tras Ganada)
+			"proposal_project",
+			# derivados / TRANSFORM
+			"transaction_date",
+			"proposal_print_format",
+			"payment_terms_template",
+			"payment_schedule",
+			# frozen (ya son no_copy=1; explícitos por claridad)
+			"proposal_effective_print_format",
+			"proposal_reviewed_by",
+			"proposal_reviewed_on",
+			"proposal_approved_by",
+			"proposal_approved_on",
+		}
+	),
+	# Montos computados por ERPNext al validar (se recalculan; no arrastrar valores viejos).
+	"Quotation Item": frozenset(
+		{
+			"amount",
+			"base_amount",
+			"base_rate",
+			"base_price_list_rate",
+			"base_net_rate",
+			"base_net_amount",
+			"net_rate",
+			"net_amount",
+			"stock_qty",
+			"stock_uom_rate",
+		}
+	),
+	# Filas de impuesto: se heredan los inputs (charge_type/account_head/rate/description/cost_center/
+	# included_in_print_rate/row_id y tax_amount para charge_type=Actual). Los montos base/totales los
+	# recalcula ERPNext (calculate_taxes_and_totals) al validar.
+	"Sales Taxes and Charges": frozenset(
+		{
+			"total",
+			"tax_amount_after_discount_amount",
+			"base_tax_amount",
+			"base_total",
+			"base_tax_amount_after_discount_amount",
+			"net_amount",
+			"base_net_amount",
+			"account_currency",
+		}
+	),
+	# Scope Item: se excluyen calculados/congelados (re-resueltos en revisión), downstream (project_task)
+	# y procedencia (source_type/source_row, re-derivada al validar/generar).
+	"Quotation Scope Item": frozenset(
+		{
+			"costing_rate",
+			"rate_source",
+			"rate_locked",
+			"rate_locked_on",
+			"project_task",
+			"source_type",
+			"source_row",
+		}
+	),
+	# Required Item: snapshots congelados (ADR-0019 §7.4) — se re-congelan al re-formalizar. NOTA: estos
+	# campos NO están marcados no_copy=1 en el DocType, por eso la deny-list explícita es imprescindible.
+	"Proposal Required Item": frozenset(
+		{
+			"frozen_cost_rate",
+			"frozen_cost_source",
+			"cost_locked",
+			"economic_behavior",
+			"billing_interval",
+			"billing_interval_count",
+		}
+	),
+	# Payment Schedule (caso manual): se heredan los inputs; los base/derivados los recalcula ERPNext.
+	"Payment Schedule": frozenset(
+		{
+			"base_payment_amount",
+			"base_paid_amount",
+			"paid_amount",
+			"outstanding",
+			"base_outstanding",
+			"discounted_amount",
+		}
+	),
+	"Proposal Optional Section": frozenset(),
+}
+
+# FORCE_INCLUDE: campos `no_copy=1` que SÍ se copian literalmente a la nueva versión.
+_FORCE_INCLUDE = {
+	# Snapshot de Sections: copia LITERAL de la versión anterior (mismo contenido/orden/fuentes/
+	# captured_on). No se consultan Proposal Template ni Proposal Section maestros al versionar.
+	"Quotation": frozenset({"proposal_sections_snapshot"}),
+}
+
+# Child tables gestionadas por herencia directa (parent fieldname -> child DocType).
+# `payment_schedule` NO va aquí: lo resuelve _resolve_new_version_payment (template vs manual).
+_CHILD_TABLES = {
+	"items": "Quotation Item",
+	"taxes": "Sales Taxes and Charges",
+	"quotation_scope_items": "Quotation Scope Item",
+	"required_items": "Proposal Required Item",
+	"proposal_optional_sections": "Proposal Optional Section",
+}
 
 
-def _copy_tax(tax) -> dict:
-	return {
-		"charge_type": tax.charge_type,
-		"account_head": tax.account_head,
-		"description": tax.description,
-		"rate": tax.rate,
-	}
+def _copy_fields(source, doctype: str, skip_tables: bool) -> dict:
+	"""Construye el dict de campos heredados de `source` para `doctype` según la regla metadata-driven."""
+	meta = frappe.get_meta(doctype)
+	exclude = _EXCLUDE.get(doctype, frozenset())
+	force = _FORCE_INCLUDE.get(doctype, frozenset())
+	out = {}
+	for df in meta.fields:
+		fn = df.fieldname
+		if df.fieldtype in _LAYOUT_FT or fn in _SYS_EXCLUDE:
+			continue
+		if skip_tables and df.fieldtype in ("Table", "Table MultiSelect"):
+			continue  # las child tables se construyen aparte
+		inherit = (not df.no_copy and fn not in exclude) or (fn in force)
+		if inherit:
+			out[fn] = source.get(fn)
+	return out
+
+
+def _copy_row(child_doctype: str, row) -> dict:
+	"""Fila hija heredada (mismo criterio: no_copy=0 y no en EXCLUDE, mas FORCE_INCLUDE)."""
+	return _copy_fields(row, child_doctype, skip_tables=True)
 
 
 def _is_automatic_single_row(sched) -> bool:
@@ -200,69 +339,22 @@ def _is_automatic_single_row(sched) -> bool:
 
 
 def _resolve_new_version_payment(old):
-	"""Determina (payment_terms_template, payment_schedule) para la nueva revisión SIN copiar
-	due_dates inválidos del documento anterior. Comportamiento nativo de ERPNext:
+	"""Determina (payment_terms_template, payment_schedule) preservando el trabajo comercial.
 
-	- Con Payment Terms Template → se conserva el template y el schedule se deja vacío para que
-	  ERPNext lo regenere desde la nueva transaction_date (importes desde el nuevo total).
-	- Solo con la fila automática estándar del 100% (sin término ni descripción) → schedule vacío
-	  (ERPNext regenera la fila con la fecha válida de la revisión).
-	- Con un calendario MANUAL significativo → NO se falsean condiciones: se detiene con un mensaje
-	  claro para que el usuario decida (Payment Terms Template o ajuste manual con fechas válidas).
+	- Con Payment Terms Template → se conserva el template y el schedule se deja vacío para que ERPNext
+	  regenere lo estrictamente derivado (due_dates/importes) desde la nueva transaction_date.
+	- Solo la fila automática estándar del 100% (sin término ni descripción) → schedule vacío (ERPNext
+	  regenera la fila).
+	- Calendario MANUAL significativo → SE PRESERVAN las filas (payment_term, descripción, invoice_portion,
+	  payment_amount, due_date, mode_of_payment, descuentos). Solo los campos base/derivados se recalculan.
+	  NO se descarta el trabajo comercial ni se detiene con un throw.
 	"""
 	sched = old.payment_schedule or []
 	if old.get("payment_terms_template"):
 		return old.payment_terms_template, []
 	if _is_automatic_single_row(sched):
 		return None, []
-	frappe.throw(
-		_(
-			"La propuesta {0} tiene un calendario de pagos capturado manualmente ({1} fila(s)). "
-			"Para no falsear sus condiciones comerciales, la revisión no se crea automáticamente. "
-			"Define un Payment Terms Template o ajusta el calendario con fechas válidas para la nueva "
-			"revisión y vuelve a intentar."
-		).format(old.name, len(sched))
-	)
-
-
-def _copy_scope_item(scope) -> dict:
-	return {
-		"scope_item": scope.scope_item,  # master catalog ref — needed to deduplicate on validate
-		"item_code": scope.item_code,  # quotation item link — needed for catalog matching
-		"auto_generated": scope.auto_generated,
-		"title": scope.title,
-		"code": scope.code,
-		"phase": scope.phase,
-		"sequence": scope.sequence,
-		"description": scope.description,
-		"deliverable": scope.deliverable,
-		"activity_type": scope.activity_type,
-		"designation": scope.designation,
-		"estimated_hours": scope.estimated_hours,
-		"include_in_proposal": scope.include_in_proposal,
-		# Planeación PMO congelada: copia LITERAL de la versión anterior (no se relee el catálogo).
-		"planned_start_offset_days": scope.planned_start_offset_days,
-		"planned_duration_days": scope.planned_duration_days,
-		"is_milestone": scope.is_milestone,
-		"dependency_scope_item_codes": scope.dependency_scope_item_codes,
-		# cost_per_hour, total_cost, project_task NOT copied — recalculated on review
-	}
-
-
-def _copy_required_item(row) -> dict:
-	"""Copia SOLO el contenido semántico de un Proposal Required Item a la nueva versión (ADR-0019 §7.4).
-
-	Se copian `item`, `qty`, `uom` y `auto_generated` (el input de la propuesta). NO se copian los snapshots
-	congelados (`frozen_cost_rate`, `frozen_cost_source`, `cost_locked`, `economic_behavior`,
-	`billing_interval`, `billing_interval_count`): la nueva versión nace en Borrador y el freeze normal los
-	vuelve a resolver y congelar al re-formalizar. Copiarlos ocultaría un cambio de costo/comportamiento que
-	el fingerprint deberá detectar. Copia explícita (no `as_dict()`) para no arrastrar campos técnicos."""
-	return {
-		"item": row.item,
-		"qty": row.qty,
-		"uom": row.uom,
-		"auto_generated": row.auto_generated,
-	}
+	return None, [_copy_row("Payment Schedule", r) for r in sched]
 
 
 # ── Public API ────────────────────────────────────────────────────────────────
@@ -308,43 +400,45 @@ def create_new_proposal_version(quotation_name: str, reason: str, summary: str =
 
 	inherited_print_format = resolve_commercial_print_format(old)
 
-	# Calendario de pagos: NUNCA copiar due_dates del documento anterior (serían inválidos contra la
-	# nueva fecha). Se regenera con el comportamiento nativo de ERPNext desde la nueva transaction_date.
+	# Calendario de pagos: se preserva el trabajo comercial (template → regenera derivados; manual →
+	# hereda las filas). Ver _resolve_new_version_payment.
 	pt_template, pay_schedule = _resolve_new_version_payment(old)
 
-	new_doc = frappe.get_doc(
+	# ── Herencia metadata-driven del estado comercial (padre + child tables) ──
+	values = _copy_fields(old, "Quotation", skip_tables=True)
+	for parent_field, child_doctype in _CHILD_TABLES.items():
+		values[parent_field] = [_copy_row(child_doctype, r) for r in (old.get(parent_field) or [])]
+
+	# ── TRANSFORM: identidad del nuevo documento · cadena de versiones · workflow · downstream ──
+	values.update(
 		{
 			"doctype": "Quotation",
-			"quotation_to": old.quotation_to,
-			"party_name": old.party_name,
-			"company": old.company,
-			"currency": old.currency,
-			"selling_price_list": old.selling_price_list,
 			"transaction_date": frappe.utils.today(),
-			"valid_till": None,
-			"proposal_group": old.proposal_group,
+			"workflow_state": "Borrador",
 			"proposal_version": new_version_number,
 			"previous_proposal": old.name,
-			"proposal_template": old.proposal_template,
-			"proposal_title": old.proposal_title,
-			"proposal_cost_center": old.proposal_cost_center,
-			"proposal_print_format": inherited_print_format,
+			"superseded_by_proposal": None,
+			"proposal_project": None,
 			"proposal_revision_reason": reason,
 			"proposal_revision_summary": summary,
-			"items": [_copy_item(i) for i in old.items],
-			"taxes": [_copy_tax(t) for t in old.taxes],
+			# Formato efectivo anterior heredado como override editable; el congelado se recongela.
+			"proposal_print_format": inherited_print_format,
+			# Pagos: template heredado (derivados regenerados) o filas manuales preservadas.
 			"payment_terms_template": pt_template,
 			"payment_schedule": pay_schedule,
-			# Snapshot de Sections: copia LITERAL de la versión anterior (mismo contenido/orden/fuentes/
-			# captured_on). No se consultan Proposal Template ni Proposal Section maestros al versionar.
-			"proposal_sections_snapshot": old.proposal_sections_snapshot,
-			"quotation_scope_items": [_copy_scope_item(s) for s in old.quotation_scope_items],
-			# Required Items: se conserva el input semántico (item/qty/uom/auto_generated). Los snapshots
-			# congelados NO se copian — el freeze los repuebla al re-formalizar (ADR-0019 §7.4, B3). Con
-			# skip_scope_generation=True el flujo normal no los reconstruye, por eso se copian aquí.
-			"required_items": [_copy_required_item(r) for r in old.get("required_items") or []],
 		}
 	)
+
+	# valid_till: heredado LITERAL (por _copy_fields) siempre que siga vigente contra la nueva fecha.
+	# ERPNext prohíbe nativamente `valid_till < transaction_date` en CADA save, incluido Borrador
+	# (Quotation.validate_valid_till). Si la fecha heredada ya venció respecto de HOY, ERPNext impediría
+	# crear la nueva Draft; para no romper el versionado se deja en blanco (el usuario la recaptura).
+	# NOTA: desviación acotada respecto de "heredar literal SIEMPRE", forzada por la validación nativa.
+	_vt = old.get("valid_till")
+	if _vt and frappe.utils.getdate(_vt) < frappe.utils.getdate(values["transaction_date"]):
+		values["valid_till"] = None
+
+	new_doc = frappe.get_doc(values)
 
 	# Internal flag: allows before_insert to accept previous_proposal.
 	# frappe.flags is Python-only, not persisted, not settable via REST API.
