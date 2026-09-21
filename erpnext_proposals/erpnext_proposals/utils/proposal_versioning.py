@@ -287,11 +287,11 @@ _EXCLUDE = {
 }
 
 # FORCE_INCLUDE: campos `no_copy=1` que SÍ se copian literalmente a la nueva versión.
-_FORCE_INCLUDE = {
-	# Snapshot de Sections: copia LITERAL de la versión anterior (mismo contenido/orden/fuentes/
-	# captured_on). No se consultan Proposal Template ni Proposal Section maestros al versionar.
-	"Quotation": frozenset({"proposal_sections_snapshot"}),
-}
+# Flujo nuevo: la narrativa se hereda como child table (`proposal_sections`, ver _CHILD_TABLES), NO
+# como `proposal_sections_snapshot` JSON. El snapshot legacy no se force-copia; una versión creada desde
+# una Rechazada histórica que SOLO tiene snapshot se convierte una vez a filas (ver utils.quotation
+# _convert_legacy_snapshot_to_rows, invocado en este flujo).
+_FORCE_INCLUDE = {}
 
 # Child tables gestionadas por herencia directa (parent fieldname -> child DocType).
 # `payment_schedule` NO va aquí: lo resuelve _resolve_new_version_payment (template vs manual).
@@ -301,6 +301,9 @@ _CHILD_TABLES = {
 	"quotation_scope_items": "Quotation Scope Item",
 	"required_items": "Proposal Required Item",
 	"proposal_optional_sections": "Proposal Optional Section",
+	# Narrativa materializada: se copia como datos normales de la nueva versión (independiente de
+	# maestros). El guardado de la versión no re-materializa (skip_scope_generation en validate).
+	"proposal_sections": "Proposal Quotation Section",
 }
 
 
