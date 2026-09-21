@@ -27,7 +27,15 @@ from frappe.contacts.doctype.contact.contact import get_contact_details, get_def
 
 
 def set_proposal_contact(doc, method=None):
-	"""Hook ``Quotation.before_insert``: el contacto del Deal es autoritativo en la creación."""
+	"""Hook ``Quotation.before_insert``: el contacto del Deal es autoritativo en la creación.
+
+	Excepción — VERSIONADO: al crear una nueva versión (``flags.from_proposal_versioning``) que ya trae
+	un ``contact_person`` heredado de la versión anterior, ese contacto es autoritativo y NO se re-decide
+	desde el Deal (evita sustituir silenciosamente el contacto real de la propuesta por el primario del
+	Deal). El flujo normal Deal → Quotation inicial (sin ese flag) queda intacto.
+	"""
+	if doc.flags.get("from_proposal_versioning") and doc.get("contact_person"):
+		return
 	_apply_directed_contact(doc, authoritative=True)
 
 

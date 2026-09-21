@@ -2,6 +2,19 @@
 
 ## [No liberado]
 
+### Changed — Versionado de propuesta: herencia por defecto del estado comercial (v0.26.0)
+
+`create_new_proposal_version()` pasa de un diccionario manual (que descartaba silenciosamente avance
+comercial) a un **constructor metadata-driven**: la nueva versión hereda por defecto TODO el contenido
+comercial de la anterior, respetando `no_copy`, con `EXCLUDE`/`FORCE_INCLUDE`/`TRANSFORM` explícitos y
+un test de cobertura que impide pérdidas silenciosas futuras. Ahora se conservan `crm_deal`,
+`contact_person`, `valid_till` (literal si vigente; en blanco si venció, sin inventar fecha),
+`taxes_and_charges` y filas de impuesto, `tc_name`/`terms`, direcciones, `proposal_contract_term_months`,
+`proposal_financing_*`, `proposal_optional_sections` y el Payment Schedule manual (sin `throw`). Se
+excluyen solo identidad/workflow/cadena/downstream/snapshots-frozen/derivados. `set_proposal_contact`
+no re-decide el contacto durante el versionado. Ver ADR-0021. Sin cambio de esquema ni del contrato
+externo de la API. Tests: `test_versioning_inherit_fields` (13 casos, todos los orígenes + flagship).
+
 ### Fixed — Reparación canónica de snapshots económicos LEGACY (v0.25.2)
 
 Nuevo helper administrativo `utils/legacy_repair.repair_legacy_economic_snapshot(quotation_name, dry_run=True)`
