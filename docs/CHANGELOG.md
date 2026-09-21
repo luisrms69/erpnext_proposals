@@ -2,6 +2,22 @@
 
 ## [No liberado]
 
+### Fixed — Resolver del Print Format comercial tolerante a overrides *stale* en Borrador (v0.25.1)
+
+`dynamic_commercial_print_format` ahora usa `Quotation.proposal_print_format` **solo si es elegible**
+(existe · `doc_type='Quotation'` · `disabled=0`). Si el override quedó inelegible —p. ej. un formato
+*superseded* por una nueva versión que lo dejó `disabled`— se ignora y se continúa con
+`Proposal Template.print_format` y luego el DEFAULT elegible; si ninguno es elegible, error claro (no el
+`DoesNotExistError`/404 opaco de `get_print`). `sync_proposal_print_format_from_template` además repuebla
+el campo guardado cuando quedó inelegible, sin pisar una selección **manual válida**. Elegibilidad
+centralizada en un único helper `is_eligible_print_format` (mismo criterio que la query del campo Link y la
+validación de servidor). Propuestas **congeladas intactas**: `proposal_effective_print_format` conserva
+prioridad absoluta (ADR-0011); el freeze congela el PF elegible resuelto, nunca uno deshabilitado. *Vista
+previa comercial* y *Descargar PDF Borrador* resuelven el **mismo** PF efectivo. Solo código de app; sin
+cambios de pack, Print Format HTML, Sections, Template, fiscal ni Gotenberg.
+
+## v0.25.0
+
 ### Added — Loader: `is_purchase_item` y `economic_behavior_rules` declarativos (v0.25.0)
 
 Amplía la capacidad del catálogo/loader (`catalog_data/catalog_loader.py`) para reproducir la configuración
