@@ -25,6 +25,13 @@ def _proposal_print_format_filters() -> dict:
 	return {"doc_type": PROPOSAL_PRINT_FORMAT_DOCTYPE, "disabled": 0}
 
 
+def is_eligible_print_format(pf_name: str | None) -> bool:
+	"""True si el Print Format es usable para una propuesta. Fuente ÚNICA de elegibilidad: delega en
+	``get_print_format_status`` (mismo criterio que la query del campo Link y la validación de servidor):
+	existe + ``doc_type='Quotation'`` + ``disabled=0``. No duplica el criterio en ningún otro sitio."""
+	return bool(pf_name) and get_print_format_status(pf_name).get("status") == "ok"
+
+
 def resolve_commercial_print_format(doc) -> str:
 	"""Formato comercial efectivo. Congelada → el congelado; Borrador → resolución dinámica."""
 	frozen = doc.get("proposal_effective_print_format")
@@ -34,11 +41,29 @@ def resolve_commercial_print_format(doc) -> str:
 
 
 def dynamic_commercial_print_format(doc) -> str:
-	"""Resolución dinámica (Borrador): override → Proposal Template → default."""
-	pf = doc.get("proposal_print_format")
-	if not pf and doc.get("proposal_template"):
-		pf = frappe.db.get_value("Proposal Template", doc.proposal_template, "print_format")
-	return pf or DEFAULT_COMMERCIAL_PRINT_FORMAT
+	"""Resolución dinámica (Borrador): primer candidato ELEGIBLE entre override → Proposal Template →
+	DEFAULT. Un ``proposal_print_format`` inelegible (inexistente / deshabilitado / de otro DocType —
+	p. ej. un formato *superseded* por una nueva versión que lo dejó ``disabled``) se **ignora** y se
+	continúa con el formato de la plantilla y luego el DEFAULT. Un override MANUAL válido conserva
+	prioridad. Si ningún candidato es elegible, se lanza un error claro (no el 404 opaco de ``get_print``)."""
+	candidates = []
+	override = doc.get("proposal_print_format")
+	if override:
+		candidates.append(override)
+	if doc.get("proposal_template"):
+		template_pf = frappe.db.get_value("Proposal Template", doc.proposal_template, "print_format")
+		if template_pf:
+			candidates.append(template_pf)
+	candidates.append(DEFAULT_COMMERCIAL_PRINT_FORMAT)
+	for pf in candidates:
+		if is_eligible_print_format(pf):
+			return pf
+	frappe.throw(
+		_(
+			"No hay un Print Format comercial elegible para esta propuesta: el formato seleccionado, el "
+			"de la plantilla y el formato por defecto no existen o están deshabilitados."
+		)
+	)
 
 
 def resolve_sow_print_format(doc):
@@ -59,16 +84,19 @@ def sync_proposal_print_format_from_template(doc) -> None:
 	Proposal Template, de forma GENÉRICA (sin nombres hardcodeados):
 
 	- Solo aplica a Quotations con `proposal_template` (las que no usan plantilla no se tocan).
-	- Se puebla cuando se APLICA/CAMBIA la plantilla (`has_value_changed`) o cuando el override está
-	  vacío. Así el campo deja de verse vacío y refleja el formato de la plantilla.
-	- NO sobrescribe una selección MANUAL del usuario mientras la plantilla no cambie.
+	- Se puebla cuando se APLICA/CAMBIA la plantilla (`has_value_changed`), cuando el override está
+	  vacío, o cuando el override guardado quedó **INELEGIBLE** (p. ej. su PF fue deshabilitado por una
+	  nueva versión → *stale*). Así el campo deja de apuntar a un formato inutilizable.
+	- Solo repuebla si el PF de la plantilla es **elegible**; nunca adopta un formato inutilizable.
+	- NO sobrescribe una selección MANUAL **válida** del usuario mientras la plantilla no cambie.
 	"""
 	if not doc.get("proposal_template"):
 		return
 	template_pf = frappe.db.get_value("Proposal Template", doc.proposal_template, "print_format")
-	if not template_pf:
+	if not template_pf or not is_eligible_print_format(template_pf):
 		return
-	if doc.has_value_changed("proposal_template") or not doc.get("proposal_print_format"):
+	override = doc.get("proposal_print_format")
+	if doc.has_value_changed("proposal_template") or not override or not is_eligible_print_format(override):
 		doc.proposal_print_format = template_pf
 
 

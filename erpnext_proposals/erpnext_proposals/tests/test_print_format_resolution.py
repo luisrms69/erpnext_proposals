@@ -16,7 +16,11 @@ from erpnext_proposals.erpnext_proposals.tests.phases import cleanup_test_phases
 from erpnext_proposals.erpnext_proposals.utils.print_format import (
 	DEFAULT_COMMERCIAL_PRINT_FORMAT,
 	dynamic_commercial_print_format,
+	freeze_effective_print_format,
+	get_effective_commercial_print_format,
+	is_eligible_print_format,
 	resolve_commercial_print_format,
+	sync_proposal_print_format_from_template,
 	validate_print_format,
 )
 
@@ -213,6 +217,90 @@ class TestPrintFormatResolution(unittest.TestCase):
 		self.assertNotEqual(resolve_commercial_print_format(doc), "Rentabilidad Estimada")
 		self.assertNotEqual(dynamic_commercial_print_format(doc), "Rentabilidad Estimada")
 
+	# ── H — override INELEGIBLE (stale) se ignora y cae al template ───────────
+	def test_H_eligibility_helper(self):
+		self.assertTrue(is_eligible_print_format(ALT))
+		self.assertFalse(is_eligible_print_format("_Test PF Disabled"))
+		self.assertFalse(is_eligible_print_format("_Test PF Wrong Doctype"))
+		self.assertFalse(is_eligible_print_format("_PF_inexistente_zzz"))
+		self.assertFalse(is_eligible_print_format(None))
+
+	def test_H_override_disabled_falls_to_template(self):
+		doc = frappe._dict({"proposal_template": TPL_PF, "proposal_print_format": "_Test PF Disabled"})
+		self.assertEqual(resolve_commercial_print_format(doc), ALT)
+
+	def test_H_override_missing_falls_to_template(self):
+		doc = frappe._dict({"proposal_template": TPL_PF, "proposal_print_format": "_PF_inexistente_zzz"})
+		self.assertEqual(resolve_commercial_print_format(doc), ALT)
+
+	def test_H_override_wrong_doctype_falls_to_template(self):
+		doc = frappe._dict({"proposal_template": TPL_PF, "proposal_print_format": "_Test PF Wrong Doctype"})
+		self.assertEqual(resolve_commercial_print_format(doc), ALT)
+
+	def test_H_no_override_uses_template(self):
+		doc = frappe._dict({"proposal_template": TPL_PF})
+		self.assertEqual(resolve_commercial_print_format(doc), ALT)
+
+	# ── I — sync corrige el campo stale sin pisar override manual válido ──────
+	#   Se ejercita el flujo REAL (`doc.save()` → validate → sync): así `has_value_changed`
+	#   tiene baseline (`_doc_before_save`). Llamar sync sobre un doc recién cargado sin baseline
+	#   no reproduce el comportamiento de validate.
+	def test_I_sync_fixes_stale_override(self):
+		q = self._draft_proposal(TPL_PF)
+		try:
+			# override stale directamente en BD (bypass del sync), sin cambiar la plantilla
+			frappe.db.set_value("Quotation", q.name, "proposal_print_format", "_Test PF Disabled")
+			doc = frappe.get_doc("Quotation", q.name)
+			self.assertEqual(doc.proposal_print_format, "_Test PF Disabled")
+			doc.flags.ignore_mandatory = True
+			doc.save(ignore_permissions=True)
+			doc.reload()
+			self.assertEqual(doc.proposal_print_format, ALT, "override inelegible → PF del template")
+		finally:
+			_cancel_delete(q.name)
+
+	def test_I_sync_keeps_valid_manual_override(self):
+		q = self._draft_proposal(TPL_PF)
+		try:
+			# override manual VÁLIDO distinto del PF de la plantilla; la plantilla no cambia
+			frappe.db.set_value("Quotation", q.name, "proposal_print_format", DEFAULT_COMMERCIAL_PRINT_FORMAT)
+			doc = frappe.get_doc("Quotation", q.name)
+			doc.flags.ignore_mandatory = True
+			doc.save(ignore_permissions=True)
+			doc.reload()
+			self.assertEqual(
+				doc.proposal_print_format,
+				DEFAULT_COMMERCIAL_PRINT_FORMAT,
+				"no pisa un override manual válido mientras la plantilla no cambie",
+			)
+		finally:
+			_cancel_delete(q.name)
+
+	# ── J — freeze con override stale congela el PF VÁLIDO resuelto ───────────
+	def test_J_freeze_with_stale_override_freezes_valid(self):
+		doc = frappe._dict(
+			{
+				"proposal_template": TPL_PF,
+				"proposal_print_format": "_Test PF Disabled",
+				"proposal_effective_print_format": None,
+			}
+		)
+		freeze_effective_print_format(doc)
+		self.assertEqual(
+			doc.proposal_effective_print_format, ALT, "congela el elegible resuelto, no el disabled"
+		)
+
+	# ── K — Vista previa comercial y Descargar PDF Borrador → MISMO PF ────────
+	def test_K_preview_and_download_same_pf(self):
+		q = self._draft_proposal(TPL_PF)
+		try:
+			doc = frappe.get_doc("Quotation", q.name)
+			expected = resolve_commercial_print_format(doc)
+			self.assertEqual(get_effective_commercial_print_format(q.name), expected)
+			self.assertEqual(expected, ALT)
+		finally:
+			_cancel_delete(q.name)
+
 	# ── helper ────────────────────────────────────────────────────────────────
 	def _submit_proposal(self, template):
 		from erpnext_proposals.erpnext_proposals.tests.company import get_test_price_list
@@ -238,6 +326,29 @@ class TestPrintFormatResolution(unittest.TestCase):
 		doc.flags.ignore_mandatory = True
 		doc.flags.ignore_links = True
 		doc.submit()
+		doc.reload()
+		return doc
+
+	def _draft_proposal(self, template):
+		from erpnext_proposals.erpnext_proposals.tests.company import get_test_price_list
+
+		doc = frappe.get_doc(
+			{
+				"doctype": "Quotation",
+				"quotation_to": "Customer",
+				"party_name": self.customer,
+				"company": self.company,
+				"currency": "MXN",
+				"transaction_date": frappe.utils.today(),
+				"proposal_group": f"TEST-PFD-{frappe.generate_hash(length=6)}",
+				"proposal_template": template,
+				"proposal_title": "PF Draft Test",
+				"proposal_cost_center": self.cost_center,
+				"selling_price_list": get_test_price_list(),
+				"items": [{"item_code": self.item, "qty": 1, "rate": 5000, "uom": "Nos"}],
+			}
+		)
+		doc.insert(ignore_permissions=True, ignore_mandatory=True)
 		doc.reload()
 		return doc
 

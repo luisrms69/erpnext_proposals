@@ -1,65 +1,75 @@
 # CONTINUITY.md — erpnext_proposals
 
 **Fecha:** 2026-09-20
-**Rama activa:** `feat/loader-item-purchase-econ-rules` (base `upstream/version-16` = v0.24.0; objetivo **0.25.0**)
-**Tarea actual:** Loader — soporte declarativo de `is_purchase_item` y `economic_behavior_rules`. En ciclo `/ship`, detener en PR.
+**Rama activa:** `fix/commercial-pf-resolver-stale-override` (base `upstream/version-16` = v0.25.0; objetivo **0.25.1**)
+**Tarea actual:** Fix del resolver de Print Format comercial ante `proposal_print_format` stale/inelegible en Borrador.
 
 ---
 
 ## Recuperación rápida
 
 Estoy trabajando en:
-Ampliar el loader del catálogo (`catalog_data/catalog_loader.py`) para reproducir la config canónica del
-producto recurrente no-comprable `Legal Officer as a Service` (LOAS-JUR-CORP-001) — sin rediseño.
+Corregir de forma genérica el manejo de `Quotation.proposal_print_format` cuando quedó apuntando a un
+Print Format inelegible (inexistente / `doc_type != Quotation` / `disabled=1`) — p. ej. tras versionar
+un PF (base → V1). Antes: `dynamic_commercial_print_format` devolvía el override sin validar → `get_print`
+lanzaba `DoesNotExistError` al usar "Descargar PDF Borrador".
 
 Plan que estoy siguiendo:
-Petición del usuario (cambio mínimo en el loader existente) + ADR-0018 (comportamiento económico).
+Opción C aprobada = resolver tolerante en Draft + sync que repuebla el override inelegible, con un helper
+único de elegibilidad. Sin tocar documentos congelados (ADR-0011).
 
 Objetivo inmediato:
-`/ship` hasta PR contra `version-16` (bump 0.25.0). Sin merge, sin release del pack, sin tocar producción.
+`/ship` completo hasta release v0.25.1 contra `version-16`.
 
 Criterio de avance:
-PR abierto, CI verde, alcance limitado a is_purchase_item + economic_behavior_rules + tests.
+Suite verde (salvo #60 ambiental), CI verde, auditoría de aditividad aprobada (ADITIVO/SEGURO).
 
 ---
 
 ## Estado actual
 
 ### Ya cerrado
-- `_seed_items` administra `is_purchase_item` (clave ausente = no toca).
-- Nuevo `_seed_economic_behavior_rules` (por Company, idempotente, no borra reglas no declaradas, dry_run
-  create/update/unchanged); registrado en `capabilities()`; invocado tras `_seed_items`.
-- Tests: `test_is_purchase_item_managed`, `test_economic_behavior_rules_managed` (test_catalog_loader → 17).
-- Bump 0.25.0 + CHANGELOG (renombra v0.24.0) + arquitectura (fila del loader).
+- `is_eligible_print_format(pf_name)`: fuente única de elegibilidad (delega en `get_print_format_status`).
+- `dynamic_commercial_print_format`: primer candidato ELEGIBLE entre override → Template → DEFAULT; si
+  ninguno elegible, `frappe.throw` claro. Path congelado (`resolve_commercial_print_format` con
+  `proposal_effective_print_format`) sin cambios.
+- `sync_proposal_print_format_from_template`: repuebla el override también cuando quedó inelegible; nunca
+  pisa una selección manual válida; solo si el PF de la plantilla es elegible.
+- Tests: 11 casos nuevos en `test_print_format_resolution.py` (20/20 en el módulo; suite 762/763, única
+  falla ambiental #60 `test_09b`).
+- Bump `__version__` 0.25.1 + CHANGELOG.
 
 ### Pendiente inmediato
-1. `/ship commit` → `/ship push` → `/ship pr`. Detener en PR.
-2. Después (fuera de este PR): re-corte/release del **pack privado** (working diverge del sello 1.25.0 por
-   `is_purchase_item` + `economic_behavior_rules`) — NO iniciar sin autorización.
+1. `/ship` completo (commit → push → pr → merge --release) → tag/Release v0.25.1.
+2. Aparte (pack privado, otro repo): corte 1.27.0 con el delta LOAS/PF/Section/Payment Term.
 
 ### No repetir
-- El pack **no** versiona `is_purchase_item`/`economic_behavior_rules` hasta que ESTE loader se libere/instale.
-- `test_09b_duplicate_item_line_rejected_by_erpnext` (#60) falla solo local (`allow_multiple_items=1`); pasa en CI.
-- proposals.dev sigue rezagado en la migración V1 del Print Format (drift preexistente, ajeno a este cambio).
+- El fix es de la APP; los cambios de contenido (Item LOAS, Sections, PF html, Payment Term) viven en el
+  PACK privado, no en este repo.
+- `test_09b` (#60) falla solo local (`allow_multiple_items=1`); pasa en CI.
 
 ---
 
 ## Decisiones vigentes
-- Campos administrados del loader: clave presente fija; ausente no toca; null limpia. `is_purchase_item` sigue ese patrón.
-- `economic_behavior_rules` se siembra por Company sin borrar reglas ajenas ni tocar otros campos de Proposal Settings.
+- Elegibilidad de PF centralizada en un único helper; no duplicar el criterio (query Link / validación /
+  status / resolver / sync lo comparten).
+- Congelados intactos: `proposal_effective_print_format` conserva prioridad absoluta (ADR-0011).
 
 ---
 
 ## Archivos relevantes ahora
 ### Leer primero
-- `erpnext_proposals/erpnext_proposals/catalog_data/catalog_loader.py` (`_seed_items`, `_seed_economic_behavior_rules`)
+- `erpnext_proposals/erpnext_proposals/utils/print_format.py` (resolver + sync + `is_eligible_print_format`).
+- `erpnext_proposals/erpnext_proposals/tests/test_print_format_resolution.py`.
+
 ### No tocar
-- Print Format, Proposal Template, Sections, `facturacion_mexico`, producción, pack (release).
+- PF html / Sections / Template / pack (viven en el pack privado), producción, `facturacion_mexico`.
 
 ---
 
 ## Riesgos / cuidados
-- `test_09b` (#60) es la única falla de suite y es ambiental local.
+- Auditoría de retroactividad aprobada: no-recurrentes byte-equivalentes a 1.26.0; 0 submitted con V1 en
+  producción; PF base e Implementación intactos. Veredicto ADITIVO/SEGURO.
 
 ## Información faltante
-- Ninguna para cerrar el PR. El release del pack es un paso posterior separado.
+- Ninguna para cerrar el PR.
