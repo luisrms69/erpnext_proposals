@@ -109,9 +109,10 @@ def on_quotation_validate(doc, method=None):
 	# Copia el contenido general del Item a las líneas nativas Quotation Item (congelado): el PDF y las
 	# versiones usan la copia, no el Item maestro. Solo en Borrador y generación (no en versiones).
 	_copy_item_proposal_fields(doc)
-	# Snapshot de Sections narrativas: se construye desde el Template solo si aún está vacío (generación
-	# inicial en Borrador); un guardado normal no lo regenera ni consulta maestros.
-	_sync_sections_snapshot(doc)
+	# Sections narrativas MATERIALIZADAS: se copian del Template a `proposal_sections` (child) solo si la
+	# tabla aún está vacía (generación inicial en Borrador). Un guardado normal no reconstruye ni consulta
+	# maestros; cambios posteriores en Proposal Template/Section NO se propagan (reaplicar es explícito).
+	_materialize_proposal_sections(doc)
 	# Fase 1 bis: precargar Items requeridos configurados por los Items vendidos nuevos, ANTES de generar
 	# el alcance, para que sus Scope Items entren en la misma pasada.
 	_autoload_required_items(doc)
@@ -702,10 +703,11 @@ def resync_scope_from_catalog(quotation_name: str) -> dict:
 	# catálogo y elimina las que perdieron respaldo. Recuperar faltantes es una acción MANUAL explícita
 	# (`add_missing_scope_items_from_items`); el guardado y el resync nunca repueblan.
 
-	# Resync explícito: refresca los cuatro valores del bloque del servicio en TODAS las líneas y
-	# regenera el snapshot de Sections desde los maestros actuales (actualiza captured_on).
+	# Resync explícito (acción del usuario): refresca los cuatro valores del bloque del servicio en TODAS
+	# las líneas y REAPLICA por completo las Sections narrativas desde el Template/Section vigentes,
+	# reemplazando las filas actuales de `proposal_sections`. Es la única vía de reaplicación narrativa.
 	_copy_item_proposal_fields(doc, force=True)
-	_sync_sections_snapshot(doc, force=True)
+	_materialize_proposal_sections(doc, force=True)
 	doc.save()
 	return {
 		"updated": updated,
@@ -771,6 +773,86 @@ def _sync_sections_snapshot(doc, force: bool = False) -> None:
 	if not force and (getattr(doc, "proposal_sections_snapshot", None) or "").strip():
 		return  # ya poblado y sin force → conservar literalmente
 	doc.proposal_sections_snapshot = json.dumps(_build_sections_snapshot(doc), ensure_ascii=False)
+
+
+def _materialize_proposal_sections(doc, force: bool = False) -> None:
+	"""Materializa las Sections narrativas del Template en la child table `proposal_sections`.
+
+	Modelo nativo (Master/Template → Draft autosuficiente): copia los valores EFECTIVOS de cada
+	Proposal Template Section + Proposal Section a filas propias de la Quotation. Desde ese momento las
+	filas son datos de la Quotation; cambios posteriores en los maestros NO se propagan.
+
+	- Sin ``force``: solo materializa si la tabla está VACÍA (generación inicial en Borrador). Si ya hay
+	  filas, se conservan literalmente — un guardado normal no reconstruye ni consulta maestros.
+	- ``force=True`` (reaplicación explícita vía resync): REEMPLAZA por completo las filas actuales con la
+	  composición vigente del Template. Sin merge, diff ni preservación selectiva.
+
+	No escribe ``proposal_sections_snapshot``: el flujo nuevo no usa el snapshot JSON.
+	"""
+	if not getattr(doc, "proposal_template", None):
+		return
+	if not force and (doc.get("proposal_sections") or []):
+		return  # ya materializado y sin force → conservar literalmente
+	doc.set("proposal_sections", _build_proposal_section_rows(doc))
+
+
+def _build_proposal_section_rows(doc) -> list:
+	"""Filas de `proposal_sections` derivadas del Template (mismos filtros que el snapshot legacy).
+
+	Ordena por ``sequence``, excluye Sections deshabilitadas, opcionales no seleccionadas y contenido
+	vacío. Cada fila copia: ``proposal_section`` (Link a la Section origen), ``sequence``, ``title`` y
+	``content`` EFECTIVOS (override del Template si aplica), ``hide_title`` e ``is_executive_summary``.
+	Hard-fails si no puede leer una Section — sin fallback silencioso a maestros vivos.
+	"""
+	try:
+		tmpl = frappe.get_doc("Proposal Template", doc.proposal_template)
+		rows = []
+
+		# Secciones opcionales activadas explícitamente en esta Quotation (Table MultiSelect).
+		# Solo aplican a filas del Template marcadas como opcionales (include_by_default=0).
+		selected_optional = {
+			r.proposal_section for r in (doc.get("proposal_optional_sections") or []) if r.proposal_section
+		}
+
+		for row in sorted(tmpl.sections, key=lambda r: r.sequence or 0):
+			try:
+				ps = frappe.get_doc("Proposal Section", row.proposal_section)
+			except Exception as e:
+				frappe.throw(
+					_("No se pudo leer la sección '{0}': {1}").format(row.proposal_section, str(e)),
+					title=_("Error al materializar secciones"),
+				)
+
+			if not ps.enabled:
+				continue
+
+			# Sección opcional (include_by_default apagado): solo entra si la propuesta la activó.
+			if not row.include_by_default and row.proposal_section not in selected_optional:
+				continue
+
+			content = row.custom_content if row.use_custom_content else ps.content
+			if not content:
+				continue
+
+			rows.append(
+				{
+					"sequence": row.sequence or 0,
+					"proposal_section": ps.name,
+					"title": row.custom_title or ps.title or ps.section_name,
+					"content": content,
+					"hide_title": int(row.hide_title or 0),
+					"is_executive_summary": int(ps.is_executive_summary or 0),
+				}
+			)
+		return rows
+
+	except frappe.exceptions.ValidationError:
+		raise  # re-raise frappe.throw calls
+	except Exception as e:
+		frappe.throw(
+			_("No se pudieron materializar las secciones de la propuesta: {0}").format(str(e)),
+			title=_("Error al materializar secciones"),
+		)
 
 
 def _build_sections_snapshot(doc) -> list:
