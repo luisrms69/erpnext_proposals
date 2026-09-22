@@ -271,32 +271,35 @@ class TestProposalVersioning(unittest.TestCase):
 		self.assertEqual(by_item[self.req_a].qty, 2)
 		self.assertEqual(by_item[self.req_b].qty, 5)
 
-	def test_b3_03_frozen_snapshot_not_inherited(self):
-		"""#3 El snapshot económico anterior NO se hereda: la nueva versión nace en Borrador."""
+	def test_b3_03_economics_inherited_locks_not(self):
+		"""#3 (B7 / ADR-0022) La economía MATERIALIZADA se hereda como valor; el flag legacy de lock no."""
 		old = self._rejected_with_required([(self.req_a, 1)])
-		# La versión anterior (submitted) SÍ tiene snapshot congelado.
-		self.assertTrue(old.required_items[0].cost_locked, "precondición: la anterior está congelada")
+		# La versión anterior tiene economía materializada (marcador frozen_cost_source, no lock).
+		self.assertTrue(old.required_items[0].get("frozen_cost_source"), "precondición: costo materializado")
+		self.assertTrue(old.required_items[0].get("economic_behavior"), "precondición: comportamiento")
 		v2 = self._version_of(old.name)
 		r = v2.required_items[0]
-		self.assertFalse(r.cost_locked, "cost_locked no se hereda")
-		self.assertIn(flt(r.frozen_cost_rate), (0.0,), "frozen_cost_rate no se hereda")
-		self.assertFalse(r.frozen_cost_source, "frozen_cost_source no se hereda")
-		self.assertFalse(r.economic_behavior, "economic_behavior no se hereda")
-		self.assertFalse(r.billing_interval, "billing_interval no se hereda")
-		self.assertFalse(r.billing_interval_count, "billing_interval_count no se hereda")
+		# Los VALORES económicos se heredan (Draft autosuficiente; resync refresca).
+		self.assertEqual(r.get("frozen_cost_source"), old.required_items[0].get("frozen_cost_source"))
+		self.assertEqual(flt(r.get("frozen_cost_rate")), flt(old.required_items[0].get("frozen_cost_rate")))
+		self.assertEqual(r.get("economic_behavior"), old.required_items[0].get("economic_behavior"))
+		# El flag legacy de lock NO se hereda ni se usa en el flujo nuevo.
+		self.assertFalse(r.get("cost_locked"), "el flag legacy cost_locked no se hereda")
 
-	def test_b3_04_refreeze_on_formalization_repopulates(self):
-		"""#4 Al re-formalizar (submit → freeze) los snapshots vuelven a poblarse y
-		assert_economic_snapshot_complete sigue pasando (no lanza)."""
+	def test_b3_04_formalization_no_refreeze_still_complete(self):
+		"""#4 (B7) La nueva versión formaliza SIN re-congelar: la economía ya está materializada
+		(heredada) y assert_economic_snapshot_complete pasa. El freeze no vuelve a poblar ni bloquear."""
 		old = self._rejected_with_required([(self.req_a, 1)])
 		v2 = self._version_of(old.name)
+		# El Draft ya trae la economía materializada por herencia.
+		self.assertTrue(v2.required_items[0].get("economic_behavior"), "economía materializada en Draft")
 		v2.flags.ignore_mandatory = True
 		v2.flags.ignore_links = True
-		v2.submit()  # before_submit → freeze + assert_economic_snapshot_complete (lanzaría si incompleto)
+		v2.submit()  # before_submit → assert_economic_snapshot_complete (lanzaría si faltara materializar)
 		v2.reload()
 		r = v2.required_items[0]
-		self.assertTrue(r.cost_locked, "el freeze recongela cost_locked")
-		self.assertTrue(r.economic_behavior, "el freeze recongela economic_behavior")
+		self.assertTrue(r.get("economic_behavior"), "el comportamiento materializado persiste tras submit")
+		self.assertFalse(r.get("cost_locked"), "el flujo nuevo formaliza sin escribir cost_locked")
 
 	def test_b3_05_no_required_items_unchanged(self):
 		"""#5 Versión sin Required Items: comportamiento intacto (0 filas, sin error)."""

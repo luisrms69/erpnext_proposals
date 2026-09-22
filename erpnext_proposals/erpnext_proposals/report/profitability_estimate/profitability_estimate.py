@@ -60,17 +60,17 @@ def get_profitability_data(quotation_name: str) -> dict:
 	is_submitted = quotation.docstatus == 1
 
 	for row in scope_rows_raw:
-		# Use frozen snapshot for submitted quotations; recalculate for drafts.
-		# rate_locked=1 => tarifa CONGELADA (incluso 0): un 0 legítimamente congelado NO reconsulta la Cost
-		# Matrix vigente (paridad con economic_calendar._labor_rate_source).
-		use_frozen = is_submitted and row.rate_locked
+		# Flujo nuevo: usa el valor MATERIALIZADO en la fila si existe (marcador rate_source; costing_rate=0
+		# es un 0 legítimo). Solo recalcula en vivo cuando la fila NO está materializada. Compat legacy:
+		# submitted con rate_locked también cuenta como materializado.
+		use_frozen = bool(row.rate_source) or (is_submitted and row.rate_locked)
 
 		if use_frozen:
 			costing_rate = flt(row.costing_rate)
 			rate_source = row.rate_source or "frozen"
 			notes = rate_source
 		else:
-			if is_submitted and not row.rate_locked:
+			if is_submitted:
 				missing_frozen_snapshot += 1
 			costing_rate, rate_source = get_designation_cost(row.designation, row.activity_type)
 			notes = rate_source
@@ -120,7 +120,8 @@ def get_profitability_data(quotation_name: str) -> dict:
 	txn = quotation.get("transaction_date")
 
 	def _external(item_code, uom, locked, frozen_rate, frozen_source):
-		if is_submitted and locked:
+		# Materializado en la fila (marcador frozen_source) → usar; compat legacy: submitted con locked.
+		if frozen_source or (is_submitted and locked):
 			return flt(frozen_rate), (frozen_source or "frozen")
 		return resolve_external_cost(item_code, uom, txn)
 

@@ -387,16 +387,28 @@ class TestVersioningInheritFields(unittest.TestCase):
 		)
 		self.assertEqual(v2.taxes[0].charge_type, v1.taxes[0].charge_type)
 
-	# ── 9. Frozen/snapshots no se arrastran ─────────────────────────────────────
-	def test_9_frozen_not_inherited(self):
+	# ── 9. Economía materializada se hereda; flags legacy de lock no (B7 / ADR-0022) ────────────
+	def test_9_economics_inherited_locks_not(self):
 		v1 = self._make_rejected()
-		# Tras el submit, la línea vendida tiene snapshot congelado.
-		self.assertTrue(v1.items[0].proposal_cost_locked, "precondición: item congelado")
+		# Flujo nuevo: la línea vendida tiene economía MATERIALIZADA (marcadores *_source / behavior).
+		self.assertTrue(
+			v1.items[0].get("proposal_frozen_cost_source"), "precondición: costo externo materializado"
+		)
+		self.assertTrue(
+			v1.items[0].get("proposal_economic_behavior"), "precondición: comportamiento materializado"
+		)
 		v2 = self._version(v1)
 		it = v2.items[0]
-		self.assertFalse(it.proposal_cost_locked, "proposal_cost_locked no se hereda")
-		self.assertFalse(it.get("proposal_economic_behavior"), "economic_behavior no se hereda")
-		self.assertEqual(flt(it.get("proposal_frozen_cost_rate")), 0.0)
+		# Los VALORES económicos se heredan (Draft autosuficiente; resync refresca).
+		self.assertEqual(
+			it.get("proposal_frozen_cost_source"), v1.items[0].get("proposal_frozen_cost_source")
+		)
+		self.assertEqual(
+			flt(it.get("proposal_frozen_cost_rate")), flt(v1.items[0].get("proposal_frozen_cost_rate"))
+		)
+		self.assertEqual(it.get("proposal_economic_behavior"), v1.items[0].get("proposal_economic_behavior"))
+		# El flag legacy de lock NO se hereda (ni se usa en el flujo nuevo).
+		self.assertFalse(it.get("proposal_cost_locked"), "el flag legacy proposal_cost_locked no se hereda")
 
 	# ── 10. Cadena V1→V2→V3 intacta ─────────────────────────────────────────────
 	def test_10_chain_intact(self):

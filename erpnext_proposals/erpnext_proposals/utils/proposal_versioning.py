@@ -247,12 +247,12 @@ _EXCLUDE = {
 			"account_currency",
 		}
 	),
-	# Scope Item: se excluyen calculados/congelados (re-resueltos en revisión), downstream (project_task)
-	# y procedencia (source_type/source_row, re-derivada al validar/generar).
+	# Scope Item: la tarifa económica se HEREDA como valor materializado (B7 / ADR-0022): la nueva versión
+	# es un Draft autosuficiente y refresca con resync si el usuario lo pide; ya no se re-resuelve en el
+	# freeze. Se excluyen los flags legacy de lock, el downstream (project_task) y la procedencia
+	# (source_type/source_row, re-derivada al validar/generar).
 	"Quotation Scope Item": frozenset(
 		{
-			"costing_rate",
-			"rate_source",
 			"rate_locked",
 			"rate_locked_on",
 			"project_task",
@@ -260,16 +260,11 @@ _EXCLUDE = {
 			"source_row",
 		}
 	),
-	# Required Item: snapshots congelados (ADR-0019 §7.4) — se re-congelan al re-formalizar. NOTA: estos
-	# campos NO están marcados no_copy=1 en el DocType, por eso la deny-list explícita es imprescindible.
+	# Required Item: costo/comportamiento económico se HEREDAN como valores materializados (B7). Solo se
+	# excluye el flag legacy de lock (`cost_locked`).
 	"Proposal Required Item": frozenset(
 		{
-			"frozen_cost_rate",
-			"frozen_cost_source",
 			"cost_locked",
-			"economic_behavior",
-			"billing_interval",
-			"billing_interval_count",
 		}
 	),
 	# Payment Schedule (caso manual): se heredan los inputs; los base/derivados los recalcula ERPNext.
@@ -291,7 +286,21 @@ _EXCLUDE = {
 # como `proposal_sections_snapshot` JSON. El snapshot legacy no se force-copia; una versión creada desde
 # una Rechazada histórica que SOLO tiene snapshot se convierte una vez a filas (ver utils.quotation
 # _convert_legacy_snapshot_to_rows, invocado en este flujo).
-_FORCE_INCLUDE = {}
+#
+# B7 / ADR-0022: la economía MATERIALIZADA del Item vendido (costo externo + comportamiento) es
+# `no_copy=1`, pero se HEREDA a la nueva versión como valor (Draft autosuficiente; resync refresca). El
+# flag legacy `proposal_cost_locked` NO se hereda.
+_FORCE_INCLUDE = {
+	"Quotation Item": frozenset(
+		{
+			"proposal_frozen_cost_rate",
+			"proposal_frozen_cost_source",
+			"proposal_economic_behavior",
+			"proposal_billing_interval",
+			"proposal_billing_interval_count",
+		}
+	),
+}
 
 # Child tables gestionadas por herencia directa (parent fieldname -> child DocType).
 # `payment_schedule` NO va aquí: lo resuelve _resolve_new_version_payment (template vs manual).

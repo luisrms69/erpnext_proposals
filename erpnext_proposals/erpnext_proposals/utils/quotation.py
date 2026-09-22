@@ -125,6 +125,10 @@ def on_quotation_validate(doc, method=None):
 	# ocurrencia `(source_row, scope_item)`. Asignar el name nativo AHORA, antes de materializar.
 	_assign_pending_required_item_names(doc)
 	_generate_scope_items(doc)
+	# Economía materializada en Draft (patrón nativo): tarifas laborales, costos externos y comportamiento
+	# económico se resuelven y persisten en las filas AÚN NO materializadas. Un guardado normal no recalcula
+	# ni consulta masters; cambios posteriores NO se propagan (reaplicar es explícito vía resync).
+	_materialize_economics(doc)
 
 
 def _validate_internal_cost_flags(doc) -> None:
@@ -708,6 +712,9 @@ def resync_scope_from_catalog(quotation_name: str) -> dict:
 	# reemplazando las filas actuales de `proposal_sections`. Es la única vía de reaplicación narrativa.
 	_copy_item_proposal_fields(doc, force=True)
 	_materialize_proposal_sections(doc, force=True)
+	# Reaplicación explícita también de la economía: recalcula tarifas/costos/comportamiento desde los
+	# masters vigentes en TODAS las filas. Es la única vía de refresco (nada se actualiza "mágicamente").
+	_materialize_economics(doc, force=True)
 	doc.save()
 	return {
 		"updated": updated,
@@ -737,12 +744,13 @@ def add_missing_scope_items_from_items(quotation_name: str) -> dict:
 
 
 def freeze_proposal(doc) -> None:
-	"""Congela las tarifas/comportamiento económico y el Print Format efectivo en la revisión formal.
+	"""Congela el Print Format comercial efectivo en la revisión formal.
 
-	Se llama en Borrador → En Revisión (y como fallback en Submit). La narrativa NO se congela aquí: las
-	filas `proposal_sections` ya están materializadas desde la generación y quedan inmutables por
-	``docstatus`` al pasar a En Revisión/Submit. No se escribe ni sincroniza `proposal_sections_snapshot`
-	(flujo nuevo). El PDF oficial adjunto es la evidencia histórica.
+	Se llama en Borrador → En Revisión (y como fallback en Submit). NI la narrativa NI la economía se
+	congelan aquí: las filas `proposal_sections` y los valores económicos (tarifas/costos/comportamiento)
+	ya están MATERIALIZADOS en la Quotation desde la generación y quedan inmutables por ``docstatus`` al
+	pasar a En Revisión/Submit. El flujo nuevo no reconstruye ni bloquea de nuevo en el freeze. El PDF
+	oficial adjunto es la evidencia histórica.
 	"""
 	if not getattr(doc, "proposal_template", None):
 		return  # no template — nothing to freeze
@@ -751,10 +759,6 @@ def freeze_proposal(doc) -> None:
 	from erpnext_proposals.erpnext_proposals.utils.print_format import freeze_effective_print_format
 
 	freeze_effective_print_format(doc)
-
-	_freeze_costing_rates(doc)
-	_freeze_item_costs(doc)
-	_freeze_economic_behavior(doc)
 
 
 def _sync_sections_snapshot(doc, force: bool = False) -> None:
@@ -991,68 +995,81 @@ def get_template_optional_sections(template: str) -> list:
 	return out
 
 
-def _freeze_costing_rates(doc) -> None:
-	"""Freeze costing rates from Proposal Cost Matrix into each Scope Item."""
+def _materialize_economics(doc, force: bool = False) -> None:
+	"""Materializa la economía de la propuesta en la Quotation Draft (patrón nativo, como la narrativa).
+
+	Resuelve y persiste en las filas los valores económicos desde masters/configuración:
+	tarifa laboral (Proposal Cost Matrix), costo externo (pricing nativo) y comportamiento económico
+	(Proposal Settings). Desde ese momento son datos propios de la Quotation; cambios posteriores en los
+	masters NO se propagan. ``docstatus=1`` los congela; el freeze ya no recalcula.
+
+	- Sin ``force``: solo materializa las filas AÚN NO materializadas (marcador: ``*_source`` / behavior
+	  presente). Un guardado normal no recalcula ni consulta masters.
+	- ``force=True`` (reaplicación explícita vía resync): recalcula y reemplaza en TODAS las filas.
+	"""
+	_materialize_costing_rates(doc, force)
+	_materialize_item_costs(doc, force)
+	_materialize_economic_behavior(doc, force)
+
+
+def _materialize_costing_rates(doc, force: bool = False) -> None:
+	"""Tarifa laboral por Scope Item desde Proposal Cost Matrix, persistida en la fila.
+
+	Idempotente por presencia de ``rate_source`` (marcador de materializado; ``costing_rate=0`` es un 0
+	legítimo, por eso el marcador es la fuente, no la tarifa). No escribe ``rate_locked`` (legacy)."""
 	from erpnext_proposals.erpnext_proposals.utils.cost_matrix import get_designation_cost
 
-	now = now_datetime()
 	for row in doc.quotation_scope_items or []:
-		# Costeo/congelamiento: filas vendibles O internas de costo.
+		# Costeo/materialización: filas vendibles O internas de costo.
 		if not (row.include_in_proposal or row.is_internal_cost_task):
 			continue
-		if row.rate_locked:
-			continue  # already locked — never overwrite
+		if not force and row.get("rate_source"):
+			continue  # ya materializada — no recalcular
 		rate, source = get_designation_cost(row.designation, row.activity_type)
 		row.costing_rate = flt(rate)
 		row.rate_source = source
-		row.rate_locked = 1
-		row.rate_locked_on = now
 
 
-def _freeze_item_costs(doc) -> None:
-	"""Congela el COSTO EXTERNO por línea (Item vendido + Required Item) en Borrador → En Revisión.
+def _materialize_item_costs(doc, force: bool = False) -> None:
+	"""Costo EXTERNO por línea (Item vendido + Required Item), persistido en la fila.
 
-	Aditivo al costo laboral (que se congela en ``_freeze_costing_rates``). Idempotente por fila
-	(``cost_locked``). Resuelve en vivo con el pricing NATIVO (``resolve_external_cost``: gate
-	``is_purchase_item`` → Item Price de compra → last_purchase → valuation). Sin costo → rate 0,
-	source ``sin_costo``, locked=1: la propuesta histórica NO vuelve a consultar pricing vivo (ADR-0017)."""
+	Aditivo al costo laboral. Idempotente por presencia de ``*_cost_source`` (marcador). Resuelve con el
+	pricing NATIVO (``resolve_external_cost``: gate ``is_purchase_item`` → Item Price compra → last_purchase
+	→ valuation). No escribe ``proposal_cost_locked`` / ``cost_locked`` (legacy)."""
 	from erpnext_proposals.erpnext_proposals.utils.item_cost import resolve_external_cost
 
 	txn = doc.get("transaction_date")
 	for row in doc.get("items") or []:
-		if row.get("proposal_cost_locked"):
-			continue  # already locked — never overwrite
+		if not force and row.get("proposal_frozen_cost_source"):
+			continue  # ya materializada
 		rate, source = resolve_external_cost(row.item_code, row.get("uom"), txn)
 		row.proposal_frozen_cost_rate = flt(rate)
 		row.proposal_frozen_cost_source = source
-		row.proposal_cost_locked = 1
 	for row in doc.get("required_items") or []:
-		if row.get("cost_locked"):
-			continue
+		if not force and row.get("frozen_cost_source"):
+			continue  # ya materializada
 		rate, source = resolve_external_cost(row.item, row.get("uom"), txn)
 		row.frozen_cost_rate = flt(rate)
 		row.frozen_cost_source = source
-		row.cost_locked = 1
 
 
-def _freeze_economic_behavior(doc) -> None:
-	"""Congela el COMPORTAMIENTO ECONÓMICO efectivo por línea en Borrador → En Revisión (ADR-0018).
+def _materialize_economic_behavior(doc, force: bool = False) -> None:
+	"""Comportamiento económico efectivo por línea (ADR-0018), persistido en la fila.
 
-	Snapshot mínimo (behavior/interval/interval_count) resuelto en vivo desde el Proposal Settings de la
-	Company al momento del freeze. Idempotente por fila (no sobrescribe si ya hay behavior congelado). Tras
-	En Revisión, la Evaluación Económica usa exclusivamente este snapshot: cambios posteriores en la
-	configuración NO alteran la propuesta histórica. El plazo efectivo es `proposal_contract_term_months`,
-	que ya vive en la Quotation y queda inmutable al someterse."""
+	Snapshot mínimo (behavior/interval/interval_count) resuelto desde el Proposal Settings de la Company.
+	Idempotente por presencia de ``*economic_behavior`` (marcador; siempre no vacío tras materializar). El
+	plazo efectivo es ``proposal_contract_term_months``, que ya vive en la Quotation e inmutable por
+	docstatus."""
 	company = doc.get("company")
 	for row in doc.get("items") or []:
-		if row.get("proposal_economic_behavior"):
+		if not force and row.get("proposal_economic_behavior"):
 			continue
 		behavior, interval, count = _economic_behavior_for_item(row.item_code, company)
 		row.proposal_economic_behavior = behavior
 		row.proposal_billing_interval = interval or ""
 		row.proposal_billing_interval_count = int(count or 0)
 	for row in doc.get("required_items") or []:
-		if row.get("economic_behavior"):
+		if not force and row.get("economic_behavior"):
 			continue
 		behavior, interval, count = _economic_behavior_for_item(row.item, company)
 		row.economic_behavior = behavior
@@ -1065,11 +1082,13 @@ def assert_economic_snapshot_complete(doc) -> None:
 	snapshot económico COMPLETO. Reutilizada por: ``on_quotation_before_submit`` (tras ``freeze_proposal``),
 	las transiciones de workflow de propuestas submitted, y el contrato económico (``project_economics``).
 
-	Exige, por línea: cada Scope Item costable (vendible o interno de costo) con ``rate_locked``; cada Item
-	vendido con ``proposal_cost_locked`` + ``proposal_economic_behavior``; cada Required con ``cost_locked`` +
-	``economic_behavior``. Si falta algo → fail-closed (nunca se opera con datos vivos). No repara ni
-	reconstruye: solo detecta corrupción/regresión. (Nota: ``rate_locked=1`` con ``costing_rate=0`` es un
-	congelamiento válido — un 0 legítimo; ver ``economic_calendar._labor_rate_source``.)
+	Exige que los valores estén MATERIALIZADOS por línea (flujo nuevo; no depende de flags de lock): cada
+	Scope Item costable (vendible o interno de costo) con ``rate_source``; cada Item vendido con
+	``proposal_frozen_cost_source`` + ``proposal_economic_behavior``; cada Required con ``frozen_cost_source``
+	+ ``economic_behavior``. Si falta algo → fail-closed (nunca se opera con datos vivos). No repara ni
+	reconstruye: solo detecta corrupción/regresión. (Nota: el marcador es el ``*_source`` —siempre no vacío
+	tras materializar—, no la tarifa: ``costing_rate=0`` es un 0 legítimo; ver
+	``economic_calendar._labor_rate_source``.)
 
 	Solo aplica a propuestas FORMALES: las que se congelan tienen ``proposal_template`` (``freeze_proposal``
 	retorna temprano sin template; y la transición a En Revisión / ``create_project`` lo exigen). Una
@@ -1080,17 +1099,17 @@ def assert_economic_snapshot_complete(doc) -> None:
 	missing = []
 	for row in doc.get("quotation_scope_items") or []:
 		if (row.get("include_in_proposal") or row.get("is_internal_cost_task")) and not row.get(
-			"rate_locked"
+			"rate_source"
 		):
-			missing.append(f"Scope '{row.get('code') or row.get('scope_item')}': sin rate_locked")
+			missing.append(f"Scope '{row.get('code') or row.get('scope_item')}': tarifa sin materializar")
 	for row in doc.get("items") or []:
-		if not row.get("proposal_cost_locked"):
-			missing.append(f"Item '{row.get('item_code')}': sin proposal_cost_locked")
+		if not row.get("proposal_frozen_cost_source"):
+			missing.append(f"Item '{row.get('item_code')}': costo externo sin materializar")
 		if not row.get("proposal_economic_behavior"):
 			missing.append(f"Item '{row.get('item_code')}': sin proposal_economic_behavior")
 	for row in doc.get("required_items") or []:
-		if not row.get("cost_locked"):
-			missing.append(f"Required '{row.get('item')}': sin cost_locked")
+		if not row.get("frozen_cost_source"):
+			missing.append(f"Required '{row.get('item')}': costo externo sin materializar")
 		if not row.get("economic_behavior"):
 			missing.append(f"Required '{row.get('item')}': sin economic_behavior")
 	if missing:

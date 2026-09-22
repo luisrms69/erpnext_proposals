@@ -40,9 +40,11 @@ def legacy_cutoff() -> tuple:
 
 
 # Campos económicos por línea VENDIDA (Quotation Item) y su equivalente en Required Item.
-# El guard (assert_economic_snapshot_complete) exige, como mínimo: en vendidas
-# proposal_cost_locked + proposal_economic_behavior; en required cost_locked + economic_behavior.
-_ITEM_KEY = ("proposal_cost_locked", "proposal_economic_behavior")
+# B7 / ADR-0022: el marcador de "materializado" es el ``*_source`` (no el flag de lock legacy), en
+# paridad con ``assert_economic_snapshot_complete``. El guard exige: en vendidas
+# proposal_frozen_cost_source + proposal_economic_behavior; en required frozen_cost_source +
+# economic_behavior. (La reparación aún escribe los flags de lock como compat, ver _ITEM_ALL.)
+_ITEM_KEY = ("proposal_frozen_cost_source", "proposal_economic_behavior")
 _ITEM_ALL = (
 	"proposal_cost_locked",
 	"proposal_economic_behavior",
@@ -51,7 +53,7 @@ _ITEM_ALL = (
 	"proposal_billing_interval",
 	"proposal_billing_interval_count",
 )
-_REQ_KEY = ("cost_locked", "economic_behavior")
+_REQ_KEY = ("frozen_cost_source", "economic_behavior")
 _REQ_ALL = (
 	"cost_locked",
 	"economic_behavior",
@@ -185,12 +187,13 @@ def repair_legacy_economic_snapshot(quotation_name: str, dry_run: bool | str = T
 		"guard_after": None,
 	}
 
-	# ── Gate de Scope Items: si alguno costable carece de rate_locked, ABORTAR (no inventar costo laboral) ──
+	# ── Gate de Scope Items: si alguno costable carece de tarifa materializada, ABORTAR (no inventar
+	# costo laboral). B7 / ADR-0022: el marcador es rate_source (no el flag rate_locked legacy). ──
 	for s in doc.get("quotation_scope_items") or []:
-		if (s.get("include_in_proposal") or s.get("is_internal_cost_task")) and not s.get("rate_locked"):
+		if (s.get("include_in_proposal") or s.get("is_internal_cost_task")) and not s.get("rate_source"):
 			report["blockers"].append(
-				f"Scope '{s.get('code') or s.get('scope_item')}': sin rate_locked — no se inventa costo "
-				"laboral histórico (reparación abortada)"
+				f"Scope '{s.get('code') or s.get('scope_item')}': tarifa laboral sin materializar — no se "
+				"inventa costo laboral histórico (reparación abortada)"
 			)
 
 	# ── Plan de reparación por línea vendida y required ──
