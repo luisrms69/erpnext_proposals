@@ -56,8 +56,10 @@ def get_profitability_data(quotation_name: str) -> dict:
 	missing_activity = 0
 	missing_rate = 0
 	missing_designation = 0
-	missing_frozen_snapshot = 0
-	is_submitted = quotation.docstatus == 1
+	# "Formalizado" = propuesta FORMAL congelada (docstatus=1 CON proposal_template). Una Quotation
+	# submitted SIN template no es una propuesta formal (nunca materializa economía; el gate
+	# assert_economic_snapshot_complete también la exime) → se resuelve en vivo, sin fail-closed.
+	is_submitted = quotation.docstatus == 1 and bool(quotation.get("proposal_template"))
 
 	for row in scope_rows_raw:
 		# Flujo nuevo: usa el valor MATERIALIZADO en la fila si existe (marcador rate_source; costing_rate=0
@@ -71,7 +73,13 @@ def get_profitability_data(quotation_name: str) -> dict:
 			notes = rate_source
 		else:
 			if is_submitted:
-				missing_frozen_snapshot += 1
+				# Formalizado sin tarifa materializada → fail-closed (nunca fallback silencioso a masters).
+				frappe.throw(
+					_(
+						"Propuesta formalizada con tarifa laboral sin materializar en la actividad '{0}'. "
+						"Una propuesta formal no puede resolver costos desde datos vivos."
+					).format(row.code or row.scope_item or row.title)
+				)
 			costing_rate, rate_source = get_designation_cost(row.designation, row.activity_type)
 			notes = rate_source
 
@@ -123,6 +131,14 @@ def get_profitability_data(quotation_name: str) -> dict:
 		# Materializado en la fila (marcador frozen_source) → usar; compat legacy: submitted con locked.
 		if frozen_source or (is_submitted and locked):
 			return flt(frozen_rate), (frozen_source or "frozen")
+		if is_submitted:
+			# Formalizado sin costo externo materializado → fail-closed (nunca fallback silencioso).
+			frappe.throw(
+				_(
+					"Propuesta formalizada con costo externo sin materializar en el Item '{0}'. "
+					"Una propuesta formal no puede resolver costos desde datos vivos."
+				).format(item_code)
+			)
 		return resolve_external_cost(item_code, uom, txn)
 
 	item_cost_rows = []
@@ -225,12 +241,6 @@ def get_profitability_data(quotation_name: str) -> dict:
 			_("Moneda de Quotation ({0}) distinta a moneda base ({1}) — comparacion no confiable.").format(
 				currency, company_currency
 			)
-		)
-	if missing_frozen_snapshot:
-		warnings.append(
-			_(
-				"{0} tarea(s) de propuesta enviada sin costo congelado — usando tasa vigente como aproximación."
-			).format(missing_frozen_snapshot)
 		)
 	if missing_designation:
 		warnings.append(

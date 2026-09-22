@@ -199,7 +199,8 @@ def section_number(doc, section_identifier) -> str:
 # forma con/sin paréntesis es inestable entre versiones de ruff-format.
 _JSON_ERRORS = (ValueError, TypeError)
 
-# Campos obligatorios de cada entrada del snapshot de secciones (ver utils/quotation._build_sections_snapshot).
+# Campos obligatorios de cada entrada del snapshot de secciones legacy (formato JSON histórico; el flujo
+# nuevo usa la child table `proposal_sections`). Solo aplica a la lectura de documentos históricos.
 _SNAPSHOT_REQUIRED_FIELDS = (
 	"sequence",
 	"title",

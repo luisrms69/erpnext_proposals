@@ -148,6 +148,14 @@ def _labor_rate_source(row, is_frozen: bool) -> tuple:
 	con ``rate_locked`` también cuenta como materializada."""
 	if row.get("rate_source") or (is_frozen and row.get("rate_locked")):
 		return flt(row.get("costing_rate")), (row.get("rate_source") or "frozen")
+	if is_frozen:
+		# Formalizado sin tarifa materializada → fail-closed (nunca fallback silencioso a la Cost Matrix).
+		frappe.throw(
+			_(
+				"Propuesta formalizada con tarifa laboral sin materializar en la actividad '{0}'. "
+				"Una propuesta formal no puede resolver costos desde datos vivos."
+			).format(row.get("code") or row.get("scope_item") or row.get("title"))
+		)
 	rate, source = get_designation_cost(row.get("designation"), row.get("activity_type"))
 	return flt(rate), source
 
@@ -156,9 +164,16 @@ def _external_rate_source(item_code, uom, txn, is_frozen: bool, locked, frozen_r
 	"""Costo externo por unidad + **fuente**: usa el valor MATERIALIZADO en la fila si existe; si no, vivo.
 
 	Marcador de materializado: ``frozen_source`` presente. Compat legacy: submitted con ``locked`` también
-	cuenta. Solo resuelve pricing nativo en vivo cuando la fila NO está materializada."""
+	cuenta. En Borrador resuelve pricing nativo en vivo; en formalizado sin materializar, fail-closed."""
 	if frozen_source or (is_frozen and locked):
 		return flt(frozen_rate), (frozen_source or "frozen")
+	if is_frozen:
+		frappe.throw(
+			_(
+				"Propuesta formalizada con costo externo sin materializar en el Item '{0}'. "
+				"Una propuesta formal no puede resolver costos desde datos vivos."
+			).format(item_code)
+		)
 	rate, source = resolve_external_cost(item_code, uom, txn)
 	return flt(rate), source
 
@@ -176,6 +191,13 @@ def _effective_behavior(row, item_code, is_frozen: bool, company, frozen_fields)
 	b_field, i_field, c_field = frozen_fields
 	if row.get(b_field):
 		return (row.get(b_field), row.get(i_field) or None, cint(row.get(c_field)) or None)
+	if is_frozen:
+		frappe.throw(
+			_(
+				"Propuesta formalizada con comportamiento económico sin materializar en el Item '{0}'. "
+				"Una propuesta formal no puede resolver desde datos vivos."
+			).format(item_code)
+		)
 	return _economic_behavior_for_item(item_code, company)
 
 
@@ -419,7 +441,9 @@ def _evaluate_doc(doc, *, term: int, scope_scale: float = 1.0, base_term: int | 
 	Solo lectura."""
 	if base_term is None:
 		base_term = term
-	is_frozen = doc.docstatus == 1
+	# "Congelado" = propuesta FORMAL (docstatus=1 CON proposal_template). Una Quotation submitted SIN
+	# template no es propuesta formal (nunca materializa economía) → se resuelve en vivo, sin fail-closed.
+	is_frozen = doc.docstatus == 1 and bool(doc.get("proposal_template"))
 	company = doc.get("company")
 	currency = (
 		doc.get("currency")

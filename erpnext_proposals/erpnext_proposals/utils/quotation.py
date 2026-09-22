@@ -2,7 +2,7 @@ import json
 
 import frappe
 from frappe import _
-from frappe.utils import flt, now_datetime
+from frappe.utils import flt
 
 
 def on_quotation_before_insert(doc, method=None):
@@ -82,6 +82,7 @@ def on_quotation_validate(doc, method=None):
 	from erpnext_proposals.erpnext_proposals.utils.print_format import (
 		assert_assignable_print_format,
 		materialize_proposal_print_format,
+		materialize_sow_print_format,
 		sync_letter_head_from_template,
 		sync_proposal_print_format_from_template,
 	)
@@ -93,9 +94,10 @@ def on_quotation_validate(doc, method=None):
 	# Change-aware: solo bloquea ADOPTAR un formato no elegible; una propuesta que ya referencia un
 	# formato luego deshabilitado (sin cambiarlo) NO se invalida retroactivamente.
 	assert_assignable_print_format(doc, "proposal_print_format")
-	# B8: materializa el Print Format efectivo en `proposal_print_format` (campo normal) durante Draft, de
-	# modo que quede guardado antes del Submit e inmutable por docstatus. El freeze ya no lo congela.
+	# B8/B9: materializa los Print Formats efectivos (comercial y SOW) en campos normales durante Draft,
+	# de modo que queden guardados antes del Submit e inmutables por docstatus. El freeze ya no los congela.
 	materialize_proposal_print_format(doc)
+	materialize_sow_print_format(doc)
 	# Skip scope generation when creating a new version (scope already copied)
 	if doc.flags.get("skip_scope_generation"):
 		return
@@ -169,11 +171,12 @@ def on_quotation_before_update_after_submit(doc, method=None):
 
 
 def on_quotation_before_submit(doc, method=None):
-	"""Fallback freeze at submit time for documents without a prior snapshot."""
-	freeze_proposal(doc)
-	# Endurecimiento (defensa en profundidad): tras congelar, exigir que el snapshot quedó COMPLETO. Si el
-	# freeze dejó algo sin poblar (bug/regresión), el submit FALLA — una propuesta formal nunca existe sin
-	# snapshot económico completo. Nunca hay fallback a datos vivos.
+	"""Gate de formalización: exige que la economía esté MATERIALIZADA antes del Submit.
+
+	El flujo nuevo ya no congela nada en el submit (narrativa/economía/Print Format se materializan en
+	Draft e inmutan por docstatus). Como defensa en profundidad, si algo quedó sin materializar
+	(bug/regresión), el submit FALLA — una propuesta formal nunca resuelve desde datos vivos.
+	"""
 	assert_economic_snapshot_complete(doc)
 
 
@@ -747,34 +750,6 @@ def add_missing_scope_items_from_items(quotation_name: str) -> dict:
 	return {"added": added, "total": len(doc.quotation_scope_items)}
 
 
-def freeze_proposal(doc) -> None:
-	"""Punto de congelamiento formal (Borrador → En Revisión / Submit) — hoy INERTE.
-
-	El flujo nuevo materializa TODO en la Quotation durante Draft y lo vuelve inmutable por ``docstatus``:
-	narrativa (`proposal_sections`, B2/B6), economía (tarifas/costos/comportamiento, B7) y Print Format
-	efectivo (`proposal_print_format`, B8). No queda nada que congelar aquí; se conserva la función (y sus
-	llamadas en el submit / la transición de workflow) como punto de extensión estable. El PDF oficial
-	adjunto es la evidencia histórica.
-	"""
-	return
-
-
-def _sync_sections_snapshot(doc, force: bool = False) -> None:
-	"""Construye/actualiza `proposal_sections_snapshot` desde los maestros (Template + Proposal Section).
-
-	- Sin ``force``: solo si el snapshot está vacío (generación inicial en Borrador o fallback legacy en
-	  freeze). Un snapshot ya poblado se conserva LITERALMENTE — un guardado normal no consulta maestros
-	  ni regenera contenido aunque las Sections maestras hayan cambiado, y no altera ``captured_on``.
-	- ``force=True`` (resync explícito en Borrador): regenera y reemplaza el snapshot desde los maestros
-	  actuales, actualizando ``captured_on``.
-	"""
-	if not getattr(doc, "proposal_template", None):
-		return
-	if not force and (getattr(doc, "proposal_sections_snapshot", None) or "").strip():
-		return  # ya poblado y sin force → conservar literalmente
-	doc.proposal_sections_snapshot = json.dumps(_build_sections_snapshot(doc), ensure_ascii=False)
-
-
 def _materialize_proposal_sections(doc, force: bool = False) -> None:
 	"""Materializa las Sections narrativas del Template en la child table `proposal_sections`.
 
@@ -892,70 +867,6 @@ def _convert_legacy_snapshot_to_rows(raw) -> list:
 		)
 	rows.sort(key=lambda r: r["sequence"])
 	return rows
-
-
-def _build_sections_snapshot(doc) -> list:
-	"""Serializa las Sections del Template al snapshot (Jinja crudo, no HTML renderizado).
-
-	Ordena por ``sequence``, excluye Sections deshabilitadas y contenido vacío. Estructura por entrada:
-	sequence, title, content, source_section, is_executive_summary, hide_title, captured_on. Hard-fails
-	si no puede leer una Section — sin fallback silencioso a maestros vivos en estados formales.
-	"""
-	try:
-		tmpl = frappe.get_doc("Proposal Template", doc.proposal_template)
-		snapshot = []
-		now = now_datetime().isoformat()
-
-		# Secciones opcionales activadas explícitamente en esta Quotation (Table MultiSelect).
-		# Solo aplican a filas del Template marcadas como opcionales (include_by_default=0).
-		selected_optional = {
-			r.proposal_section for r in (doc.get("proposal_optional_sections") or []) if r.proposal_section
-		}
-
-		for row in sorted(tmpl.sections, key=lambda r: r.sequence or 0):
-			try:
-				ps = frappe.get_doc("Proposal Section", row.proposal_section)
-			except Exception as e:
-				frappe.throw(
-					_("No se pudo leer la sección '{0}': {1}").format(row.proposal_section, str(e)),
-					title=_("Error al congelar propuesta"),
-				)
-
-			if not ps.enabled:
-				continue
-
-			# Sección opcional (include_by_default apagado): solo entra si la propuesta la activó.
-			# Las filas con include_by_default=1 (default histórico) conservan el comportamiento previo.
-			if not row.include_by_default and row.proposal_section not in selected_optional:
-				continue
-
-			content = row.custom_content if row.use_custom_content else ps.content
-			if not content:
-				continue
-
-			snapshot.append(
-				{
-					"sequence": row.sequence or 0,
-					"title": row.custom_title or ps.title or ps.section_name,
-					"content": content,
-					"source_section": ps.section_name,
-					"is_executive_summary": ps.is_executive_summary or 0,
-					# Presentación por Template (Proposal Template Section): congela si el heading se oculta.
-					"hide_title": int(row.hide_title or 0),
-					# Paginación por Template: congela si la sección inicia página nueva.
-					"page_break_before": int(row.page_break_before or 0),
-					"captured_on": now,
-				}
-			)
-		return snapshot
-
-	except frappe.exceptions.ValidationError:
-		raise  # re-raise frappe.throw calls
-	except Exception as e:
-		frappe.throw(
-			_("No se pudo congelar el contenido de la propuesta: {0}").format(str(e)),
-			title=_("Error al congelar propuesta"),
-		)
 
 
 @frappe.whitelist()
@@ -1077,7 +988,7 @@ def _materialize_economic_behavior(doc, force: bool = False) -> None:
 
 def assert_economic_snapshot_complete(doc) -> None:
 	"""Validación CANÓNICA ÚNICA del invariante de producto: una propuesta formal nunca existe/avanza sin
-	snapshot económico COMPLETO. Reutilizada por: ``on_quotation_before_submit`` (tras ``freeze_proposal``),
+	snapshot económico COMPLETO. Reutilizada por: ``on_quotation_before_submit`` (gate de formalización),
 	las transiciones de workflow de propuestas submitted, y el contrato económico (``project_economics``).
 
 	Exige que los valores estén MATERIALIZADOS por línea (flujo nuevo; no depende de flags de lock): cada

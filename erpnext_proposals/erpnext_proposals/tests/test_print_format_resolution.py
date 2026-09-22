@@ -16,7 +16,6 @@ from erpnext_proposals.erpnext_proposals.tests.phases import cleanup_test_phases
 from erpnext_proposals.erpnext_proposals.utils.print_format import (
 	DEFAULT_COMMERCIAL_PRINT_FORMAT,
 	dynamic_commercial_print_format,
-	freeze_effective_print_format,
 	get_effective_commercial_print_format,
 	is_eligible_print_format,
 	resolve_commercial_print_format,
@@ -281,19 +280,6 @@ class TestPrintFormatResolution(unittest.TestCase):
 			_cancel_delete(q.name)
 
 	# ── J — freeze con override stale congela el PF VÁLIDO resuelto ───────────
-	def test_J_freeze_with_stale_override_freezes_valid(self):
-		doc = frappe._dict(
-			{
-				"proposal_template": TPL_PF,
-				"proposal_print_format": "_Test PF Disabled",
-				"proposal_effective_print_format": None,
-			}
-		)
-		freeze_effective_print_format(doc)
-		self.assertEqual(
-			doc.proposal_effective_print_format, ALT, "congela el elegible resuelto, no el disabled"
-		)
-
 	# ── K — Vista previa comercial y Descargar PDF Borrador → MISMO PF ────────
 	def test_K_preview_and_download_same_pf(self):
 		q = self._draft_proposal(TPL_PF)
