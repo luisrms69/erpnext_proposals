@@ -238,11 +238,15 @@ class TestProposalImmutability(unittest.TestCase):
 		# campo congelado serían vacuas.
 		self.assertEqual(rows[0].title, "Actividad de prueba")
 		self.assertEqual(rows[0].phase, "DISC")
-		# La narrativa debe haberse congelado: si el snapshot está vacío, la prueba de
-		# narrativa no probaría nada → lo exigimos explícitamente.
+		# La narrativa se materializa en filas (proposal_sections) desde la generación y queda inmutable
+		# por docstatus. El flujo nuevo NO escribe proposal_sections_snapshot.
 		self.assertTrue(
+			doc.get("proposal_sections"),
+			"proposal_sections debe estar poblado (narrativa materializada) en la propuesta formal",
+		)
+		self.assertFalse(
 			(doc.get("proposal_sections_snapshot") or "").strip(),
-			"proposal_sections_snapshot debe estar poblado tras el freeze (narrativa congelada)",
+			"El flujo nuevo no escribe proposal_sections_snapshot durante el freeze/submit",
 		)
 
 	# ── 1. Cabecera congelada ──────────────────────────────────────────────────
@@ -324,21 +328,20 @@ class TestProposalImmutability(unittest.TestCase):
 
 	# ── 4. Narrativa congelada ─────────────────────────────────────────────────
 
-	def test_section_snapshot_not_affected_by_catalog_change(self):
-		"""Cambiar el contenido del Proposal Section maestro no altera la propuesta congelada."""
-		snapshot_before = self._fresh().get("proposal_sections_snapshot")
+	def test_section_rows_not_affected_by_catalog_change(self):
+		"""Cambiar el contenido del Proposal Section maestro no altera la propuesta congelada (filas)."""
+		rows_before = [r.content for r in self._fresh().proposal_sections]
 		section = frappe.get_doc("Proposal Section", self.section)
 		section.content = "<p>CONTENIDO MODIFICADO EN EL CATÁLOGO.</p>"
 		section.save(ignore_permissions=True)
 		try:
-			snapshot_after = self._fresh().get("proposal_sections_snapshot")
+			rows_after = [r.content for r in self._fresh().proposal_sections]
 			self.assertEqual(
-				snapshot_before,
-				snapshot_after,
-				"El snapshot de secciones no debe cambiar al editar el Proposal Section maestro",
+				rows_before,
+				rows_after,
+				"Las filas materializadas no deben cambiar al editar el Proposal Section maestro",
 			)
-			if snapshot_after:
-				self.assertNotIn("CONTENIDO MODIFICADO EN EL CATÁLOGO", snapshot_after)
+			self.assertNotIn("CONTENIDO MODIFICADO EN EL CATÁLOGO", " ".join(rows_after or []))
 		finally:
 			section.reload()
 			section.content = "<p>Contenido original de la sección.</p>"

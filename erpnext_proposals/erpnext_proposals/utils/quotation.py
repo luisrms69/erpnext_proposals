@@ -737,12 +737,12 @@ def add_missing_scope_items_from_items(quotation_name: str) -> dict:
 
 
 def freeze_proposal(doc) -> None:
-	"""Congela las Sections narrativas (snapshot) y las tarifas de costeo en el punto de revisión formal.
+	"""Congela las tarifas/comportamiento económico y el Print Format efectivo en la revisión formal.
 
-	Se llama en Borrador → En Revisión (y como fallback en Submit). El snapshot ya suele existir desde la
-	generación en Borrador: aquí se CONSERVA literalmente; solo se crea como fallback si llega un Draft
-	legacy sin snapshot. Las tarifas se congelan siempre (idempotente por fila: rate_locked). Hard-fails
-	si el snapshot no puede crearse.
+	Se llama en Borrador → En Revisión (y como fallback en Submit). La narrativa NO se congela aquí: las
+	filas `proposal_sections` ya están materializadas desde la generación y quedan inmutables por
+	``docstatus`` al pasar a En Revisión/Submit. No se escribe ni sincroniza `proposal_sections_snapshot`
+	(flujo nuevo). El PDF oficial adjunto es la evidencia histórica.
 	"""
 	if not getattr(doc, "proposal_template", None):
 		return  # no template — nothing to freeze
@@ -752,8 +752,6 @@ def freeze_proposal(doc) -> None:
 
 	freeze_effective_print_format(doc)
 
-	# Snapshot: conservar el existente; crear solo si viene un Draft legacy sin snapshot.
-	_sync_sections_snapshot(doc)
 	_freeze_costing_rates(doc)
 	_freeze_item_costs(doc)
 	_freeze_economic_behavior(doc)
