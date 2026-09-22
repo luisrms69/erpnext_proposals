@@ -1,8 +1,15 @@
 # ADR-0005: Resolución y congelamiento del Print Format comercial
 
 **Fecha:** 2026-07-17
-**Status:** Cerrado — implementado
+**Status:** Cerrado — **enmendado (mecanismo) por [ADR-0022](0022-materializacion-secciones-quotation.md)**
 **Rama:** feat/proposal-project-task-integration → version-16
+
+> **Enmienda 2026-09-22 (B8/B9):** la *resolución* del Print Format (override→Template→DEFAULT elegible)
+> sigue vigente. Cambió el **congelamiento**: ya no se persiste `proposal_effective_print_format` vía
+> `freeze_effective_print_format` en En Revisión; el formato efectivo se **materializa en
+> `proposal_print_format`** (campo normal) durante Draft e inmuta por `docstatus`.
+> `freeze_effective_print_format` se eliminó; `proposal_effective_print_format` solo sobrevive como
+> resolución legacy para submitted previos. Ver [ADR-0022](0022-materializacion-secciones-quotation.md).
 
 ---
 

@@ -1,8 +1,15 @@
 # ADR-0011: Candado de Print Formats históricos
 
-**Fecha:** 2026-08-10 · **Actualizado:** 2026-08-12 (premisa de `disabled` revisada — ver *Actualización*)
-**Status:** Cerrado — vigente (con actualización 2026-08-12)
+**Fecha:** 2026-08-10 · **Actualizado:** 2026-08-12 (premisa de `disabled`) · 2026-09-22 (detección ampliada, B8)
+**Status:** Cerrado — **vigente** (sin cambio de política; detección de "histórico" ampliada al campo materializado)
 **Rama:** feat/protect-historical-print-formats → version-16 · actualización en feat/print-format-versioning-selector
+
+> **Actualización 2026-09-22 (B8):** la política del candado NO cambia. Cambió cómo se detecta que un
+> Print Format es "histórico": `is_print_format_historical` reconoce dos marcadores — el legacy
+> `proposal_effective_print_format` (submitted previos) **y** el nuevo `proposal_print_format` de una
+> propuesta formalizada (`docstatus=1`), ya que el PF se materializa en la Quotation (ver
+> [ADR-0022](0022-materializacion-secciones-quotation.md)). Así el candado protege también los formatos
+> usados por propuestas nuevas.
 
 ---
 

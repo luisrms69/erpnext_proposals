@@ -1,7 +1,15 @@
 # ADR-0021: Versionado de propuesta — herencia por defecto del estado comercial
 
-**Fecha:** 2026-09-21 · **Status:** Cerrado — vigente
+**Fecha:** 2026-09-21 · **Status:** Cerrado — vigente; **economía enmendada por [ADR-0022](0022-materializacion-secciones-quotation.md)**
 **Rama:** feat/versioning-inherit-commercial-fields → version-16
+
+> **Enmienda 2026-09-22 (B4/B7):** la herencia por defecto del estado comercial sigue vigente y se
+> refuerza. Cambió el tratamiento de la **economía y la narrativa** en la nueva versión: en vez de
+> excluirlas para "re-congelarlas en la formalización", ahora se **heredan como valores materializados**
+> (narrativa como child table `proposal_sections`; economía como `costing_rate`/`rate_source`,
+> `*_frozen_cost_*`, comportamiento). El nuevo Draft es autosuficiente; para traer valores vigentes se usa
+> el **resync explícito**. Los *flags* de lock no se heredan (sin uso en el flujo nuevo). Ver
+> [ADR-0022](0022-materializacion-secciones-quotation.md).
 
 ---
 
