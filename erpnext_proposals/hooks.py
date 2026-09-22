@@ -105,6 +105,8 @@ fixtures = [
 					"proposal_financing_annual_cost_rate",
 					"proposal_financing_fees_amount",
 					"proposal_scope_section",
+					"proposal_sections",
+					"proposal_sow_print_format",
 				],
 			],
 		],

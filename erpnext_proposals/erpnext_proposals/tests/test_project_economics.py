@@ -306,8 +306,9 @@ class TestProjectEconomics(unittest.TestCase):
 		root_g = self._root_with(proj, labor=[(10, 50)])
 		root = frappe.get_all("Quotation", filters={"proposal_group": root_g}, pluck="name")[0]
 		child = frappe.get_all("Quotation Scope Item", filters={"parent": root}, pluck="name")[0]
-		# Corromper el snapshot (escritura directa privilegiada): fila costable sin rate_locked.
-		frappe.db.set_value("Quotation Scope Item", child, "rate_locked", 0, update_modified=False)
+		# Corromper el snapshot (escritura directa privilegiada): fila costable sin materializar
+		# (marcador rate_source vacío). El gate materializado (B7) debe fallar-cerrado.
+		frappe.db.set_value("Quotation Scope Item", child, "rate_source", "", update_modified=False)
 		with self.assertRaises(ValidationError):
 			get_project_authorized_economics(proj)
 

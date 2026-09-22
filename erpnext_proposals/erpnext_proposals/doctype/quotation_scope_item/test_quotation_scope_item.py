@@ -9,11 +9,11 @@ class TestQuotationScopeItem(unittest.TestCase):
 
 		Excluded: Section Break / Column Break field types (they are UI organizers,
 		not data fields), and the internal cost snapshot fields (costing_rate,
-		rate_source, rate_locked, rate_locked_on) which are read-only, print_hide=1
-		and only used for internal profitability — never shown in the commercial PDF.
+		rate_source, rate_locked) which are read-only, print_hide=1 and only used
+		for internal profitability — never shown in the commercial PDF.
 		"""
 		meta = frappe.get_meta("Quotation Scope Item")
-		internal_snapshot_fields = {"costing_rate", "rate_source", "rate_locked", "rate_locked_on"}
+		internal_snapshot_fields = {"costing_rate", "rate_source", "rate_locked"}
 		# Bandera booleana de control (no es campo comercial).
 		control_flags = {"is_internal_cost_task"}
 		layout_types = {"Section Break", "Column Break", "Tab Break"}

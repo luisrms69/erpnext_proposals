@@ -1,0 +1,68 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2026-09-22 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "sequence",
+  "proposal_section",
+  "hide_title",
+  "is_executive_summary",
+  "title",
+  "content"
+ ],
+ "fields": [
+  {
+   "fieldname": "sequence",
+   "fieldtype": "Int",
+   "in_list_view": 1,
+   "label": "Sequence"
+  },
+  {
+   "description": "Proposal Section maestra de la que se materializó esta fila. Vacío = contenido específico de esta propuesta (fila manual).",
+   "fieldname": "proposal_section",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Proposal Section",
+   "options": "Proposal Section"
+  },
+  {
+   "default": "0",
+   "fieldname": "hide_title",
+   "fieldtype": "Check",
+   "label": "Hide Title"
+  },
+  {
+   "default": "0",
+   "fieldname": "is_executive_summary",
+   "fieldtype": "Check",
+   "label": "Is Executive Summary"
+  },
+  {
+   "columns": 3,
+   "fieldname": "title",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Title"
+  },
+  {
+   "fieldname": "content",
+   "fieldtype": "Text Editor",
+   "label": "Content"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "istable": 1,
+ "links": [],
+ "modified": "2026-09-22 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "ERPNext Proposals",
+ "name": "Proposal Quotation Section",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

@@ -73,14 +73,20 @@ _EVOLVE_HINT = (
 
 
 def is_print_format_historical(name: str | None) -> bool:
-	"""True si alguna propuesta congelada/formalizada dejó este Print Format como su formato efectivo.
+	"""True si alguna propuesta formalizada dejó este Print Format como su formato efectivo.
 
-	`Quotation.proposal_effective_print_format` se persiste únicamente al congelar (Borrador → En
-	Revisión); su presencia con este nombre == el formato ya es histórico.
+	Dos marcadores (ADR-0011):
+	- Legacy: ``proposal_effective_print_format`` == name (propuestas congeladas antes de la
+	  materialización del PF).
+	- Flujo nuevo (B8): una propuesta FORMALIZADA (``docstatus=1``) con ``proposal_print_format`` == name.
+	  El PF se materializa en la Quotation en Draft y queda inmutable por docstatus; una vez formalizada,
+	  ese formato es histórico.
 	"""
 	if not name:
 		return False
-	return bool(frappe.db.exists("Quotation", {"proposal_effective_print_format": name}))
+	if frappe.db.exists("Quotation", {"proposal_effective_print_format": name}):
+		return True
+	return bool(frappe.db.exists("Quotation", {"proposal_print_format": name, "docstatus": 1}))
 
 
 def protect_historical_print_format_on_save(doc, method=None):

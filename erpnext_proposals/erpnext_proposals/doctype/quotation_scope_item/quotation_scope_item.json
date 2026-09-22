@@ -36,8 +36,7 @@
   "costing_rate",
   "rate_source",
   "col_break_snapshot",
-  "rate_locked",
-  "rate_locked_on"
+  "rate_locked"
  ],
  "fields": [
   {
@@ -266,14 +265,6 @@
    "allow_on_submit": 1,
    "print_hide": 1,
    "description": "1 = tasa congelada al submitir. 0 = Draft, usa tasa vigente."
-  },
-  {
-   "fieldname": "rate_locked_on",
-   "fieldtype": "Datetime",
-   "label": "Congelado el",
-   "read_only": 1,
-   "allow_on_submit": 1,
-   "print_hide": 1
   }
  ],
  "istable": 1,

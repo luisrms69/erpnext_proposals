@@ -361,10 +361,11 @@ class TestRequiredItems(unittest.TestCase):
 		doc = self._transition(frappe.get_doc("Quotation", q.name))
 		self.assertEqual(doc.docstatus, 1)
 		self.assertEqual(flt_first(doc.items).proposal_frozen_cost_rate, 300.0)
-		self.assertEqual(flt_first(doc.items).proposal_cost_locked, 1)
+		# B7: el costo se materializa en Draft (marcador *_source), no por flag de lock.
+		self.assertTrue(flt_first(doc.items).proposal_frozen_cost_source, "costo externo materializado")
 		req = doc.get("required_items")[0]
 		self.assertEqual(req.frozen_cost_rate, 300.0)
-		self.assertEqual(req.cost_locked, 1)
+		self.assertTrue(req.frozen_cost_source, "costo del required materializado")
 
 	def test_14_freeze_zero_when_no_cost(self):
 		# Required Item comprable pero sin ninguna fuente → congelar 0 / sin_costo / locked.
@@ -388,7 +389,8 @@ class TestRequiredItems(unittest.TestCase):
 		req = next(r for r in doc.get("required_items") if r.item == code)
 		self.assertEqual(req.frozen_cost_rate, 0.0)
 		self.assertEqual(req.frozen_cost_source, "sin_costo")
-		self.assertEqual(req.cost_locked, 1)
+		# B7: 0 legítimo materializado (marcador source), sin flag de lock.
+		self.assertFalse(req.cost_locked, "el flujo nuevo no escribe cost_locked")
 
 	def test_15_item_price_change_after_freeze_no_effect(self):
 		q = self._make_quotation(sold=[IT_RESALE])

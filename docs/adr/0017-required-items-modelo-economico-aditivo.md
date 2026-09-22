@@ -1,10 +1,18 @@
 # ADR-0017: Items requeridos y modelo económico aditivo de la propuesta
 
 **Fecha:** 2026-09-01
-**Status:** Propuesto — pendiente de aprobación; Fase 1 implementable, Fase 2 obligatoria de corto plazo
+**Status:** Implementado — **mecanismo de congelamiento enmendado por [ADR-0022](0022-materializacion-secciones-quotation.md)**
 **Rama:** feat/required-items → version-16
 **Relacionado:** supersede parcialmente [ADR-0002](0002-rentabilidad-estimada-propuesta.md); consume la relación
 N:M de [ADR-0016](0016-relacion-nm-item-scope-item.md)
+
+> **Enmienda 2026-09-22 (B7/B9):** el modelo económico aditivo (costo externo por línea gateado por
+> `is_purchase_item`, Required Items, alcance aditivo) sigue vigente. Cambió **cuándo/cómo se congela**:
+> el costo externo se **materializa en Draft** (`proposal_frozen_cost_rate`/`_source`,
+> `frozen_cost_rate`/`_source`) e inmuta por `docstatus`, en vez de resolverse y "lockearse" al freeze.
+> Los *flags* `proposal_cost_locked`/`cost_locked` quedaron sin uso en el flujo nuevo; el gate
+> (`assert_economic_snapshot_complete`) valida los **valores** (`*_source`), no los locks. Ver
+> [ADR-0022](0022-materializacion-secciones-quotation.md).
 
 ---
 

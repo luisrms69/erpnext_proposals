@@ -7,6 +7,15 @@ y **fuera de alcance** de este ADR.
 **Rama:** feat/required-items → version-16
 **Relacionado:** continúa [ADR-0017](0017-required-items-modelo-economico-aditivo.md) (modelo económico
 aditivo + Items requeridos + precarga por Company); reutiliza el patrón de reglas por Company de Fase 1 bis.
+**Mecanismo de congelamiento enmendado por [ADR-0022](0022-materializacion-secciones-quotation.md).**
+
+> **Enmienda 2026-09-22 (B7/B9):** el comportamiento económico por línea (one_time/recurring/…,
+> intervalo/cuenta) y el calendario relativo siguen vigentes. Cambió el **congelamiento**: el
+> comportamiento se **materializa en Draft** (`proposal_economic_behavior`/`billing_interval`/`count`) e
+> inmuta por `docstatus`, en vez de "snapshot al freeze". Los lectores (Evaluación Económica /
+> Rentabilidad) usan **solo** el valor materializado en documentos formales y **fallan-cerrado** si falta
+> (nunca reconsultan masters vivos tras Submit). En Borrador se resuelve en vivo y el resync refresca. Ver
+> [ADR-0022](0022-materializacion-secciones-quotation.md).
 
 ---
 

@@ -247,29 +247,23 @@ _EXCLUDE = {
 			"account_currency",
 		}
 	),
-	# Scope Item: se excluyen calculados/congelados (re-resueltos en revisión), downstream (project_task)
-	# y procedencia (source_type/source_row, re-derivada al validar/generar).
+	# Scope Item: la tarifa económica se HEREDA como valor materializado (B7 / ADR-0022): la nueva versión
+	# es un Draft autosuficiente y refresca con resync si el usuario lo pide; ya no se re-resuelve en el
+	# freeze. Se excluyen los flags legacy de lock, el downstream (project_task) y la procedencia
+	# (source_type/source_row, re-derivada al validar/generar).
 	"Quotation Scope Item": frozenset(
 		{
-			"costing_rate",
-			"rate_source",
 			"rate_locked",
-			"rate_locked_on",
 			"project_task",
 			"source_type",
 			"source_row",
 		}
 	),
-	# Required Item: snapshots congelados (ADR-0019 §7.4) — se re-congelan al re-formalizar. NOTA: estos
-	# campos NO están marcados no_copy=1 en el DocType, por eso la deny-list explícita es imprescindible.
+	# Required Item: costo/comportamiento económico se HEREDAN como valores materializados (B7). Solo se
+	# excluye el flag legacy de lock (`cost_locked`).
 	"Proposal Required Item": frozenset(
 		{
-			"frozen_cost_rate",
-			"frozen_cost_source",
 			"cost_locked",
-			"economic_behavior",
-			"billing_interval",
-			"billing_interval_count",
 		}
 	),
 	# Payment Schedule (caso manual): se heredan los inputs; los base/derivados los recalcula ERPNext.
@@ -287,10 +281,24 @@ _EXCLUDE = {
 }
 
 # FORCE_INCLUDE: campos `no_copy=1` que SÍ se copian literalmente a la nueva versión.
+# Flujo nuevo: la narrativa se hereda como child table (`proposal_sections`, ver _CHILD_TABLES), NO
+# como `proposal_sections_snapshot` JSON. El snapshot legacy no se force-copia; una versión creada desde
+# una Rechazada histórica que SOLO tiene snapshot se convierte una vez a filas (ver utils.quotation
+# _convert_legacy_snapshot_to_rows, invocado en este flujo).
+#
+# B7 / ADR-0022: la economía MATERIALIZADA del Item vendido (costo externo + comportamiento) es
+# `no_copy=1`, pero se HEREDA a la nueva versión como valor (Draft autosuficiente; resync refresca). El
+# flag legacy `proposal_cost_locked` NO se hereda.
 _FORCE_INCLUDE = {
-	# Snapshot de Sections: copia LITERAL de la versión anterior (mismo contenido/orden/fuentes/
-	# captured_on). No se consultan Proposal Template ni Proposal Section maestros al versionar.
-	"Quotation": frozenset({"proposal_sections_snapshot"}),
+	"Quotation Item": frozenset(
+		{
+			"proposal_frozen_cost_rate",
+			"proposal_frozen_cost_source",
+			"proposal_economic_behavior",
+			"proposal_billing_interval",
+			"proposal_billing_interval_count",
+		}
+	),
 }
 
 # Child tables gestionadas por herencia directa (parent fieldname -> child DocType).
@@ -301,6 +309,9 @@ _CHILD_TABLES = {
 	"quotation_scope_items": "Quotation Scope Item",
 	"required_items": "Proposal Required Item",
 	"proposal_optional_sections": "Proposal Optional Section",
+	# Narrativa materializada: se copia como datos normales de la nueva versión (independiente de
+	# maestros). El guardado de la versión no re-materializa (skip_scope_generation en validate).
+	"proposal_sections": "Proposal Quotation Section",
 }
 
 
@@ -408,6 +419,15 @@ def create_new_proposal_version(quotation_name: str, reason: str, summary: str =
 	values = _copy_fields(old, "Quotation", skip_tables=True)
 	for parent_field, child_doctype in _CHILD_TABLES.items():
 		values[parent_field] = [_copy_row(child_doctype, r) for r in (old.get(parent_field) or [])]
+
+	# B5: compatibilidad puntual de ENTRADA. Una Rechazada legacy que solo tiene
+	# `proposal_sections_snapshot` (sin filas materializadas) se convierte UNA VEZ a filas
+	# `proposal_sections` para el nuevo Draft. Los históricos no se tocan; el nuevo Draft renderiza
+	# solo desde filas (sin renderer legacy paralelo).
+	if not values.get("proposal_sections") and (old.get("proposal_sections_snapshot") or "").strip():
+		from erpnext_proposals.erpnext_proposals.utils.quotation import _convert_legacy_snapshot_to_rows
+
+		values["proposal_sections"] = _convert_legacy_snapshot_to_rows(old.proposal_sections_snapshot)
 
 	# ── TRANSFORM: identidad del nuevo documento · cadena de versiones · workflow · downstream ──
 	values.update(

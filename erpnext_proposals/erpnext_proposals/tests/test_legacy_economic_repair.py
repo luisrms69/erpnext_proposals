@@ -199,22 +199,22 @@ class TestLegacyEconomicRepair(unittest.TestCase):
 		finally:
 			_cancel_delete(q.name)
 
-	def test_4_scope_without_rate_locked_aborts(self):
+	def test_4_scope_without_materialized_rate_aborts(self):
 		q = self._submit()
 		try:
 			self._strip_item_econ(q)  # hay algo que reparar en items
 			self._make_legacy(q)  # elegible → así el ÚNICO blocker es el de scope
-			# rompe un scope costable: quita rate_locked
+			# rompe un scope costable: quita la tarifa MATERIALIZADA (marcador rate_source, B7)
 			fresh = frappe.get_doc("Quotation", q.name)
 			costable = [
 				s for s in fresh.quotation_scope_items if s.include_in_proposal or s.is_internal_cost_task
 			]
 			self.assertTrue(costable, "el fixture debe tener un scope costable")
-			costable[0].db_set("rate_locked", 0, update_modified=False)
+			costable[0].db_set("rate_source", "", update_modified=False)
 			frappe.db.commit()  # nosemgrep — aislamiento de test
 			rep = repair_legacy_economic_snapshot(q.name, dry_run=False)
 			self.assertFalse(rep["applied"])
-			self.assertTrue(any("rate_locked" in b for b in rep["blockers"]))
+			self.assertTrue(any("sin materializar" in b for b in rep["blockers"]))
 			# no persistió nada: los items siguen sin snapshot
 			self.assertEqual(frappe.get_doc("Quotation", q.name).items[0].proposal_cost_locked, 0)
 		finally:

@@ -33,10 +33,20 @@ def is_eligible_print_format(pf_name: str | None) -> bool:
 
 
 def resolve_commercial_print_format(doc) -> str:
-	"""Formato comercial efectivo. Congelada → el congelado; Borrador → resolución dinámica."""
+	"""Formato comercial efectivo.
+
+	- Histórico legacy: si trae ``proposal_effective_print_format`` (propuestas anteriores a la
+	  materialización), se respeta tal cual.
+	- Flujo nuevo formalizado (``docstatus=1``): el PF MATERIALIZADO en ``proposal_print_format`` es
+	  inmutable por docstatus; se usa TAL CUAL, sin re-chequear elegibilidad (puede haber quedado
+	  ``disabled`` como histórico — ADR-0011 — y aun así es el formato de esa propuesta).
+	- Borrador: resolución dinámica (override→template→DEFAULT elegible).
+	"""
 	frozen = doc.get("proposal_effective_print_format")
 	if frozen:
 		return frozen
+	if int(doc.get("docstatus") or 0) == 1 and doc.get("proposal_print_format"):
+		return doc.get("proposal_print_format")
 	return dynamic_commercial_print_format(doc)
 
 
@@ -67,16 +77,51 @@ def dynamic_commercial_print_format(doc) -> str:
 
 
 def resolve_sow_print_format(doc):
-	"""Print Format del SOW efectivo (o ``None`` si la plantilla no configura uno).
+	"""Print Format del SOW efectivo (o ``None`` si no aplica).
 
-	GENÉRICO: se resuelve desde ``Proposal Template.sow_print_format`` (sin nombres hardcodeados). El
-	SOW es OTRA REPRESENTACIÓN del mismo contenido congelado de la Quotation: usa el mismo renderer y el
-	mismo snapshot; solo cambia el Print Format. Si la plantilla no define SOW, no se genera SOW.
+	El SOW es OTRA REPRESENTACIÓN del mismo contenido materializado de la Quotation: mismo renderer y
+	mismas filas; solo cambia el Print Format. Resolución (B9, patrón materializado):
+
+	- Flujo nuevo: se usa el SOW MATERIALIZADO en ``proposal_sow_print_format`` (inmutable por docstatus).
+	- Submitted legacy (era pre-materialización, marcada por ``proposal_effective_print_format``): única
+	  fuente para reproducir su SOW es el Template → fallback ACOTADO. Los documentos nuevos ya
+	  materializaron el SOW (o ``None``), por lo que nunca llegan aquí.
+	- Submitted nuevo sin SOW materializado → ``None`` (no relee masters).
+	- Borrador (o ``_dict`` sin materializar): resuelve desde el Template.
 	"""
+	mat = doc.get("proposal_sow_print_format")
+	if mat:
+		return mat
+	if doc.get("proposal_effective_print_format"):  # legacy submitted (pre-B8/B9) → fallback acotado
+		tmpl = doc.get("proposal_template")
+		return (frappe.db.get_value("Proposal Template", tmpl, "sow_print_format") or None) if tmpl else None
+	if int(doc.get("docstatus") or 0) == 1:
+		return None  # formalizado nuevo: SOW no materializado ⇒ sin SOW (no consulta masters vivos)
 	tmpl = doc.get("proposal_template")
 	if not tmpl:
 		return None
 	return frappe.db.get_value("Proposal Template", tmpl, "sow_print_format") or None
+
+
+def materialize_sow_print_format(doc) -> None:
+	"""Materializa el Print Format del SOW en ``proposal_sow_print_format`` (campo normal, B9).
+
+	Mismo patrón que ``materialize_proposal_print_format``: el SOW efectivo del Template se PERSISTE en la
+	Quotation durante Draft, de modo que quede guardado antes del Submit e inmutable por ``docstatus``. El
+	SOW es OPCIONAL: si el Template no define uno, el campo queda vacío (la propuesta no genera SOW).
+
+	Idempotente: si ya hay un valor elegible se conserva; si está vacío o quedó inelegible se re-resuelve
+	desde el Template. En un submitted no se toca (el guard docstatus del before_update_after_submit ya lo
+	protege; y este helper solo corre en validate/resync de Borrador)."""
+	if not doc.get("proposal_template"):
+		return
+	current = doc.get("proposal_sow_print_format")
+	if current and is_eligible_print_format(current):
+		return
+	template_sow = frappe.db.get_value("Proposal Template", doc.proposal_template, "sow_print_format")
+	doc.proposal_sow_print_format = (
+		template_sow if (template_sow and is_eligible_print_format(template_sow)) else None
+	)
 
 
 def sync_proposal_print_format_from_template(doc) -> None:
@@ -98,6 +143,25 @@ def sync_proposal_print_format_from_template(doc) -> None:
 	override = doc.get("proposal_print_format")
 	if doc.has_value_changed("proposal_template") or not override or not is_eligible_print_format(override):
 		doc.proposal_print_format = template_pf
+
+
+def materialize_proposal_print_format(doc) -> None:
+	"""Materializa el Print Format comercial efectivo en ``proposal_print_format`` (campo normal, B8).
+
+	Patrón nativo (como narrativa/economía): el PF resuelto se PERSISTE en la Quotation durante Draft, de
+	modo que quede guardado ANTES del Submit e inmutable por ``docstatus``. El freeze ya no necesita
+	``proposal_effective_print_format`` para el flujo nuevo.
+
+	Solo aplica a propuestas con template. Idempotente: si ``proposal_print_format`` ya es elegible, se
+	conserva (respeta el override manual válido y la selección previa); solo cuando está vacío o quedó
+	INELEGIBLE (stale) se resuelve al efectivo (override→template→DEFAULT) y se persiste — incluido el
+	DEFAULT, que hoy no se guardaba. No consulta masters si el valor ya está materializado.
+	"""
+	if not doc.get("proposal_template"):
+		return
+	pf = doc.get("proposal_print_format")
+	if not pf or not is_eligible_print_format(pf):
+		doc.proposal_print_format = dynamic_commercial_print_format(doc)
 
 
 def _uses_separate_cover(doc, print_format: str) -> bool:
@@ -268,12 +332,6 @@ def get_print_format_status(pf_name: str | None) -> dict:
 	if pf.disabled:
 		return {"status": "disabled"}
 	return {"status": "ok"}
-
-
-def freeze_effective_print_format(doc) -> None:
-	"""Persiste el formato comercial efectivo al congelar. Idempotente (no re-congela)."""
-	if not doc.get("proposal_effective_print_format"):
-		doc.proposal_effective_print_format = dynamic_commercial_print_format(doc)
 
 
 @frappe.whitelist()

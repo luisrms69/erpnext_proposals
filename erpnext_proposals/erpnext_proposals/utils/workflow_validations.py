@@ -42,12 +42,11 @@ def _on_workflow_transition(doc, old_state: str, new_state: str):
 	if old_state == "Borrador" and new_state == "En Revision":
 		_validate_blocking(doc)
 		_warn_non_blocking(doc)
-		from erpnext_proposals.erpnext_proposals.utils.quotation import (
-			attach_proposal_pdfs,
-			freeze_proposal,
-		)
+		from erpnext_proposals.erpnext_proposals.utils.quotation import attach_proposal_pdfs
 
-		freeze_proposal(doc)  # hard-fails if snapshot cannot be created
+		# El flujo nuevo materializa narrativa/economía/Print Format en Draft (inmutables por docstatus al
+		# pasar a En Revisión); no hay freeze que ejecutar aquí. El gate de completitud vive en
+		# on_quotation_before_submit (assert_economic_snapshot_complete).
 		attach_proposal_pdfs(doc)  # non-blocking, warns if PDF fails
 		return
 

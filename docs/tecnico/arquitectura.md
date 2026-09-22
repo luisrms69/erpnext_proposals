@@ -72,10 +72,11 @@ y de gestión.
 | `Proposal Section` | Bloque de texto narrativo reutilizable | Referenciado por `Proposal Template Section` | Tiene flag `is_executive_summary` para resaltar en portada |
 | `Proposal Template` | Agrupa secciones en orden para un tipo de proyecto | Tiene child table `Proposal Template Section` | Se cargan desde el **catálogo** (loader), **no** por `install.py` (ADR-0006). Campos de render: **`letter_head`** (Link → `Letter Head`, opcional; encabezado de marca de la familia, explícito por nombre) y **`separate_cover_page`** (Check, default `0`; PDF con portada separada + merge — ADR-0014) |
 | `Proposal Template Section` | Fila de sección en un template | Link a `Proposal Section`; soporte para `custom_title` y `custom_content`; **`hide_title`** (Check, oculta el heading por Template); **`include_by_default`** (Check, default `1`; en `0` la sección es opcional por propuesta); **`page_break_before`** (Check, default `0`; `1` = la sección inicia página nueva; independiente de `is_executive_summary`) | Child table de `Proposal Template` |
-| `Proposal Optional Section` | Fila del selector de secciones opcionales activadas en una Quotation | Child de `Quotation` (custom field `proposal_optional_sections`, Table MultiSelect → `Proposal Section`) | Solo activa filas del Template marcadas `include_by_default=0`; se congela vía `proposal_sections_snapshot` (ver ADR-0013) |
+| `Proposal Optional Section` | Fila del selector de secciones opcionales activadas en una Quotation | Child de `Quotation` (custom field `proposal_optional_sections`, Table MultiSelect → `Proposal Section`) | Solo activa filas del Template marcadas `include_by_default=0`; se materializa como fila de `proposal_sections` (ver ADR-0013 / ADR-0022) |
+| `Proposal Quotation Section` | Sección narrativa **materializada** dentro de la Quotation | Child de `Quotation` (custom field `proposal_sections`, Table); `proposal_section` (Link → `Proposal Section`), `sequence`, `title`, `content`, `hide_title`, `is_executive_summary` | ADR-0022. Copia editable del contenido efectivo del Template/Section al generar en Borrador; inmutable por `docstatus`. Reemplaza el JSON `proposal_sections_snapshot` en el flujo nuevo (que solo se lee para históricos) |
 | `Scope Item` | Actividad del catálogo maestro | Relación **N:M con `Item`** vía child `erpnext_items` (`Scope Item ERPNext Item`); campo legacy `erpnext_item` (Link único) conservado solo por compatibilidad de lectura. `phase` **Link a `Proposal Phase`** | Sin precio; describe trabajo, perfil y horas estimadas. Un mismo Scope Item puede aplicar a varios Items y un Item puede tener varios Scope Items. El resolver central `resolve_scope_items_for_item` une child + legacy (dedup). Se administra desde el formulario Item (botón *Scope Items* → `get/set_scope_items_for_item`). El **contenido editorial** del servicio (metodología, resultado esperado, límite del alcance) vive en el **Item**, no aquí. Sin backfill ni patch: la migración es solo de lectura |
 | `Scope Item ERPNext Item` | Fila de la relación N:M Scope Item → Item | Child de `Scope Item` (tabla `erpnext_items`); campo único `item` (Link → `Item`) | Representa la asociación vigente Item ↔ Scope Item que alimenta la generación de alcance |
-| `Quotation Scope Item` | Copia congelada de un Scope Item dentro de una Quotation | Parent: `Quotation`; link a `Scope Item`, `Task` y `phase`→`Proposal Phase`; **origen: `source_type` (`sold`/`required`) + `source_row`** (name de la child row origen) | Child table; identidad **por fila origen** `(source_row, scope_item)` (Tema 1) — distingue ocurrencias del mismo Item repetido. `rate_locked` se fija en transición a En Revision. Flags: `include_in_proposal` (visible en PDF) y `is_internal_cost_task` (tarea interna: entra en costo/rentabilidad, se excluye del PDF comercial) |
+| `Quotation Scope Item` | Copia congelada de un Scope Item dentro de una Quotation | Parent: `Quotation`; link a `Scope Item`, `Task` y `phase`→`Proposal Phase`; **origen: `source_type` (`sold`/`required`) + `source_row`** (name de la child row origen) | Child table; identidad **por fila origen** `(source_row, scope_item)` (Tema 1) — distingue ocurrencias del mismo Item repetido. La tarifa (`costing_rate`+`rate_source`) se **materializa en Borrador** (ADR-0022); `rate_locked` queda legacy sin uso; `rate_locked_on` fue eliminado. Flags: `include_in_proposal` (visible en PDF) y `is_internal_cost_task` (tarea interna: entra en costo/rentabilidad, se excluye del PDF comercial) |
 | `Item` (extendido) | Contenido comercial del servicio | Custom fields editoriales y de metadata administrados por el catálogo | Editoriales: `proposal_content_section`, `proposal_methodology`, `proposal_expected_result`, `proposal_scope_limit` — descripción/metodología/resultado/límite del servicio. Metadata de servicio (Data, opcionales, genéricos, SSOT): `proposal_service_validity` (Vigencia del servicio), `proposal_min_unit` (Unidad mínima), `proposal_service_hours` (Horario de servicio) — consumidos por binding en las Sections |
 | `Quotation Item` (extendido) | Copia **congelada** del contenido editorial del Item dentro de la Quotation | Child de `Quotation` | `proposal_methodology`, `proposal_expected_result`, `proposal_scope_limit` copiados del Item al generar el alcance; el PDF usa esta copia y **no** relee el Item maestro. Además `proposal_specific_scope` (Text Editor): **alcance contratado manual** por línea — editable en Borrador, **no** viene del Item/catálogo (ver [ADR-0010](../adr/0010-alcance-especifico-contratado-quotation-item.md)) |
 | `Proposal Phase` | Catálogo de fases (`phase_code`, `phase_name`, `sequence`, **`color`** Color) | Referenciado por `phase` en Scope Item / Quotation Scope Item | El orden en propuesta/reportes/Tasks usa `sequence`; el display usa `phase_name`. `color` (Tema 3) se **congela** en la Task padre de fase al generar el Project (campo nativo `Task.color`); cambiarlo después no altera Projects ya creados. **La duración de fase NO se captura**: el rango de la fase se autocalcula como el envelope de sus Tasks hijas. Helpers en `utils/phase.py` (`phase_label`, `order_phases`, jinja methods) |
@@ -148,40 +149,62 @@ contratación** de cada servicio se captura a mano en `Quotation Item.proposal_s
   y **únicamente si tiene contenido**; nunca relee Item/catálogo/Scope Item. Ver
   [ADR-0010](../adr/0010-alcance-especifico-contratado-quotation-item.md).
 
-### Snapshot inmutable de Proposal Sections
+### Materialización de la propuesta — Master/Template → Draft autosuficiente ([ADR-0022](../adr/0022-materializacion-secciones-quotation.md))
 
-El cuerpo narrativo (Proposal Sections del Template) se congela en el campo
-`Quotation.proposal_sections_snapshot` (Long Text, JSON). Funciones en `utils/quotation.py`:
+Modelo canónico (B1–B9): **el estado de la propuesta se materializa en la Quotation durante Borrador y
+`docstatus=1` (En Revisión/Submit) es la única inmutabilidad.** Ningún documento formal nuevo relee
+maestros vivos; el PDF oficial adjunto es la evidencia histórica. Se eliminó `freeze_proposal()` (ya no
+queda nada que congelar en el submit).
 
-- `_build_sections_snapshot(doc)` — arma la lista de entradas desde el Template resuelto.
-- `_sync_sections_snapshot(doc, force=False)` — captura el snapshot **solo si está vacío** (generación
-  inicial en Borrador). Con `force=True` (resync en Borrador) lo **regenera** desde los maestros
-  vigentes. Un guardado normal **no** lo regenera ni relee maestros.
+**Qué se materializa en Borrador** (en `on_quotation_validate`, solo en la generación inicial; el resync
+explícito reaplica desde maestros):
 
-Cada **entrada** del snapshot tiene: `sequence`, `title`, `content` (Jinja crudo), `source_section`,
-`is_executive_summary`, **`hide_title`** y `captured_on`.
+| Dominio | Dónde se guarda | Fuente |
+|---|---|---|
+| **Narrativa** | child table **`proposal_sections`** (DocType `Proposal Quotation Section`: `sequence`, `proposal_section`, `hide_title`, `is_executive_summary`, `title`, `content`) | Proposal Template + Proposal Section |
+| **Tarifa laboral** | `Quotation Scope Item.costing_rate` + `rate_source` | Proposal Cost Matrix (`get_designation_cost`) |
+| **Costo externo** | `Quotation Item.proposal_frozen_cost_rate`/`_source` · `Proposal Required Item.frozen_cost_rate`/`_source` | Pricing nativo (`resolve_external_cost`) |
+| **Comportamiento económico** | `proposal_economic_behavior`/`billing_interval`/`billing_interval_count` (Item y Required) | Proposal Settings de la Company |
+| **Print Format comercial** | **`proposal_print_format`** (campo normal) | override → Template → DEFAULT elegible |
+| **SOW Print Format** | **`proposal_sow_print_format`** (campo normal) | `Proposal Template.sow_print_format` |
 
-**Ciclo de vida del snapshot:**
+**Reglas** (funciones en `utils/quotation.py`: `_materialize_proposal_sections`, `_materialize_economics`;
+en `utils/print_format.py`: `materialize_proposal_print_format`, `materialize_sow_print_format`):
 
-| Momento | Qué pasa con el snapshot |
-|---|---|
-| Creación en Borrador | Se captura **una vez** (si está vacío) desde el Template |
-| Guardado normal en Borrador | **No** se toca (no se relee el Template) |
-| Resync (*Regenerar alcance*, solo Borrador) | **Única** vía de actualizarlo: se regenera desde los maestros vigentes |
-| Borrador → En Revision (freeze) | Se **conserva** el ya capturado; solo se crea como fallback si un Borrador legacy no lo tenía. A partir de aquí es **inmutable** |
-| Nueva versión (versionado) | Se copia **literalmente** (mismo contenido/orden/`captured_on`); no se consultan maestros |
+- **Draft, generación inicial:** materializa solo si el valor aún no existe. Un guardado normal **no**
+  reconstruye ni relee maestros; cambios posteriores en los maestros **no se propagan**.
+- **Resync** (*Sincronizar alcance desde catálogo*, solo Borrador): **única** vía de refrescar — reemplaza
+  narrativa y recalcula economía/PF desde los maestros vigentes.
+- **`docstatus=1`:** filas y campos quedan inmutables por Frappe. No hay snapshot narrativo, ni flags de
+  lock, ni `proposal_effective_print_format` en el flujo nuevo.
+- **Lectura fail-closed (formalizado):** los lectores económicos (`economic_calendar`, `profitability`)
+  usan **exclusivamente** el valor materializado en `docstatus=1`; si falta, **lanzan** (nunca fallback
+  silencioso a maestros). En Borrador resuelven en vivo. Aplica solo a propuestas **formales**
+  (`docstatus=1` **con** `proposal_template`).
+- **Versionado:** la nueva versión **hereda** los valores materializados (narrativa como child table;
+  economía y PF como valores); resync los refresca. Ver [ADR-0021](../adr/0021-versionado-inherit-by-default.md).
 
-**Lectura fail-closed** — `utils/printing.py::get_sections_snapshot(doc)` (expuesto como método Jinja):
-valida el JSON y cada entrada (helpers `_is_nonempty_str`, `_valid_snapshot_entry`). Si el snapshot
-está ausente, vacío o es inválido, devuelve `valid=False` y el Print Format muestra **solo** una
-advertencia de no entrega — **no** renderiza alcance, inversión ni firma. Los snapshots históricos sin
-`hide_title` siguen siendo `valid=True` (campo **no** requerido; retrocompatibilidad).
+**Rendering** — `utils/printing.py::get_sections_snapshot(doc)` (método Jinja) prioriza las filas
+`proposal_sections`; los Print Formats (público `Propuesta Comercial` y privados del pack) leen la
+narrativa **solo** por este resolver (nunca `Proposal Template`/`Proposal Section` en vivo). Sigue siendo
+**fail-closed**: si no hay filas ni snapshot legacy válido, devuelve `valid=False` y el PDF muestra solo
+la advertencia de no entrega.
+
+**Compatibilidad legacy (solo lectura/entrada; el flujo nuevo no la escribe):**
+
+- `proposal_sections_snapshot` (Long Text JSON) — se **lee** para renderizar propuestas históricas
+  (`get_sections_snapshot` cae a snapshot cuando no hay filas) y se **convierte una sola vez** a filas
+  (`_convert_legacy_snapshot_to_rows`) al versionar una Rechazada legacy.
+- `proposal_effective_print_format` — resolución de PF/SOW de submitted anteriores a la materialización.
+- Flags legacy en schema sin uso en el flujo nuevo: `rate_locked`, `proposal_cost_locked`, `cost_locked`.
+  El campo `rate_locked_on` (Quotation Scope Item) fue **eliminado** (cero consumidores; la columna física
+  queda huérfana hasta un drop posterior).
 
 ### `hide_title` — heading opcional por Template
 
 `hide_title` (Check, default `0`) vive en **`Proposal Template Section`** (no en `Proposal Section`):
 la misma Section canónica puede mostrar su heading en un Template y ocultarlo en otro sin duplicarse.
-Se **congela** en cada entrada del snapshot. En el Print Format (`render_section`): `hide_title = 1` →
+Se **materializa** en cada fila de `proposal_sections`. En el Print Format (`render_section`): `hide_title = 1` →
 no se renderiza el `block-title` (el body sí); `0` o ausente → se muestra el heading. Ver
 `tecnico/print-formats.md`.
 
@@ -191,7 +214,8 @@ Una Section del Template puede declararse **opcional** apagando **`include_by_de
 `Proposal Template Section`, default `1`). Las filas opcionales **solo entran al snapshot** si esa
 Quotation las activó en el custom field **`proposal_optional_sections`** (Table MultiSelect →
 `Proposal Optional Section`, editable solo en Borrador). El resto de filas (`include_by_default = 1`,
-el default histórico) mantiene el comportamiento previo: siempre entran.
+el default histórico) mantiene el comportamiento previo: siempre entran. La activación se **materializa**
+como fila de `proposal_sections` (antes: entrada del snapshot).
 
 - `_build_sections_snapshot` construye el conjunto de Sections activadas desde `proposal_optional_sections`
   y descarta cualquier fila opcional no seleccionada. Una selección que no corresponda a una fila

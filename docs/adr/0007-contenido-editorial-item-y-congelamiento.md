@@ -1,8 +1,15 @@
 # ADR-0007: Contenido editorial del servicio en `Item` y congelamiento inmutable en la Quotation
 
 **Fecha:** 2026-07-29
-**Status:** Cerrado — vigente
+**Status:** Cerrado — vigente; **narrativa enmendada por [ADR-0022](0022-materializacion-secciones-quotation.md)**
 **Rama:** chore/gitignore-local-artifacts → version-16
+
+> **Enmienda 2026-09-22 (B2/B6):** sigue vigente el congelamiento del contenido editorial del Item en las
+> líneas `Quotation Item` (copia en Draft vía `_copy_item_proposal_fields`). Cambió la **narrativa**: el
+> snapshot JSON `proposal_sections_snapshot` (`_sync_sections_snapshot`/`_build_sections_snapshot`) fue
+> reemplazado por la child table materializada `proposal_sections`; esos builders se eliminaron y el
+> snapshot solo sobrevive para lectura de históricos y conversión legacy. Ver
+> [ADR-0022](0022-materializacion-secciones-quotation.md).
 
 ---
 

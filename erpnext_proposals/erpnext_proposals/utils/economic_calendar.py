@@ -140,22 +140,40 @@ def _distribute_over_months(offset_days: int, duration_days: int, is_milestone, 
 
 
 def _labor_rate_source(row, is_frozen: bool) -> tuple:
-	"""Tarifa laboral por hora + **fuente**: snapshot congelado en submitted; en vivo (Cost Matrix) en Borrador.
+	"""Tarifa laboral por hora + **fuente**: usa el valor MATERIALIZADO en la fila si existe; si no, vivo.
 
-	`rate_locked=1` significa tarifa **CONGELADA** — incluso si `costing_rate=0` (un 0 legítimamente congelado
-	NO debe reconsultar la Cost Matrix vigente). Solo se resuelve en vivo cuando NO está locked (Borrador o
-	fila submitted sin snapshot; esta última la bloquea `project_economics._assert_frozen_economics`)."""
-	if is_frozen and row.get("rate_locked"):
+	Flujo nuevo: la tarifa se materializa en Draft (marcador ``rate_source`` presente — ``costing_rate=0``
+	es un 0 legítimo, por eso el marcador es la fuente, no la tarifa) y queda inmutable por docstatus. Solo
+	se resuelve en vivo (Cost Matrix) cuando la fila NO está materializada. Compat legacy: una fila submitted
+	con ``rate_locked`` también cuenta como materializada."""
+	if row.get("rate_source") or (is_frozen and row.get("rate_locked")):
 		return flt(row.get("costing_rate")), (row.get("rate_source") or "frozen")
+	if is_frozen:
+		# Formalizado sin tarifa materializada → fail-closed (nunca fallback silencioso a la Cost Matrix).
+		frappe.throw(
+			_(
+				"Propuesta formalizada con tarifa laboral sin materializar en la actividad '{0}'. "
+				"Una propuesta formal no puede resolver costos desde datos vivos."
+			).format(row.get("code") or row.get("scope_item") or row.get("title"))
+		)
 	rate, source = get_designation_cost(row.get("designation"), row.get("activity_type"))
 	return flt(rate), source
 
 
 def _external_rate_source(item_code, uom, txn, is_frozen: bool, locked, frozen_rate, frozen_source) -> tuple:
-	"""Costo externo por unidad + **fuente** (buying_item_price / last_purchase_rate / valuation_rate /
-	no_purchase / sin_costo): snapshot congelado en submitted; pricing nativo en vivo en Borrador."""
-	if is_frozen and locked:
+	"""Costo externo por unidad + **fuente**: usa el valor MATERIALIZADO en la fila si existe; si no, vivo.
+
+	Marcador de materializado: ``frozen_source`` presente. Compat legacy: submitted con ``locked`` también
+	cuenta. En Borrador resuelve pricing nativo en vivo; en formalizado sin materializar, fail-closed."""
+	if frozen_source or (is_frozen and locked):
 		return flt(frozen_rate), (frozen_source or "frozen")
+	if is_frozen:
+		frappe.throw(
+			_(
+				"Propuesta formalizada con costo externo sin materializar en el Item '{0}'. "
+				"Una propuesta formal no puede resolver costos desde datos vivos."
+			).format(item_code)
+		)
 	rate, source = resolve_external_cost(item_code, uom, txn)
 	return flt(rate), source
 
@@ -167,10 +185,19 @@ def _labor_by_month(doc, is_frozen: bool) -> dict:
 
 
 def _effective_behavior(row, item_code, is_frozen: bool, company, frozen_fields) -> tuple:
-	"""Comportamiento efectivo de una línea: snapshot congelado en submitted; resolución viva en Borrador."""
+	"""Comportamiento efectivo de una línea: usa el MATERIALIZADO en la fila si existe; si no, vivo.
+
+	Marcador: el campo de behavior presente (siempre no vacío tras materializar en Draft)."""
 	b_field, i_field, c_field = frozen_fields
-	if is_frozen and row.get(b_field):
+	if row.get(b_field):
 		return (row.get(b_field), row.get(i_field) or None, cint(row.get(c_field)) or None)
+	if is_frozen:
+		frappe.throw(
+			_(
+				"Propuesta formalizada con comportamiento económico sin materializar en el Item '{0}'. "
+				"Una propuesta formal no puede resolver desde datos vivos."
+			).format(item_code)
+		)
 	return _economic_behavior_for_item(item_code, company)
 
 
@@ -414,7 +441,9 @@ def _evaluate_doc(doc, *, term: int, scope_scale: float = 1.0, base_term: int | 
 	Solo lectura."""
 	if base_term is None:
 		base_term = term
-	is_frozen = doc.docstatus == 1
+	# "Congelado" = propuesta FORMAL (docstatus=1 CON proposal_template). Una Quotation submitted SIN
+	# template no es propuesta formal (nunca materializa economía) → se resuelve en vivo, sin fail-closed.
+	is_frozen = doc.docstatus == 1 and bool(doc.get("proposal_template"))
 	company = doc.get("company")
 	currency = (
 		doc.get("currency")

@@ -139,7 +139,14 @@ def _visible_chapter_names(doc) -> list:
 	usan el índice y los títulos del Print Format: secciones con ``hide_title=0`` y contenido,
 	ordenadas por ``sequence``. Front-matter (``hide_title=1``) queda fuera del 1..N.
 
-	Usa el snapshot congelado si existe; si no, el Template vivo. No lanza."""
+	Prioridad: filas materializadas (`proposal_sections`, flujo nuevo) → snapshot congelado (histórico)
+	→ Template vivo (fallback legacy). No lanza."""
+	rows = doc.get("proposal_sections") if hasattr(doc, "get") else None
+	if rows:
+		visible = [r for r in rows if not int(r.get("hide_title") or 0) and (r.get("content") or "").strip()]
+		visible.sort(key=lambda r: r.get("sequence") or 0)
+		return [r.get("proposal_section") for r in visible]
+
 	raw = getattr(doc, "proposal_sections_snapshot", None)
 	if raw:
 		try:
@@ -192,7 +199,8 @@ def section_number(doc, section_identifier) -> str:
 # forma con/sin paréntesis es inestable entre versiones de ruff-format.
 _JSON_ERRORS = (ValueError, TypeError)
 
-# Campos obligatorios de cada entrada del snapshot de secciones (ver utils/quotation._build_sections_snapshot).
+# Campos obligatorios de cada entrada del snapshot de secciones legacy (formato JSON histórico; el flujo
+# nuevo usa la child table `proposal_sections`). Solo aplica a la lectura de documentos históricos.
 _SNAPSHOT_REQUIRED_FIELDS = (
 	"sequence",
 	"title",
@@ -251,7 +259,33 @@ def get_sections_snapshot(doc) -> dict:
 	``reason`` (estable, sin datos sensibles): ``missing`` | ``invalid_json`` | ``invalid_structure`` |
 	``empty`` | ``ok``. Cuando es válido, las entradas se devuelven completas (conservando propiedades
 	adicionales) y ordenadas de forma estable por ``sequence``.
+
+	Flujo nuevo: si la Quotation trae filas materializadas en ``proposal_sections`` (child table), esas
+	filas son la fuente — datos estructurados, sin JSON ni ``captured_on`` que validar. Solo cuando NO
+	hay filas (documento histórico) se lee ``proposal_sections_snapshot``.
 	"""
+	rows = doc.get("proposal_sections") if hasattr(doc, "get") else None
+	if rows:
+		sections = []
+		for r in rows:
+			content = r.get("content") or ""
+			if not content.strip():
+				continue
+			sections.append(
+				{
+					"sequence": int(r.get("sequence") or 0),
+					"title": r.get("title") or "",
+					"content": content,
+					"source_section": r.get("proposal_section") or "",
+					"is_executive_summary": int(r.get("is_executive_summary") or 0),
+					"hide_title": int(r.get("hide_title") or 0),
+				}
+			)
+		if not sections:
+			return {"valid": False, "reason": "empty", "sections": []}
+		sections.sort(key=lambda e: e["sequence"])
+		return {"valid": True, "reason": "ok", "sections": sections}
+
 	raw = getattr(doc, "proposal_sections_snapshot", None)
 
 	if raw is None or not isinstance(raw, str) or not raw.strip():

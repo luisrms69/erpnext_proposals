@@ -681,14 +681,27 @@ class TestEconomicCalendar(unittest.TestCase):
 		self.assertAlmostEqual(cal["periods"][1]["labor"], 150.0)
 		self.assertAlmostEqual(cal["totals"]["labor"], 300.0)
 
-	# ── freeze ───────────────────────────────────────────────────────────
-	def test_17_draft_reflects_live_settings_change(self):
+	# ── materialización en Draft (B7) ─────────────────────────────────────
+	def test_17_draft_materialized_ignores_later_settings_resync_refreshes(self):
 		self._set_econ(self.company_a, rules=[("Item", IT_REC, "recurring", "Month", 1)])
 		q = self._make_quotation(self.company_a, sold=[IT_REC], term=12)
 		self.assertEqual(self._cal(q.name)["totals"]["revenue"], 12000.0)
-		# cambiar a one_time en Draft → proyección cambia en vivo
+		# B7: cambiar Settings NO altera un Draft ya materializado (no auto-propagación).
 		self._set_econ(self.company_a, rules=[("Item", IT_REC, "one_time", None, None)])
-		self.assertEqual(self._cal(q.name)["totals"]["revenue"], 1000.0)
+		self.assertEqual(
+			self._cal(q.name)["totals"]["revenue"],
+			12000.0,
+			"El Draft materializado no refleja cambios posteriores en Proposal Settings",
+		)
+		# El resync explícito SÍ refresca la economía desde los masters vigentes.
+		from erpnext_proposals.erpnext_proposals.utils.quotation import resync_scope_from_catalog
+
+		resync_scope_from_catalog(q.name)
+		self.assertEqual(
+			self._cal(q.name)["totals"]["revenue"],
+			1000.0,
+			"El resync explícito refresca la economía materializada",
+		)
 
 	def test_18_frozen_snapshot_ignores_later_settings(self):
 		self._set_econ(self.company_a, rules=[("Item", IT_REC, "recurring", "Month", 1)], term=12)

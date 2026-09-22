@@ -2,7 +2,12 @@ import json
 
 import frappe
 from frappe import _
-from frappe.utils import flt, now_datetime
+from frappe.utils import flt
+
+# Excepciones de json.loads (ValueError incluye JSONDecodeError; TypeError si el valor no es str/bytes).
+# Constante nombrada para evitar la tupla literal en el `except`, cuya forma con/sin paréntesis es
+# inestable entre versiones de ruff-format (mismo patrón que utils/printing._JSON_ERRORS).
+_JSON_ERRORS = (ValueError, TypeError)
 
 
 def on_quotation_before_insert(doc, method=None):
@@ -81,6 +86,8 @@ def on_quotation_validate(doc, method=None):
 	# `proposal_print_format` con el formato de la Proposal Template. Luego validar (Caso F).
 	from erpnext_proposals.erpnext_proposals.utils.print_format import (
 		assert_assignable_print_format,
+		materialize_proposal_print_format,
+		materialize_sow_print_format,
 		sync_letter_head_from_template,
 		sync_proposal_print_format_from_template,
 	)
@@ -92,6 +99,10 @@ def on_quotation_validate(doc, method=None):
 	# Change-aware: solo bloquea ADOPTAR un formato no elegible; una propuesta que ya referencia un
 	# formato luego deshabilitado (sin cambiarlo) NO se invalida retroactivamente.
 	assert_assignable_print_format(doc, "proposal_print_format")
+	# B8/B9: materializa los Print Formats efectivos (comercial y SOW) en campos normales durante Draft,
+	# de modo que queden guardados antes del Submit e inmutables por docstatus. El freeze ya no los congela.
+	materialize_proposal_print_format(doc)
+	materialize_sow_print_format(doc)
 	# Skip scope generation when creating a new version (scope already copied)
 	if doc.flags.get("skip_scope_generation"):
 		return
@@ -109,9 +120,10 @@ def on_quotation_validate(doc, method=None):
 	# Copia el contenido general del Item a las líneas nativas Quotation Item (congelado): el PDF y las
 	# versiones usan la copia, no el Item maestro. Solo en Borrador y generación (no en versiones).
 	_copy_item_proposal_fields(doc)
-	# Snapshot de Sections narrativas: se construye desde el Template solo si aún está vacío (generación
-	# inicial en Borrador); un guardado normal no lo regenera ni consulta maestros.
-	_sync_sections_snapshot(doc)
+	# Sections narrativas MATERIALIZADAS: se copian del Template a `proposal_sections` (child) solo si la
+	# tabla aún está vacía (generación inicial en Borrador). Un guardado normal no reconstruye ni consulta
+	# maestros; cambios posteriores en Proposal Template/Section NO se propagan (reaplicar es explícito).
+	_materialize_proposal_sections(doc)
 	# Fase 1 bis: precargar Items requeridos configurados por los Items vendidos nuevos, ANTES de generar
 	# el alcance, para que sus Scope Items entren en la misma pasada.
 	_autoload_required_items(doc)
@@ -124,6 +136,10 @@ def on_quotation_validate(doc, method=None):
 	# ocurrencia `(source_row, scope_item)`. Asignar el name nativo AHORA, antes de materializar.
 	_assign_pending_required_item_names(doc)
 	_generate_scope_items(doc)
+	# Economía materializada en Draft (patrón nativo): tarifas laborales, costos externos y comportamiento
+	# económico se resuelven y persisten en las filas AÚN NO materializadas. Un guardado normal no recalcula
+	# ni consulta masters; cambios posteriores NO se propagan (reaplicar es explícito vía resync).
+	_materialize_economics(doc)
 
 
 def _validate_internal_cost_flags(doc) -> None:
@@ -160,11 +176,12 @@ def on_quotation_before_update_after_submit(doc, method=None):
 
 
 def on_quotation_before_submit(doc, method=None):
-	"""Fallback freeze at submit time for documents without a prior snapshot."""
-	freeze_proposal(doc)
-	# Endurecimiento (defensa en profundidad): tras congelar, exigir que el snapshot quedó COMPLETO. Si el
-	# freeze dejó algo sin poblar (bug/regresión), el submit FALLA — una propuesta formal nunca existe sin
-	# snapshot económico completo. Nunca hay fallback a datos vivos.
+	"""Gate de formalización: exige que la economía esté MATERIALIZADA antes del Submit.
+
+	El flujo nuevo ya no congela nada en el submit (narrativa/economía/Print Format se materializan en
+	Draft e inmutan por docstatus). Como defensa en profundidad, si algo quedó sin materializar
+	(bug/regresión), el submit FALLA — una propuesta formal nunca resuelve desde datos vivos.
+	"""
 	assert_economic_snapshot_complete(doc)
 
 
@@ -702,10 +719,14 @@ def resync_scope_from_catalog(quotation_name: str) -> dict:
 	# catálogo y elimina las que perdieron respaldo. Recuperar faltantes es una acción MANUAL explícita
 	# (`add_missing_scope_items_from_items`); el guardado y el resync nunca repueblan.
 
-	# Resync explícito: refresca los cuatro valores del bloque del servicio en TODAS las líneas y
-	# regenera el snapshot de Sections desde los maestros actuales (actualiza captured_on).
+	# Resync explícito (acción del usuario): refresca los cuatro valores del bloque del servicio en TODAS
+	# las líneas y REAPLICA por completo las Sections narrativas desde el Template/Section vigentes,
+	# reemplazando las filas actuales de `proposal_sections`. Es la única vía de reaplicación narrativa.
 	_copy_item_proposal_fields(doc, force=True)
-	_sync_sections_snapshot(doc, force=True)
+	_materialize_proposal_sections(doc, force=True)
+	# Reaplicación explícita también de la economía: recalcula tarifas/costos/comportamiento desde los
+	# masters vigentes en TODAS las filas. Es la única vía de refresco (nada se actualiza "mágicamente").
+	_materialize_economics(doc, force=True)
 	doc.save()
 	return {
 		"updated": updated,
@@ -734,56 +755,38 @@ def add_missing_scope_items_from_items(quotation_name: str) -> dict:
 	return {"added": added, "total": len(doc.quotation_scope_items)}
 
 
-def freeze_proposal(doc) -> None:
-	"""Congela las Sections narrativas (snapshot) y las tarifas de costeo en el punto de revisión formal.
+def _materialize_proposal_sections(doc, force: bool = False) -> None:
+	"""Materializa las Sections narrativas del Template en la child table `proposal_sections`.
 
-	Se llama en Borrador → En Revisión (y como fallback en Submit). El snapshot ya suele existir desde la
-	generación en Borrador: aquí se CONSERVA literalmente; solo se crea como fallback si llega un Draft
-	legacy sin snapshot. Las tarifas se congelan siempre (idempotente por fila: rate_locked). Hard-fails
-	si el snapshot no puede crearse.
-	"""
-	if not getattr(doc, "proposal_template", None):
-		return  # no template — nothing to freeze
+	Modelo nativo (Master/Template → Draft autosuficiente): copia los valores EFECTIVOS de cada
+	Proposal Template Section + Proposal Section a filas propias de la Quotation. Desde ese momento las
+	filas son datos de la Quotation; cambios posteriores en los maestros NO se propagan.
 
-	# Congelar el Print Format comercial efectivo (idempotente).
-	from erpnext_proposals.erpnext_proposals.utils.print_format import freeze_effective_print_format
+	- Sin ``force``: solo materializa si la tabla está VACÍA (generación inicial en Borrador). Si ya hay
+	  filas, se conservan literalmente — un guardado normal no reconstruye ni consulta maestros.
+	- ``force=True`` (reaplicación explícita vía resync): REEMPLAZA por completo las filas actuales con la
+	  composición vigente del Template. Sin merge, diff ni preservación selectiva.
 
-	freeze_effective_print_format(doc)
-
-	# Snapshot: conservar el existente; crear solo si viene un Draft legacy sin snapshot.
-	_sync_sections_snapshot(doc)
-	_freeze_costing_rates(doc)
-	_freeze_item_costs(doc)
-	_freeze_economic_behavior(doc)
-
-
-def _sync_sections_snapshot(doc, force: bool = False) -> None:
-	"""Construye/actualiza `proposal_sections_snapshot` desde los maestros (Template + Proposal Section).
-
-	- Sin ``force``: solo si el snapshot está vacío (generación inicial en Borrador o fallback legacy en
-	  freeze). Un snapshot ya poblado se conserva LITERALMENTE — un guardado normal no consulta maestros
-	  ni regenera contenido aunque las Sections maestras hayan cambiado, y no altera ``captured_on``.
-	- ``force=True`` (resync explícito en Borrador): regenera y reemplaza el snapshot desde los maestros
-	  actuales, actualizando ``captured_on``.
+	No escribe ``proposal_sections_snapshot``: el flujo nuevo no usa el snapshot JSON.
 	"""
 	if not getattr(doc, "proposal_template", None):
 		return
-	if not force and (getattr(doc, "proposal_sections_snapshot", None) or "").strip():
-		return  # ya poblado y sin force → conservar literalmente
-	doc.proposal_sections_snapshot = json.dumps(_build_sections_snapshot(doc), ensure_ascii=False)
+	if not force and (doc.get("proposal_sections") or []):
+		return  # ya materializado y sin force → conservar literalmente
+	doc.set("proposal_sections", _build_proposal_section_rows(doc))
 
 
-def _build_sections_snapshot(doc) -> list:
-	"""Serializa las Sections del Template al snapshot (Jinja crudo, no HTML renderizado).
+def _build_proposal_section_rows(doc) -> list:
+	"""Filas de `proposal_sections` derivadas del Template (mismos filtros que el snapshot legacy).
 
-	Ordena por ``sequence``, excluye Sections deshabilitadas y contenido vacío. Estructura por entrada:
-	sequence, title, content, source_section, is_executive_summary, hide_title, captured_on. Hard-fails
-	si no puede leer una Section — sin fallback silencioso a maestros vivos en estados formales.
+	Ordena por ``sequence``, excluye Sections deshabilitadas, opcionales no seleccionadas y contenido
+	vacío. Cada fila copia: ``proposal_section`` (Link a la Section origen), ``sequence``, ``title`` y
+	``content`` EFECTIVOS (override del Template si aplica), ``hide_title`` e ``is_executive_summary``.
+	Hard-fails si no puede leer una Section — sin fallback silencioso a maestros vivos.
 	"""
 	try:
 		tmpl = frappe.get_doc("Proposal Template", doc.proposal_template)
-		snapshot = []
-		now = now_datetime().isoformat()
+		rows = []
 
 		# Secciones opcionales activadas explícitamente en esta Quotation (Table MultiSelect).
 		# Solo aplican a filas del Template marcadas como opcionales (include_by_default=0).
@@ -797,14 +800,13 @@ def _build_sections_snapshot(doc) -> list:
 			except Exception as e:
 				frappe.throw(
 					_("No se pudo leer la sección '{0}': {1}").format(row.proposal_section, str(e)),
-					title=_("Error al congelar propuesta"),
+					title=_("Error al materializar secciones"),
 				)
 
 			if not ps.enabled:
 				continue
 
 			# Sección opcional (include_by_default apagado): solo entra si la propuesta la activó.
-			# Las filas con include_by_default=1 (default histórico) conservan el comportamiento previo.
 			if not row.include_by_default and row.proposal_section not in selected_optional:
 				continue
 
@@ -812,29 +814,64 @@ def _build_sections_snapshot(doc) -> list:
 			if not content:
 				continue
 
-			snapshot.append(
+			rows.append(
 				{
 					"sequence": row.sequence or 0,
+					"proposal_section": ps.name,
 					"title": row.custom_title or ps.title or ps.section_name,
 					"content": content,
-					"source_section": ps.section_name,
-					"is_executive_summary": ps.is_executive_summary or 0,
-					# Presentación por Template (Proposal Template Section): congela si el heading se oculta.
 					"hide_title": int(row.hide_title or 0),
-					# Paginación por Template: congela si la sección inicia página nueva.
-					"page_break_before": int(row.page_break_before or 0),
-					"captured_on": now,
+					"is_executive_summary": int(ps.is_executive_summary or 0),
 				}
 			)
-		return snapshot
+		return rows
 
 	except frappe.exceptions.ValidationError:
 		raise  # re-raise frappe.throw calls
 	except Exception as e:
 		frappe.throw(
-			_("No se pudo congelar el contenido de la propuesta: {0}").format(str(e)),
-			title=_("Error al congelar propuesta"),
+			_("No se pudieron materializar las secciones de la propuesta: {0}").format(str(e)),
+			title=_("Error al materializar secciones"),
 		)
+
+
+def _convert_legacy_snapshot_to_rows(raw) -> list:
+	"""Convierte UNA VEZ un `proposal_sections_snapshot` legacy (JSON) a filas `proposal_sections`.
+
+	Compatibilidad de ENTRADA únicamente: al versionar una Rechazada histórica que aún NO tiene filas
+	materializadas, su snapshot congelado se traduce a filas para el nuevo Draft (que desde entonces
+	renderiza SOLO desde filas — no se mantiene un renderer legacy paralelo). Los documentos históricos
+	no se modifican. Fail-closed: entradas sin contenido se descartan; si la Proposal Section de origen
+	ya no existe, se conserva el contenido como fila manual (`proposal_section` vacío) sin romper el Link.
+	"""
+	if not (raw or "").strip():
+		return []
+	try:
+		data = json.loads(raw)
+	except _JSON_ERRORS:
+		return []
+	if not isinstance(data, list):
+		return []
+	rows = []
+	for e in data:
+		if not isinstance(e, dict):
+			continue
+		content = e.get("content") or ""
+		if not content.strip():
+			continue
+		src = e.get("source_section") or ""
+		rows.append(
+			{
+				"sequence": int(e.get("sequence") or 0),
+				"proposal_section": src if (src and frappe.db.exists("Proposal Section", src)) else None,
+				"title": e.get("title") or "",
+				"content": content,
+				"hide_title": int(e.get("hide_title") or 0),
+				"is_executive_summary": int(e.get("is_executive_summary") or 0),
+			}
+		)
+	rows.sort(key=lambda r: r["sequence"])
+	return rows
 
 
 @frappe.whitelist()
@@ -872,68 +909,81 @@ def get_template_optional_sections(template: str) -> list:
 	return out
 
 
-def _freeze_costing_rates(doc) -> None:
-	"""Freeze costing rates from Proposal Cost Matrix into each Scope Item."""
+def _materialize_economics(doc, force: bool = False) -> None:
+	"""Materializa la economía de la propuesta en la Quotation Draft (patrón nativo, como la narrativa).
+
+	Resuelve y persiste en las filas los valores económicos desde masters/configuración:
+	tarifa laboral (Proposal Cost Matrix), costo externo (pricing nativo) y comportamiento económico
+	(Proposal Settings). Desde ese momento son datos propios de la Quotation; cambios posteriores en los
+	masters NO se propagan. ``docstatus=1`` los congela; el freeze ya no recalcula.
+
+	- Sin ``force``: solo materializa las filas AÚN NO materializadas (marcador: ``*_source`` / behavior
+	  presente). Un guardado normal no recalcula ni consulta masters.
+	- ``force=True`` (reaplicación explícita vía resync): recalcula y reemplaza en TODAS las filas.
+	"""
+	_materialize_costing_rates(doc, force)
+	_materialize_item_costs(doc, force)
+	_materialize_economic_behavior(doc, force)
+
+
+def _materialize_costing_rates(doc, force: bool = False) -> None:
+	"""Tarifa laboral por Scope Item desde Proposal Cost Matrix, persistida en la fila.
+
+	Idempotente por presencia de ``rate_source`` (marcador de materializado; ``costing_rate=0`` es un 0
+	legítimo, por eso el marcador es la fuente, no la tarifa). No escribe ``rate_locked`` (legacy)."""
 	from erpnext_proposals.erpnext_proposals.utils.cost_matrix import get_designation_cost
 
-	now = now_datetime()
 	for row in doc.quotation_scope_items or []:
-		# Costeo/congelamiento: filas vendibles O internas de costo.
+		# Costeo/materialización: filas vendibles O internas de costo.
 		if not (row.include_in_proposal or row.is_internal_cost_task):
 			continue
-		if row.rate_locked:
-			continue  # already locked — never overwrite
+		if not force and row.get("rate_source"):
+			continue  # ya materializada — no recalcular
 		rate, source = get_designation_cost(row.designation, row.activity_type)
 		row.costing_rate = flt(rate)
 		row.rate_source = source
-		row.rate_locked = 1
-		row.rate_locked_on = now
 
 
-def _freeze_item_costs(doc) -> None:
-	"""Congela el COSTO EXTERNO por línea (Item vendido + Required Item) en Borrador → En Revisión.
+def _materialize_item_costs(doc, force: bool = False) -> None:
+	"""Costo EXTERNO por línea (Item vendido + Required Item), persistido en la fila.
 
-	Aditivo al costo laboral (que se congela en ``_freeze_costing_rates``). Idempotente por fila
-	(``cost_locked``). Resuelve en vivo con el pricing NATIVO (``resolve_external_cost``: gate
-	``is_purchase_item`` → Item Price de compra → last_purchase → valuation). Sin costo → rate 0,
-	source ``sin_costo``, locked=1: la propuesta histórica NO vuelve a consultar pricing vivo (ADR-0017)."""
+	Aditivo al costo laboral. Idempotente por presencia de ``*_cost_source`` (marcador). Resuelve con el
+	pricing NATIVO (``resolve_external_cost``: gate ``is_purchase_item`` → Item Price compra → last_purchase
+	→ valuation). No escribe ``proposal_cost_locked`` / ``cost_locked`` (legacy)."""
 	from erpnext_proposals.erpnext_proposals.utils.item_cost import resolve_external_cost
 
 	txn = doc.get("transaction_date")
 	for row in doc.get("items") or []:
-		if row.get("proposal_cost_locked"):
-			continue  # already locked — never overwrite
+		if not force and row.get("proposal_frozen_cost_source"):
+			continue  # ya materializada
 		rate, source = resolve_external_cost(row.item_code, row.get("uom"), txn)
 		row.proposal_frozen_cost_rate = flt(rate)
 		row.proposal_frozen_cost_source = source
-		row.proposal_cost_locked = 1
 	for row in doc.get("required_items") or []:
-		if row.get("cost_locked"):
-			continue
+		if not force and row.get("frozen_cost_source"):
+			continue  # ya materializada
 		rate, source = resolve_external_cost(row.item, row.get("uom"), txn)
 		row.frozen_cost_rate = flt(rate)
 		row.frozen_cost_source = source
-		row.cost_locked = 1
 
 
-def _freeze_economic_behavior(doc) -> None:
-	"""Congela el COMPORTAMIENTO ECONÓMICO efectivo por línea en Borrador → En Revisión (ADR-0018).
+def _materialize_economic_behavior(doc, force: bool = False) -> None:
+	"""Comportamiento económico efectivo por línea (ADR-0018), persistido en la fila.
 
-	Snapshot mínimo (behavior/interval/interval_count) resuelto en vivo desde el Proposal Settings de la
-	Company al momento del freeze. Idempotente por fila (no sobrescribe si ya hay behavior congelado). Tras
-	En Revisión, la Evaluación Económica usa exclusivamente este snapshot: cambios posteriores en la
-	configuración NO alteran la propuesta histórica. El plazo efectivo es `proposal_contract_term_months`,
-	que ya vive en la Quotation y queda inmutable al someterse."""
+	Snapshot mínimo (behavior/interval/interval_count) resuelto desde el Proposal Settings de la Company.
+	Idempotente por presencia de ``*economic_behavior`` (marcador; siempre no vacío tras materializar). El
+	plazo efectivo es ``proposal_contract_term_months``, que ya vive en la Quotation e inmutable por
+	docstatus."""
 	company = doc.get("company")
 	for row in doc.get("items") or []:
-		if row.get("proposal_economic_behavior"):
+		if not force and row.get("proposal_economic_behavior"):
 			continue
 		behavior, interval, count = _economic_behavior_for_item(row.item_code, company)
 		row.proposal_economic_behavior = behavior
 		row.proposal_billing_interval = interval or ""
 		row.proposal_billing_interval_count = int(count or 0)
 	for row in doc.get("required_items") or []:
-		if row.get("economic_behavior"):
+		if not force and row.get("economic_behavior"):
 			continue
 		behavior, interval, count = _economic_behavior_for_item(row.item, company)
 		row.economic_behavior = behavior
@@ -943,14 +993,16 @@ def _freeze_economic_behavior(doc) -> None:
 
 def assert_economic_snapshot_complete(doc) -> None:
 	"""Validación CANÓNICA ÚNICA del invariante de producto: una propuesta formal nunca existe/avanza sin
-	snapshot económico COMPLETO. Reutilizada por: ``on_quotation_before_submit`` (tras ``freeze_proposal``),
+	snapshot económico COMPLETO. Reutilizada por: ``on_quotation_before_submit`` (gate de formalización),
 	las transiciones de workflow de propuestas submitted, y el contrato económico (``project_economics``).
 
-	Exige, por línea: cada Scope Item costable (vendible o interno de costo) con ``rate_locked``; cada Item
-	vendido con ``proposal_cost_locked`` + ``proposal_economic_behavior``; cada Required con ``cost_locked`` +
-	``economic_behavior``. Si falta algo → fail-closed (nunca se opera con datos vivos). No repara ni
-	reconstruye: solo detecta corrupción/regresión. (Nota: ``rate_locked=1`` con ``costing_rate=0`` es un
-	congelamiento válido — un 0 legítimo; ver ``economic_calendar._labor_rate_source``.)
+	Exige que los valores estén MATERIALIZADOS por línea (flujo nuevo; no depende de flags de lock): cada
+	Scope Item costable (vendible o interno de costo) con ``rate_source``; cada Item vendido con
+	``proposal_frozen_cost_source`` + ``proposal_economic_behavior``; cada Required con ``frozen_cost_source``
+	+ ``economic_behavior``. Si falta algo → fail-closed (nunca se opera con datos vivos). No repara ni
+	reconstruye: solo detecta corrupción/regresión. (Nota: el marcador es el ``*_source`` —siempre no vacío
+	tras materializar—, no la tarifa: ``costing_rate=0`` es un 0 legítimo; ver
+	``economic_calendar._labor_rate_source``.)
 
 	Solo aplica a propuestas FORMALES: las que se congelan tienen ``proposal_template`` (``freeze_proposal``
 	retorna temprano sin template; y la transición a En Revisión / ``create_project`` lo exigen). Una
@@ -961,17 +1013,17 @@ def assert_economic_snapshot_complete(doc) -> None:
 	missing = []
 	for row in doc.get("quotation_scope_items") or []:
 		if (row.get("include_in_proposal") or row.get("is_internal_cost_task")) and not row.get(
-			"rate_locked"
+			"rate_source"
 		):
-			missing.append(f"Scope '{row.get('code') or row.get('scope_item')}': sin rate_locked")
+			missing.append(f"Scope '{row.get('code') or row.get('scope_item')}': tarifa sin materializar")
 	for row in doc.get("items") or []:
-		if not row.get("proposal_cost_locked"):
-			missing.append(f"Item '{row.get('item_code')}': sin proposal_cost_locked")
+		if not row.get("proposal_frozen_cost_source"):
+			missing.append(f"Item '{row.get('item_code')}': costo externo sin materializar")
 		if not row.get("proposal_economic_behavior"):
 			missing.append(f"Item '{row.get('item_code')}': sin proposal_economic_behavior")
 	for row in doc.get("required_items") or []:
-		if not row.get("cost_locked"):
-			missing.append(f"Required '{row.get('item')}': sin cost_locked")
+		if not row.get("frozen_cost_source"):
+			missing.append(f"Required '{row.get('item')}': costo externo sin materializar")
 		if not row.get("economic_behavior"):
 			missing.append(f"Required '{row.get('item')}': sin economic_behavior")
 	if missing:
