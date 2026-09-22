@@ -173,16 +173,20 @@ class TestPrintFormatResolution(unittest.TestCase):
 		validate_print_format(None)  # opcional
 
 	# ── D — congelamiento e inmutabilidad ─────────────────────────────────────
-	def test_D_freeze_persists_and_immutable(self):
+	def test_D_materialized_persists_and_immutable(self):
+		# B8: el PF efectivo se MATERIALIZA en proposal_print_format (campo normal) e inmutable por
+		# docstatus; el flujo nuevo NO escribe proposal_effective_print_format.
 		q = self._submit_proposal(TPL_PF)
 		try:
-			self.assertEqual(
-				q.proposal_effective_print_format, ALT, "efectivo congelado = formato del template"
+			self.assertEqual(q.proposal_print_format, ALT, "PF materializado = formato del template")
+			self.assertFalse(
+				(q.get("proposal_effective_print_format") or ""),
+				"el flujo nuevo no escribe proposal_effective_print_format",
 			)
-			# cambiar el default del template → no debe afectar la congelada
+			# cambiar el default del template → no debe afectar la propuesta formalizada
 			frappe.db.set_value("Proposal Template", TPL_PF, "print_format", DEFAULT_COMMERCIAL_PRINT_FORMAT)
 			fresh = frappe.get_doc("Quotation", q.name)
-			self.assertEqual(fresh.proposal_effective_print_format, ALT)
+			self.assertEqual(fresh.proposal_print_format, ALT)
 			self.assertEqual(resolve_commercial_print_format(fresh), ALT)
 		finally:
 			frappe.db.set_value("Proposal Template", TPL_PF, "print_format", ALT)
@@ -201,10 +205,10 @@ class TestPrintFormatResolution(unittest.TestCase):
 			v2name = create_new_proposal_version(q.name, reason="test", summary="")
 			v2 = frappe.get_doc("Quotation", v2name)
 			self.assertEqual(v2.proposal_print_format, ALT, "v2 hereda el formato como override editable")
-			self.assertFalse(v2.proposal_effective_print_format, "v2 no copia el congelado")
+			self.assertFalse(v2.proposal_effective_print_format, "v2 no copia el congelado legacy")
 			self.assertEqual(int(v2.docstatus), 0, "v2 en Borrador editable")
-			# v1 intacta
-			self.assertEqual(frappe.db.get_value("Quotation", q.name, "proposal_effective_print_format"), ALT)
+			# v1 intacta: el PF materializado sigue siendo ALT (flujo nuevo, en proposal_print_format)
+			self.assertEqual(frappe.db.get_value("Quotation", q.name, "proposal_print_format"), ALT)
 		finally:
 			if v2name:
 				_cancel_delete(v2name)

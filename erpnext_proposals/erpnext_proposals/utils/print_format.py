@@ -33,10 +33,20 @@ def is_eligible_print_format(pf_name: str | None) -> bool:
 
 
 def resolve_commercial_print_format(doc) -> str:
-	"""Formato comercial efectivo. Congelada → el congelado; Borrador → resolución dinámica."""
+	"""Formato comercial efectivo.
+
+	- Histórico legacy: si trae ``proposal_effective_print_format`` (propuestas anteriores a la
+	  materialización), se respeta tal cual.
+	- Flujo nuevo formalizado (``docstatus=1``): el PF MATERIALIZADO en ``proposal_print_format`` es
+	  inmutable por docstatus; se usa TAL CUAL, sin re-chequear elegibilidad (puede haber quedado
+	  ``disabled`` como histórico — ADR-0011 — y aun así es el formato de esa propuesta).
+	- Borrador: resolución dinámica (override→template→DEFAULT elegible).
+	"""
 	frozen = doc.get("proposal_effective_print_format")
 	if frozen:
 		return frozen
+	if int(doc.get("docstatus") or 0) == 1 and doc.get("proposal_print_format"):
+		return doc.get("proposal_print_format")
 	return dynamic_commercial_print_format(doc)
 
 
@@ -98,6 +108,25 @@ def sync_proposal_print_format_from_template(doc) -> None:
 	override = doc.get("proposal_print_format")
 	if doc.has_value_changed("proposal_template") or not override or not is_eligible_print_format(override):
 		doc.proposal_print_format = template_pf
+
+
+def materialize_proposal_print_format(doc) -> None:
+	"""Materializa el Print Format comercial efectivo en ``proposal_print_format`` (campo normal, B8).
+
+	Patrón nativo (como narrativa/economía): el PF resuelto se PERSISTE en la Quotation durante Draft, de
+	modo que quede guardado ANTES del Submit e inmutable por ``docstatus``. El freeze ya no necesita
+	``proposal_effective_print_format`` para el flujo nuevo.
+
+	Solo aplica a propuestas con template. Idempotente: si ``proposal_print_format`` ya es elegible, se
+	conserva (respeta el override manual válido y la selección previa); solo cuando está vacío o quedó
+	INELEGIBLE (stale) se resuelve al efectivo (override→template→DEFAULT) y se persiste — incluido el
+	DEFAULT, que hoy no se guardaba. No consulta masters si el valor ya está materializado.
+	"""
+	if not doc.get("proposal_template"):
+		return
+	pf = doc.get("proposal_print_format")
+	if not pf or not is_eligible_print_format(pf):
+		doc.proposal_print_format = dynamic_commercial_print_format(doc)
 
 
 def _uses_separate_cover(doc, print_format: str) -> bool:

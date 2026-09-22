@@ -81,6 +81,7 @@ def on_quotation_validate(doc, method=None):
 	# `proposal_print_format` con el formato de la Proposal Template. Luego validar (Caso F).
 	from erpnext_proposals.erpnext_proposals.utils.print_format import (
 		assert_assignable_print_format,
+		materialize_proposal_print_format,
 		sync_letter_head_from_template,
 		sync_proposal_print_format_from_template,
 	)
@@ -92,6 +93,9 @@ def on_quotation_validate(doc, method=None):
 	# Change-aware: solo bloquea ADOPTAR un formato no elegible; una propuesta que ya referencia un
 	# formato luego deshabilitado (sin cambiarlo) NO se invalida retroactivamente.
 	assert_assignable_print_format(doc, "proposal_print_format")
+	# B8: materializa el Print Format efectivo en `proposal_print_format` (campo normal) durante Draft, de
+	# modo que quede guardado antes del Submit e inmutable por docstatus. El freeze ya no lo congela.
+	materialize_proposal_print_format(doc)
 	# Skip scope generation when creating a new version (scope already copied)
 	if doc.flags.get("skip_scope_generation"):
 		return
@@ -744,21 +748,15 @@ def add_missing_scope_items_from_items(quotation_name: str) -> dict:
 
 
 def freeze_proposal(doc) -> None:
-	"""Congela el Print Format comercial efectivo en la revisión formal.
+	"""Punto de congelamiento formal (Borrador → En Revisión / Submit) — hoy INERTE.
 
-	Se llama en Borrador → En Revisión (y como fallback en Submit). NI la narrativa NI la economía se
-	congelan aquí: las filas `proposal_sections` y los valores económicos (tarifas/costos/comportamiento)
-	ya están MATERIALIZADOS en la Quotation desde la generación y quedan inmutables por ``docstatus`` al
-	pasar a En Revisión/Submit. El flujo nuevo no reconstruye ni bloquea de nuevo en el freeze. El PDF
-	oficial adjunto es la evidencia histórica.
+	El flujo nuevo materializa TODO en la Quotation durante Draft y lo vuelve inmutable por ``docstatus``:
+	narrativa (`proposal_sections`, B2/B6), economía (tarifas/costos/comportamiento, B7) y Print Format
+	efectivo (`proposal_print_format`, B8). No queda nada que congelar aquí; se conserva la función (y sus
+	llamadas en el submit / la transición de workflow) como punto de extensión estable. El PDF oficial
+	adjunto es la evidencia histórica.
 	"""
-	if not getattr(doc, "proposal_template", None):
-		return  # no template — nothing to freeze
-
-	# Congelar el Print Format comercial efectivo (idempotente).
-	from erpnext_proposals.erpnext_proposals.utils.print_format import freeze_effective_print_format
-
-	freeze_effective_print_format(doc)
+	return
 
 
 def _sync_sections_snapshot(doc, force: bool = False) -> None:
