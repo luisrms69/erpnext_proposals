@@ -123,7 +123,12 @@ editable del contenido narrativo (título + texto) tomado del Template/Section a
 
 **Cuándo se usa:**
 - Se genera automáticamente al guardar la Cotización en Borrador, desde las secciones del Template.
-- Su título y contenido se pueden editar por propuesta mientras está en Borrador.
+- Se administra desde la pestaña **Contenido de propuesta**: la tabla muestra **Título** y **Ocultar
+  título**; al abrir una fila se editan **Título** y **Contenido**. En Borrador se puede **reordenar por
+  arrastre** (el orden se guarda solo, sin escribir números), **agregar** (incluso secciones a mano sin
+  vínculo a una Sección maestra) y **eliminar**. La pestaña **Vista previa** muestra el resultado en orden
+  y refleja ediciones/reordenamientos al entrar, aun sin guardar. Ver
+  [Cómo crear una propuesta](crear-propuesta.md#paso-5-editar-el-contenido-narrativo-y-previsualizar).
 
 **Importante:** una vez materializada es independiente de los maestros: cambiar el Template o la Sección
 maestra **no** la modifica. Para reincorporar cambios del catálogo se usa *Sincronizar alcance desde

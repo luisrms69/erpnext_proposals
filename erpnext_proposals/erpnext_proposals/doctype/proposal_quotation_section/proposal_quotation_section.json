@@ -6,51 +6,54 @@
  "editable_grid": 1,
  "engine": "InnoDB",
  "field_order": [
+  "title",
+  "hide_title",
+  "content",
   "sequence",
   "proposal_section",
-  "hide_title",
-  "is_executive_summary",
-  "title",
-  "content"
+  "is_executive_summary"
  ],
  "fields": [
   {
+   "columns": 6,
+   "fieldname": "title",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Título"
+  },
+  {
+   "columns": 2,
+   "default": "0",
+   "fieldname": "hide_title",
+   "fieldtype": "Check",
+   "label": "Ocultar título"
+  },
+  {
+   "fieldname": "content",
+   "fieldtype": "Text Editor",
+   "label": "Contenido"
+  },
+  {
+   "description": "Orden efectivo de la sección. Se sincroniza automáticamente con el orden de las filas (arrastre) en Borrador; no editar a mano.",
    "fieldname": "sequence",
    "fieldtype": "Int",
-   "in_list_view": 1,
+   "hidden": 1,
    "label": "Sequence"
   },
   {
    "description": "Proposal Section maestra de la que se materializó esta fila. Vacío = contenido específico de esta propuesta (fila manual).",
    "fieldname": "proposal_section",
    "fieldtype": "Link",
-   "in_list_view": 1,
+   "hidden": 1,
    "label": "Proposal Section",
    "options": "Proposal Section"
   },
   {
    "default": "0",
-   "fieldname": "hide_title",
-   "fieldtype": "Check",
-   "label": "Hide Title"
-  },
-  {
-   "default": "0",
    "fieldname": "is_executive_summary",
    "fieldtype": "Check",
+   "hidden": 1,
    "label": "Is Executive Summary"
-  },
-  {
-   "columns": 3,
-   "fieldname": "title",
-   "fieldtype": "Data",
-   "in_list_view": 1,
-   "label": "Title"
-  },
-  {
-   "fieldname": "content",
-   "fieldtype": "Text Editor",
-   "label": "Content"
   }
  ],
  "index_web_pages_for_search": 1,

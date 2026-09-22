@@ -75,6 +75,11 @@ def on_quotation_validate(doc, method=None):
 	# Uses validate (not before_insert) because validate is confirmed to run in web context.
 	if not doc.get("proposal_version") and not doc.get("previous_proposal"):
 		doc.proposal_version = 1
+	# UX "Contenido de propuesta": el usuario reordena las secciones arrastrando filas en el grid nativo.
+	# `sequence` (orden canónico que consumen el PF y `get_sections_snapshot`) se sincroniza con ese orden
+	# visual SIN exponerse al usuario. Corre en TODO guardado en Borrador (antes de los early-return), para
+	# capturar reordenes aunque no se regenere el alcance.
+	_sync_proposal_section_sequence(doc)
 	# Fase 2A: precargar el plazo contractual desde el default de la Company SOLO en la creación y si está
 	# vacío. Nunca se reescribe después: si la preventa lo cambia (o lo deja vacío), se respeta.
 	_default_contract_term(doc)
@@ -753,6 +758,30 @@ def add_missing_scope_items_from_items(quotation_name: str) -> dict:
 	if added:
 		doc.save()
 	return {"added": added, "total": len(doc.quotation_scope_items)}
+
+
+def _sync_proposal_section_sequence(doc) -> None:
+	"""Alinea ``sequence`` de las filas de ``proposal_sections`` con su orden visual (``idx``) en Borrador.
+
+	El usuario reordena las secciones **arrastrando filas** en el grid nativo (Frappe actualiza ``idx``).
+	``sequence`` sigue siendo el **orden canónico** que consumen el Print Format y los lectores
+	(``get_sections_snapshot``); esta sincronización mantiene ambos alineados **sin exponer** ``sequence``
+	al usuario. Solo en Borrador (``docstatus=0``): formalizada, la propuesta es inmutable por docstatus.
+	No renumera de forma gratuita: si el orden visual (``idx``, en el que viene la lista) YA coincide con
+	el orden de ``sequence`` (estrictamente creciente y sin duplicados), no toca nada — así se preservan
+	los valores originales del Template (10/20/30…) cuando no hubo reordenamiento. Solo cuando el arrastre
+	rompe esa correspondencia (o hay filas nuevas sin ``sequence``) se renumera 1..N según el orden visual.
+	Idempotente."""
+	if doc.docstatus != 0:
+		return
+	rows = doc.get("proposal_sections") or []
+	if not rows:
+		return
+	seqs = [int(r.sequence or 0) for r in rows]  # en orden visual (idx)
+	if seqs == sorted(seqs) and len(set(seqs)) == len(seqs) and seqs[0] > 0:
+		return  # el orden visual ya coincide con el canónico → no renumerar
+	for i, row in enumerate(rows, start=1):
+		row.sequence = i
 
 
 def _materialize_proposal_sections(doc, force: bool = False) -> None:
