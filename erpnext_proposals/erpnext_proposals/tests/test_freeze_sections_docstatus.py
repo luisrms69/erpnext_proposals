@@ -1,12 +1,11 @@
 # Copyright (c) 2026, Consultoria en Negocios y Aplicaciones and contributors
 # For license information, please see license.txt
 
-"""Freeze narrativo simplificado: docstatus es el congelamiento (B6).
+"""Freeze narrativo simplificado: docstatus es el congelamiento (B6; ver B9/ADR-0022).
 
-`freeze_proposal` ya no genera ni sincroniza `proposal_sections_snapshot`. Las filas
-`proposal_sections` materializadas en Borrador quedan inmutables por `docstatus` al pasar a
-En Revisión/Submit; el PDF oficial es la evidencia histórica. El render lee las filas. Sin datos
-de cliente.
+El flujo nuevo no genera ni sincroniza `proposal_sections_snapshot`. Las filas `proposal_sections`
+materializadas en Borrador quedan inmutables por `docstatus` al pasar a En Revisión/Submit; el PDF
+oficial es la evidencia histórica. El render lee las filas. Sin datos de cliente.
 """
 
 import unittest

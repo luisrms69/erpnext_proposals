@@ -198,7 +198,7 @@ class TestApplyAddendum(unittest.TestCase):
 			doc.reload()
 			doc.flags.ignore_mandatory = True
 			doc.flags.ignore_links = True
-			doc.submit()  # before_submit → freeze_proposal + assert_economic_snapshot_complete
+			doc.submit()  # before_submit → assert_economic_snapshot_complete (gate de materialización)
 			frappe.db.set_value("Quotation", doc.name, "workflow_state", "Ganada", update_modified=False)
 		return frappe.get_doc("Quotation", doc.name)
 

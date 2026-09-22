@@ -487,9 +487,18 @@ class TestScopeCatalogResync(unittest.TestCase):
 		self.assertEqual(len(keys2), len(keys))
 
 	def test_09b_duplicate_item_line_rejected_by_erpnext(self):
-		# ERPNext bloquea líneas de Item literalmente duplicadas
-		# (SellingController.validate_for_duplicate_items); por eso la clave
-		# (item_code, scope_item) no puede colisionar por líneas de Item repetidas.
+		# ERPNext solo bloquea líneas de Item literalmente duplicadas
+		# (SellingController.validate_for_duplicate_items) cuando Selling Settings
+		# `allow_multiple_items` == 0. Este guard es NATIVO de ERPNext y depende de esa
+		# configuración; no es un requisito de erpnext_proposals. La unicidad de la clave
+		# (item_code, scope_item) que sí nos importa la protege test_09_resync_keeps_keys_unique.
+		# Si el entorno permite múltiples líneas del mismo Item, este guard nativo no aplica →
+		# se omite (no alteramos Selling Settings solo para forzar el rechazo).
+		if frappe.utils.cint(frappe.get_single_value("Selling Settings", "allow_multiple_items")):
+			raise unittest.SkipTest(
+				"Selling Settings.allow_multiple_items=1: ERPNext permite líneas de Item duplicadas; "
+				"el guard nativo no aplica (unicidad de clave cubierta por test_09)."
+			)
 		with self.assertRaises(ValidationError):
 			self._make_quotation([ITEM_A, ITEM_A])
 
@@ -608,13 +617,13 @@ class TestScopeCatalogResync(unittest.TestCase):
 	# ── H. Freeze NUNCA resincroniza (regla absoluta) ───────────────────────────
 
 	def test_15_freeze_does_not_resync(self):
-		"""El freeze (Borrador → En Revisión, vía submit → freeze_proposal) NUNCA resincroniza contra
-		catálogo. Cambiar los maestros DESPUÉS de crear el Borrador y luego congelar NO debe alterar el
-		contenido ya materializado (campos de scope controlados por catálogo ni editorial del Item). El
-		freeze congela lo que el usuario ya revisó; no vuelve a materializar el catálogo vigente.
+		"""La formalización (Borrador → En Revisión, vía submit) NUNCA resincroniza contra catálogo.
+		Cambiar los maestros DESPUÉS de crear el Borrador y luego formalizar NO debe alterar el contenido
+		ya materializado (campos de scope controlados por catálogo ni editorial del Item). docstatus=1
+		congela lo que el usuario ya revisó; no vuelve a materializar el catálogo vigente.
 
-		(La transición real Borrador → En Revisión usa el MISMO `freeze_proposal` + `attach_proposal_pdfs`;
-		ninguno resincroniza. `attach_proposal_pdfs` solo renderiza el contenido congelado con get_print.)
+		(La transición real Borrador → En Revisión solo adjunta PDFs — `attach_proposal_pdfs` renderiza el
+		contenido ya materializado con get_print; no resincroniza. B1–B9: ya no hay freeze_proposal.)
 		"""
 		# Editorial del Item congelable en la línea Quotation Item.
 		frappe.db.set_value("Item", ITEM_A, "proposal_methodology", "METODO ORIGINAL", update_modified=False)
@@ -636,7 +645,7 @@ class TestScopeCatalogResync(unittest.TestCase):
 		frappe.db.set_value("Item", ITEM_A, "proposal_methodology", "METODO CAMBIADO", update_modified=False)
 		frappe.clear_document_cache("Item", ITEM_A)
 		try:
-			# FREEZE (submit dispara freeze_proposal en before_submit).
+			# Formalizar (submit → before_submit corre el gate assert_economic_snapshot_complete).
 			doc = frappe.get_doc("Quotation", q.name)
 			doc.flags.ignore_mandatory = True
 			doc.flags.ignore_links = True
