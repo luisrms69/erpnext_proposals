@@ -4,6 +4,11 @@ import frappe
 from frappe import _
 from frappe.utils import flt
 
+# Excepciones de json.loads (ValueError incluye JSONDecodeError; TypeError si el valor no es str/bytes).
+# Constante nombrada para evitar la tupla literal en el `except`, cuya forma con/sin paréntesis es
+# inestable entre versiones de ruff-format (mismo patrón que utils/printing._JSON_ERRORS).
+_JSON_ERRORS = (ValueError, TypeError)
+
 
 def on_quotation_before_insert(doc, method=None):
 	"""
@@ -843,7 +848,7 @@ def _convert_legacy_snapshot_to_rows(raw) -> list:
 		return []
 	try:
 		data = json.loads(raw)
-	except ValueError, TypeError:
+	except _JSON_ERRORS:
 		return []
 	if not isinstance(data, list):
 		return []
