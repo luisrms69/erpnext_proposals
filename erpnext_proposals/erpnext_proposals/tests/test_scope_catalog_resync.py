@@ -623,7 +623,7 @@ class TestScopeCatalogResync(unittest.TestCase):
 		congela lo que el usuario ya revisó; no vuelve a materializar el catálogo vigente.
 
 		(La transición real Borrador → En Revisión solo adjunta PDFs — `attach_proposal_pdfs` renderiza el
-		contenido ya materializado con get_print; no resincroniza. B1–B9: ya no hay freeze_proposal.)
+		contenido ya materializado con get_print; no resincroniza. B1-B9: ya no hay freeze_proposal.)
 		"""
 		# Editorial del Item congelable en la línea Quotation Item.
 		frappe.db.set_value("Item", ITEM_A, "proposal_methodology", "METODO ORIGINAL", update_modified=False)
