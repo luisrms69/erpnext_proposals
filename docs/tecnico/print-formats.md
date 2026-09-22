@@ -24,17 +24,25 @@ Qué formato se usa al imprimir la propuesta comercial se resuelve por una **cad
 
 El primero que exista, gana. Vacío → baja al siguiente nivel.
 
-**Congelamiento** — al pasar de Borrador a *En Revisión* (freeze), `freeze_effective_print_format(doc)`
-persiste el formato resuelto en `proposal_effective_print_format` (read-only, `no_copy`, **inmutable**).
-Desde ese momento `resolve_commercial_print_format(doc)` devuelve **siempre** el formato congelado,
-sin volver a resolver. Una **nueva versión** hereda ese formato como override editable.
+**Materialización + congelamiento por `docstatus`** (B8/B9, [ADR-0022](../adr/0022-materializacion-secciones-quotation.md)) —
+el formato efectivo se **materializa en Borrador** en el campo normal `proposal_print_format`
+(`materialize_proposal_print_format(doc)` en `validate`; persiste incluso el DEFAULT). Al formalizar,
+`docstatus=1` lo vuelve inmutable — ya **no** se persiste `proposal_effective_print_format` ni existe
+`freeze_effective_print_format` (eliminado). El SOW sigue el mismo patrón:
+`materialize_sow_print_format(doc)` → campo `proposal_sow_print_format`. Una **nueva versión** hereda estos
+valores como override editable.
+
+`resolve_commercial_print_format(doc)`: histórico legacy (`proposal_effective_print_format`) → formalizado
+nuevo (`docstatus=1` usa `proposal_print_format` tal cual) → Borrador (resolución dinámica).
+`resolve_sow_print_format(doc)`: usa `proposal_sow_print_format`; fallback acotado al Template solo para
+submitted legacy.
 
 | Función (`utils/print_format.py`) | Rol |
 |---|---|
-| `resolve_commercial_print_format(doc)` | congelada → el congelado; Borrador → resolución dinámica |
+| `resolve_commercial_print_format(doc)` | histórico legacy → materializado (docstatus=1) → Borrador dinámico |
 | `dynamic_commercial_print_format(doc)` | cadena override → template → default |
 | `sync_proposal_print_format_from_template(doc)` | al aplicar/cambiar el Template (o si el override está vacío), **puebla** `proposal_print_format` con el formato del Template; corre en `validate` de la Quotation |
-| `freeze_effective_print_format(doc)` | persiste el efectivo al congelar (idempotente) |
+| `materialize_proposal_print_format(doc)` / `materialize_sow_print_format(doc)` | persisten el PF comercial / SOW efectivo en su campo normal durante Borrador (inmutable por docstatus) |
 | `validate_print_format(name)` | valida que el formato sea usable para Quotation (existe, doc_type, no disabled) |
 | `assert_assignable_print_format(doc, fieldname)` | validación **change-aware** de servidor compartida (Quotation `proposal_print_format` + Proposal Template `print_format`): bloquea ADOPTAR un formato no elegible; no re-valida referencias no modificadas (protege históricos) |
 | `get_proposal_print_formats(...)` | whitelisted; **query central** del campo Link (elegibilidad única: `doc_type=Quotation`, `disabled=0`) |
@@ -150,17 +158,21 @@ o condiciones comerciales— asignarle `sequence >= 500` en el `Proposal Templat
 > El umbral 500 vive únicamente en el Jinja del Print Format. Al editar templates, respetar
 > esta convención — de lo contrario una sección "legal" aparecerá en medio del cuerpo.
 
-### Estructura de la entrada del snapshot y `hide_title`
+### Fuente de la narrativa: filas materializadas y `hide_title`
 
-Cada entrada congelada en `proposal_sections_snapshot` (ver `_build_sections_snapshot`) tiene:
-`sequence`, `title`, `content` (Jinja crudo), `source_section`, `is_executive_summary`,
-**`hide_title`** y `captured_on`.
+En el flujo nuevo (B1–B9, [ADR-0022](../adr/0022-materializacion-secciones-quotation.md)) los Print
+Formats leen la narrativa **solo** por `get_sections_snapshot(doc)`, que prioriza las filas materializadas
+de **`proposal_sections`** (DocType `Proposal Quotation Section`) y **nunca** consulta `Proposal Template`/
+`Proposal Section` en vivo. Solo cae al JSON legacy `proposal_sections_snapshot` para **propuestas
+históricas** sin filas. Cada sección expuesta tiene la misma forma: `sequence`, `title`, `content` (Jinja
+crudo), `source_section`, `is_executive_summary` y **`hide_title`** — por eso el HTML de los Print Formats
+(público y del pack) no cambió.
 
 `hide_title` es una **propiedad opcional de presentación por Template** que vive en
 `Proposal Template Section` (Check, default `0`), no en `Proposal Section` — la misma Section
-canónica puede mostrar su heading en un Template y ocultarlo en otro sin duplicarse. Se **congela**
-en el snapshot al capturar, de modo que cambios posteriores del Template no alteran PDFs históricos;
-el versionamiento la copia literalmente y el resync en Borrador la actualiza desde el Template.
+canónica puede mostrar su heading en un Template y ocultarlo en otro sin duplicarse. Se **materializa**
+en cada fila al generar la propuesta, de modo que cambios posteriores del Template no alteran PDFs ya
+formalizados; el versionamiento la hereda y el resync en Borrador la actualiza desde el Template.
 
 Semántica en el Print Format (`render_section`): `hide_title = 1` → **no** se renderiza el
 `block-title` (el `block-body` sí); `0` o **ausente** → se muestra el heading (comportamiento

@@ -14,6 +14,9 @@ Estos campos se agregan a la Cotización nativa de ERPNext en la pestaña "Propu
 | Título de la propuesta | Título de la propuesta | Texto libre | No | Título personalizado que aparece en la portada del PDF. Si se deja vacío, el PDF puede mostrar el folio de la cotización. |
 | Centro de costo | Centro de costo | Lista desplegable | Sí | Centro de costo del proyecto. Se propaga automáticamente al Proyecto y a la Sales Order. |
 | Alcance (tabla) | — | Tabla | No | Tabla de actividades del alcance técnico. Se puebla automáticamente al guardar si hay coincidencias en el catálogo. |
+| Secciones de la propuesta | Secciones de la propuesta | Tabla | No (automático) | Secciones narrativas **materializadas** desde el Template al guardar en Borrador (título y contenido editables por propuesta). Desde ese momento son datos propios de la cotización: cambiar el Template o la Section maestra **no** las modifica; para reincorporar cambios se usa *Sincronizar alcance desde catálogo*. Al pasar a En Revisión quedan inmutables. |
+| Print Format comercial | Proposal Print Format | Lista desplegable | No (automático) | Formato del PDF comercial. Se materializa desde el Template/DEFAULT al guardar; editable en Borrador. Inmutable al formalizar. Vacío = usa el del Template o el default. |
+| Print Format del SOW | Proposal SOW Print Format | Lista desplegable | No (automático) | Formato del SOW (si el Template define uno). Se materializa en Borrador; inmutable al formalizar. Vacío = la propuesta no genera SOW. |
 | Proyecto de propuesta | Proyecto | Referencia | Solo lectura | Se llena automáticamente cuando se crea el proyecto desde la propuesta. No se edita manualmente. |
 | Revisado por | Revisado por | Usuario | Solo lectura | Se llena automáticamente cuando un Proposals Manager ejecuta "Aprobar" o "Rechazar". |
 | Fecha de revisión | Fecha de revisión | Fecha/hora | Solo lectura | Fecha y hora en que se tomó la decisión de aprobación o rechazo. |

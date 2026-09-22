@@ -116,6 +116,21 @@ Estos documentos se generan o editan en el trabajo diario de cada propuesta.
 
 ---
 
+### Sección de la propuesta (Proposal Quotation Section)
+
+**Propósito:** Fila de la tabla **Secciones de la propuesta** dentro de una Cotización. Es una copia
+editable del contenido narrativo (título + texto) tomado del Template/Section al generar la propuesta.
+
+**Cuándo se usa:**
+- Se genera automáticamente al guardar la Cotización en Borrador, desde las secciones del Template.
+- Su título y contenido se pueden editar por propuesta mientras está en Borrador.
+
+**Importante:** una vez materializada es independiente de los maestros: cambiar el Template o la Sección
+maestra **no** la modifica. Para reincorporar cambios del catálogo se usa *Sincronizar alcance desde
+catálogo*. Al pasar a **En Revisión** queda inmutable y es la fuente del PDF comercial.
+
+---
+
 ## Documentos de configuración de costos
 
 Estos documentos son generados y mantenidos automáticamente por el sistema. No se editan manualmente.
