@@ -2,6 +2,23 @@
 
 ## [No liberado]
 
+### Changed — Depuración de fuentes de verdad: el loader del pack deja de sembrar maestros funcionales (v0.28.0)
+
+El loader de catálogos (`catalog_data/catalog_loader.py`, **caps v12**) se depura para conservar **solo la
+capa editorial/de presentación** y dejar de ser una segunda fuente de verdad. Se **retiran** los seeders de
+Proposal Phases (+Tags), Scope Items (+relaciones/dependencias), Proposal Templates (+estructura), Payment
+Terms / Payment Terms Templates, Designations, Skills, `economic_behavior_rules` y el registro/flags
+funcionales de Item (`item_name`, `item_group`, `stock_uom`, `is_stock_item`, `is_sales_item`,
+`is_purchase_item`) — todos se administran ahora **EXCLUSIVAMENTE en Desk**. El loader **ya no crea Items**:
+solo actualiza el **contenido editorial** de Items que ya existen (si no existe → `pending`). Conserva
+Sections, contenido editorial de Item, Letter Heads, Print Formats + versionamiento (sin repuntar
+Templates) y `clear_fields` (solo sections/items/letter_heads). `capabilities()` añade
+`no_functional_master_writes` y retira `designations_skills`/`phase_tags`/`payment_terms`/
+`economic_behavior_rules`/`scope_pmo_planning`. **No se borra ningún dato de BD.** Los packs privados suben a
+`2.0.0` (catálogo editorial) y el instalador exige `MIN_CAPS_VERSION=12`. Ver **ADR-0023**. Tests: loader
+re-basado en la capa editorial + regresión de ausencia de seeders (`test_catalog_loader`,
+`test_catalog_clear_fields`, `test_item_proposal_fields`); suite completa 787 OK / 1 skip.
+
 ### Changed — Versionado de propuesta: herencia por defecto del estado comercial (v0.26.0)
 
 `create_new_proposal_version()` pasa de un diccionario manual (que descartaba silenciosamente avance
