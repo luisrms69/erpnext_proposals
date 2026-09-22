@@ -55,6 +55,7 @@ nav:
     - ADR-0019 Aplicar Addendum ganado a Project existente: adr/0019-aplicar-addendum-a-project-existente.md
     - ADR-0020 Contrato económico canónico Project ↔ Quotations: adr/0020-contrato-economico-project.md
     - ADR-0021 Versionado inherit-by-default del estado comercial: adr/0021-versionado-inherit-by-default.md
+    - ADR-0022 Narrativa materializada en la Quotation: adr/0022-materializacion-secciones-quotation.md
 
 theme:
   name: material
