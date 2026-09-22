@@ -51,10 +51,20 @@ Suite completa 787 OK / 1 skip; ruff clean; mkdocs strict OK; ambos packs cargan
 - Pack B (`clientesconsultoriamx/actiglobal/erpnext_proposals_catalog`) → **2.0.0**: catálogo depurado,
   items editorial-only (no tenía economic/payment/skills/designations/pfv; sin scripts propios ni manifest raíz).
 
+### Decisión de alcance (cerrada)
+**Extracción DETENIDA en la capa editorial.** `Proposal Section.content` (+ title/is_executive_summary/
+enabled) y el contenido editorial de Items **se quedan en el pack** como **deuda futura reconocida**: no
+hay aún alternativa satisfactoria para administrar contenido dinámico desde Desk sin perder versionamiento/
+reutilización/materialización (ADR-0022). Auditoría read-only del pack activo v2.0.0: sin ningún maestro
+funcional; el dato funcional histórico solo sobrevive fuera de la ruta de carga (releases pre-2.0.0 +
+sources/*.xlsx, normalizer neutralizado). Ver ADR-0023 §"Deuda futura".
+
 ### Pendiente inmediato
-1. Revisión del usuario de este bloque (commit sin push).
-2. Tras visto bueno: `/ship push` → `/ship pr` (base version-16; el merge lo hace el usuario).
+1. Cierre de **v0.28.0**: `/ship pr` hacia `version-16` (base upstream/version-16 = 0.27.0 → 0.28.0 MINOR).
+   Push interno del modo + creación del PR con confirmación; el merge lo hace el usuario.
+2. Post-merge: `/ship release` → tag `v0.28.0` + GitHub Release sobre el commit mergeado.
 3. E2E de una propuesta en QA con el pack v2.0.0 (Items ya en Desk) para confirmar contenido editorial + PF.
+4. (Deuda futura) Decidir cómo administrar Section.content + editorial de Items sin sacrificar contenido dinámico.
 
 ### No repetir / atención
 - El loader **nunca** crea Items: en un site nuevo, los Items deben existir en Desk antes de aplicar el pack.

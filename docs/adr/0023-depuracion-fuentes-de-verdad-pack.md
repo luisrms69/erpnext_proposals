@@ -73,3 +73,30 @@ registros ya presentes en cada site permanecen y se administran en Desk.
 dos definiciones del mismo dato (archivo y Desk), el canal `conflicts` seguiría activo y el pack seguiría
 siendo una fuente de verdad paralela. La separación limpia (editorial en el pack, funcional en Desk) es
 la única que elimina la divergencia de raíz.
+
+## Deuda futura (alcance NO cerrado en esta decisión)
+
+La extracción se **detuvo deliberadamente** en la capa editorial. **Se quedan en el pack, por ahora,
+como deuda futura reconocida:**
+
+- **`Proposal Section.content`** (y los atributos del propio registro Proposal Section: `title`,
+  `is_executive_summary`, `enabled`);
+- **contenido editorial de Items** (`description`, `proposal_methodology`, `proposal_expected_result`,
+  `proposal_scope_limit`, `proposal_service_validity`, `proposal_min_unit`, `proposal_service_hours`).
+
+**Motivo:** no existe todavía una alternativa satisfactoria para administrar **contenido dinámico**
+(narrativa/editorial) desde Desk sin perder versionamiento, reutilización ni el flujo de materialización
+en la Quotation ([ADR-0022](0022-materializacion-secciones-quotation.md)). Desmontar parcialmente estas
+piezas sin esa alternativa no aporta valor y sí riesgo. Por eso siguen distribuyéndose por el pack (que
+quedó reducido a **presentación + contenido editorial**).
+
+**Verificación (auditoría read-only del pack activo v2.0.0):** el catálogo raíz —lo único que carga el
+loader— contiene **solo** `sections`, `items` (editorial), `print_formats`, `print_format_versions`,
+`letter_heads` y `versioned`; **ningún** maestro funcional (Templates/Scope Items/Phases/Payment
+Terms/Designations/Skills/`economic_behavior_rules`) ni campo de registro/flags de Item. El dato funcional
+histórico sobrevive únicamente **fuera de la ruta de carga** (snapshots `releases/<pre-2.0.0>` inmutables
+y `sources/*.xlsx`), con el normalizer del pack ya neutralizado.
+
+**Pendiente de decisión futura (no en este bloque):** cómo y cuándo administrar `Proposal Section.content`
+y el contenido editorial de Items desde una fuente única sin sacrificar contenido dinámico. Hasta
+resolverlo, permanecen en el pack.
