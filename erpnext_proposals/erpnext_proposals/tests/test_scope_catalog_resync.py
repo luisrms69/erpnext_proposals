@@ -319,7 +319,6 @@ class TestScopeCatalogResync(unittest.TestCase):
 		row.costing_rate = 123.45
 		row.rate_source = "matrix_general"
 		row.rate_locked = 1
-		row.rate_locked_on = frappe.utils.now_datetime()
 		q.save(ignore_permissions=True)
 
 		si = frappe.get_doc("Scope Item", "_RESYNC_A1")
@@ -335,7 +334,6 @@ class TestScopeCatalogResync(unittest.TestCase):
 			self.assertEqual(float(row.costing_rate), 123.45)
 			self.assertEqual(row.rate_source, "matrix_general")
 			self.assertEqual(row.rate_locked, 1)
-			self.assertIsNotNone(row.rate_locked_on)
 		finally:
 			si.title = orig_title
 			si.save(ignore_permissions=True)

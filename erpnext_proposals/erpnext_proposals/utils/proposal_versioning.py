@@ -254,7 +254,6 @@ _EXCLUDE = {
 	"Quotation Scope Item": frozenset(
 		{
 			"rate_locked",
-			"rate_locked_on",
 			"project_task",
 			"source_type",
 			"source_row",
