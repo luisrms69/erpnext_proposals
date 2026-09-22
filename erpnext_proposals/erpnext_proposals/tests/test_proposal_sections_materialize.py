@@ -206,18 +206,22 @@ class TestProposalSectionsMaterialize(unittest.TestCase):
 		finally:
 			self._set_template_custom_title(None)
 
-	# ── 5: reaplicación explícita (resync) reemplaza las filas ──────────────────
+	# ── 5: el resync explícito NO reconstruye la narrativa ──────────────────────
+	# ADR-0022: `proposal_sections` es la fuente ÚNICA del contenido efectivo. La reaplicación narrativa
+	# desde los masters se RETIRÓ del resync (y preview/PDF nunca mutan la narrativa): un cambio en la
+	# Proposal Section maestra NO se propaga a la fila materializada, ni siquiera por resync explícito.
 
-	def test_05_explicit_reapply_replaces_rows(self):
+	def test_05_resync_does_not_touch_narrative(self):
 		q = self._make_draft()
-		self._set_section("<p>NUEVO CONTENIDO POR REAPLICACIÓN.</p>")
+		self._set_section("<p>NUEVO CONTENIDO QUE NO DEBE PROPAGARSE.</p>")
 		try:
 			resync_scope_from_catalog(q.name)
 			self.assertIn(
-				"NUEVO CONTENIDO POR REAPLICACIÓN",
+				"Contenido original",
 				self._rows(q.name)[0]["content"],
-				"La reaplicación explícita reemplaza las filas desde los maestros vigentes",
+				"El resync NO re-pulla la narrativa: la fila materializada se conserva",
 			)
+			self.assertNotIn("NO DEBE PROPAGARSE", self._rows(q.name)[0]["content"])
 		finally:
 			self._set_section(ORIGINAL)
 

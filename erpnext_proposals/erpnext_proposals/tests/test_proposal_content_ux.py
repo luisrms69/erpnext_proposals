@@ -1,17 +1,16 @@
 # Copyright (c) 2026, Consultoria en Negocios y Aplicaciones and contributors
 # For license information, please see license.txt
 
-"""UX "Contenido de propuesta": edición cómoda + orden nativo de `Quotation.proposal_sections`.
+"""UX "Contenido de propuesta" — orden de `Quotation.proposal_sections` por drag libre (punto medio).
 
-Cubre el comportamiento NUEVO de esta línea de trabajo:
-- materialización aplica el Template a las filas;
-- reordenar (idx) sincroniza `sequence` en Borrador (`_sync_proposal_section_sequence`), que sigue siendo
-  el orden canónico que consumen el Print Format y `get_sections_snapshot`;
-- agregar/eliminar/editar filas en Borrador;
-- una sección ad-hoc con `proposal_section` vacío es válida (sin excepciones artificiales).
+`sequence` es dato SEMÁNTICO (posición real del documento), oculto al usuario, NO espejo de `idx`. El
+bloque sintético de Items/Inversión del Print Format se ancla en `sequence == 500` (`<500` antes, `>=500`
+después). El drag es LIBRE y puede cruzar esa frontera: al soltar, cada fila movida (o ad-hoc) recibe un
+valor ENTRE sus vecinos reales; una fila que ya respeta el orden se conserva. Nunca `sequence = idx`,
+nunca 0/vacío.
 
-La inmutabilidad en submitted la cubre `test_freeze_sections_docstatus`. La vista previa es render de
-cliente (JS) y se valida manualmente. Sin datos de cliente ni contenido del catálogo privado.
+Fix de ORDEN/reorder. El read-only de preview/PDF (Fix 2) vive en `test_preview_pdf_readonly.py`. Sin
+datos de cliente ni contenido del catálogo privado.
 """
 
 import unittest
@@ -30,68 +29,98 @@ from erpnext_proposals.erpnext_proposals.tests.fiscal_year import (
 )
 from erpnext_proposals.erpnext_proposals.utils.printing import get_sections_snapshot
 
+# (section_name, título, content, sequence)  — 2 antes del 500, 2 después. Nombres nuevos (`UXB`) para
+# no colisionar con fixtures previos ya persistidos en el site de tests.
 SECTIONS = [
-	("_Test UX Sec A", "<p>Contenido A.</p>"),
-	("_Test UX Sec B", "<p>Contenido B.</p>"),
-	("_Test UX Sec C", "<p>Contenido C.</p>"),
+	("_Test UXB Sec A", "UX-A", "<p>A</p>", 10),
+	("_Test UXB Sec B", "UX-B", "<p>B</p>", 20),
+	("_Test UXB Sec C", "UX-C", "<p>C</p>", 610),
+	("_Test UXB Sec D", "UX-D", "<p>D</p>", 620),
 ]
-TEMPLATE = "_Test UX Template"
-ITEM = "_Test UX Item"
-CUSTOMER = "_Test UX Customer"
+TEMPLATE = "_Test UXB Template"
+ITEM = "_Test UXB Item"
+CUSTOMER = "_Test UXB Customer"
+B = 500  # landmark del bloque de Items
 
 
-class TestProposalContentUX(unittest.TestCase):
+def _fixtures(cls):
+	cls.company = get_test_company()
+	cls._fy = ensure_current_fiscal_year()
+	cls.cost_center = get_test_cost_center(cls.company)
+	cg = frappe.db.get_value("Customer Group", {"is_group": 0}, "name")
+	terr = frappe.db.get_value("Territory", {"is_group": 0}, "name") or frappe.db.get_value(
+		"Territory", {}, "name"
+	)
+	if not frappe.db.exists("Customer", CUSTOMER):
+		frappe.get_doc(
+			{
+				"doctype": "Customer",
+				"customer_name": CUSTOMER,
+				"customer_type": "Company",
+				"customer_group": cg,
+				"territory": terr,
+			}
+		).insert(ignore_permissions=True)
+	if not frappe.db.exists("UOM", "Nos"):
+		frappe.get_doc({"doctype": "UOM", "uom_name": "Nos"}).insert(ignore_permissions=True)
+	if not frappe.db.exists("Item", ITEM):
+		frappe.get_doc(
+			{
+				"doctype": "Item",
+				"item_code": ITEM,
+				"item_name": ITEM,
+				"item_group": get_test_item_group(),
+				"stock_uom": "Nos",
+				"is_stock_item": 0,
+			}
+		).insert(ignore_permissions=True)
+	for name, title, content, _seq in SECTIONS:
+		if not frappe.db.exists("Proposal Section", name):
+			frappe.get_doc(
+				{
+					"doctype": "Proposal Section",
+					"section_name": name,
+					"title": title,
+					"content": content,
+					"enabled": 1,
+				}
+			).insert(ignore_permissions=True)
+	if not frappe.db.exists("Proposal Template", TEMPLATE):
+		t = frappe.get_doc({"doctype": "Proposal Template", "template_name": TEMPLATE})
+		for name, _title, _content, seq in SECTIONS:
+			t.append("sections", {"proposal_section": name, "sequence": seq, "include_by_default": 1})
+		t.insert(ignore_permissions=True)
+	cls._quotations = []
+	frappe.db.commit()  # nosemgrep — fixtures de test
+
+
+def _make_draft(cls):
+	doc = frappe.get_doc(
+		{
+			"doctype": "Quotation",
+			"quotation_to": "Customer",
+			"party_name": CUSTOMER,
+			"company": cls.company,
+			"currency": "MXN",
+			"transaction_date": frappe.utils.today(),
+			"proposal_group": f"UX-{frappe.generate_hash(length=8)}",
+			"proposal_template": TEMPLATE,
+			"proposal_title": "UX",
+			"proposal_cost_center": cls.cost_center,
+			"selling_price_list": get_test_price_list(),
+			"items": [{"item_code": ITEM, "item_name": ITEM, "qty": 1, "rate": 1000, "uom": "Nos"}],
+		}
+	)
+	doc.insert(ignore_permissions=True, ignore_mandatory=True)
+	cls._quotations.append(doc.name)
+	return doc
+
+
+class TestProposalSectionOrder(unittest.TestCase):
 	@classmethod
 	def setUpClass(cls):
 		super().setUpClass()
-		cls.company = get_test_company()
-		cls._fy = ensure_current_fiscal_year()
-		cls.cost_center = get_test_cost_center(cls.company)
-		cg = frappe.db.get_value("Customer Group", {"is_group": 0}, "name")
-		terr = frappe.db.get_value("Territory", {"is_group": 0}, "name") or frappe.db.get_value(
-			"Territory", {}, "name"
-		)
-		if not frappe.db.exists("Customer", CUSTOMER):
-			frappe.get_doc(
-				{
-					"doctype": "Customer",
-					"customer_name": CUSTOMER,
-					"customer_type": "Company",
-					"customer_group": cg,
-					"territory": terr,
-				}
-			).insert(ignore_permissions=True)
-		if not frappe.db.exists("UOM", "Nos"):
-			frappe.get_doc({"doctype": "UOM", "uom_name": "Nos"}).insert(ignore_permissions=True)
-		if not frappe.db.exists("Item", ITEM):
-			frappe.get_doc(
-				{
-					"doctype": "Item",
-					"item_code": ITEM,
-					"item_name": ITEM,
-					"item_group": get_test_item_group(),
-					"stock_uom": "Nos",
-					"is_stock_item": 0,
-				}
-			).insert(ignore_permissions=True)
-		for name, content in SECTIONS:
-			if not frappe.db.exists("Proposal Section", name):
-				frappe.get_doc(
-					{
-						"doctype": "Proposal Section",
-						"section_name": name,
-						"title": f"Título {name}",
-						"content": content,
-						"enabled": 1,
-					}
-				).insert(ignore_permissions=True)
-		if not frappe.db.exists("Proposal Template", TEMPLATE):
-			t = frappe.get_doc({"doctype": "Proposal Template", "template_name": TEMPLATE})
-			for i, (name, _c) in enumerate(SECTIONS, start=1):
-				t.append("sections", {"proposal_section": name, "sequence": i * 10, "include_by_default": 1})
-			t.insert(ignore_permissions=True)
-		cls._quotations = []
-		frappe.db.commit()  # nosemgrep — fixtures de test
+		_fixtures(cls)
 
 	@classmethod
 	def tearDownClass(cls):
@@ -105,125 +134,109 @@ class TestProposalContentUX(unittest.TestCase):
 		frappe.db.commit()  # nosemgrep — limpieza de test
 		super().tearDownClass()
 
-	def _make_draft(self):
-		doc = frappe.get_doc(
-			{
-				"doctype": "Quotation",
-				"quotation_to": "Customer",
-				"party_name": CUSTOMER,
-				"company": self.company,
-				"currency": "MXN",
-				"transaction_date": frappe.utils.today(),
-				"proposal_group": f"UX-{frappe.generate_hash(length=8)}",
-				"proposal_template": TEMPLATE,
-				"proposal_title": "UX",
-				"proposal_cost_center": self.cost_center,
-				"selling_price_list": get_test_price_list(),
-				"items": [{"item_code": ITEM, "item_name": ITEM, "qty": 1, "rate": 1000, "uom": "Nos"}],
-			}
-		)
-		doc.insert(ignore_permissions=True, ignore_mandatory=True)
-		self._quotations.append(doc.name)
-		return doc
-
-	def _ordered_titles(self, name):
+	def _seqs(self, name):
 		doc = frappe.get_doc("Quotation", name)
-		return [r.title for r in sorted(doc.proposal_sections, key=lambda r: r.sequence or 0)]
+		return {r.title: int(r.sequence) for r in doc.proposal_sections}
 
-	# 1) materializar aplica el Template (3 filas, orden del Template)
-	def test_1_materialize_applies_template(self):
-		q = self._make_draft()
-		self.assertEqual(self._ordered_titles(q.name), [f"Título {n}" for n, _ in SECTIONS])
+	def _order(self, name):
+		doc = frappe.get_doc("Quotation", name)
+		return [r.title for r in sorted(doc.proposal_sections, key=lambda r: int(r.sequence or 0))]
 
-	# 2) reordenar (idx) → sequence sigue el nuevo orden; readers/PF reflejan
-	def test_2_reorder_syncs_sequence_and_readers(self):
-		q = self._make_draft()
-		doc = frappe.get_doc("Quotation", q.name)
-		rows = sorted(doc.proposal_sections, key=lambda r: r.sequence or 0)
-		# reconstruir en orden INVERSO (simula un arrastre: las filas CONSERVAN su `sequence`, solo cambia
-		# el orden visual/idx) → el sync detecta que idx≠sequence y renumera 1..N según el nuevo orden.
-		data = [
-			{
-				"title": r.title,
-				"content": r.content,
-				"hide_title": r.hide_title,
-				"proposal_section": r.proposal_section,
-				"is_executive_summary": r.is_executive_summary,
-				"sequence": r.sequence,
-			}
-			for r in reversed(rows)
-		]
+	def _rebuild(self, name, titles, extra=None):
+		"""Reordena `proposal_sections` en el orden `titles` (simula un arrastre libre: cambia el orden/idx,
+		conserva la `sequence` de cada fila existente). `extra` = {título: dict} de filas ad-hoc SIN
+		`sequence`, ubicadas por su título en `titles`."""
+		doc = frappe.get_doc("Quotation", name)
+		by = {r.title: r for r in doc.proposal_sections}
+		data = []
+		for t in titles:
+			if t in by:
+				r = by[t]
+				data.append(
+					{
+						"title": r.title,
+						"content": r.content,
+						"hide_title": r.hide_title,
+						"proposal_section": r.proposal_section,
+						"sequence": r.sequence,
+					}
+				)
+			elif extra and t in extra:
+				data.append(extra[t])
 		doc.set("proposal_sections", data)
 		doc.save(ignore_permissions=True)
+		return doc
 
-		expected = [f"Título {n}" for n, _ in SECTIONS][::-1]
-		self.assertEqual(self._ordered_titles(q.name), expected, "readers ordenan por sequence sincronizado")
-		# sequence contiguo 1..N en el nuevo orden
-		fresh = frappe.get_doc("Quotation", q.name)
-		self.assertEqual(sorted(r.sequence for r in fresh.proposal_sections), [1, 2, 3])
-		# el lector que usa el Print Format refleja el mismo orden y contenido
-		snap = get_sections_snapshot(fresh)
-		snap_titles = [s["title"] for s in snap.get("sections", [])]
-		self.assertEqual(snap_titles, expected, "get_sections_snapshot (fuente del PF) sigue el orden")
+	# 1) materializar preserva las sequences del Template (NO renumera 1..N)
+	def test_1_materialize_preserves_template_sequences(self):
+		q = _make_draft(self)
+		self.assertEqual(self._seqs(q.name), {"UX-A": 10, "UX-B": 20, "UX-C": 610, "UX-D": 620})
 
-	# 3) agregar sección ad-hoc con proposal_section vacío (válido, sin excepción artificial)
-	def test_3_add_manual_section_empty_link(self):
-		q = self._make_draft()
+	# 2) guardar sin reordenar es no-op (idempotente): las sequences no cambian
+	def test_2_save_without_reorder_is_noop(self):
+		q = _make_draft(self)
+		frappe.get_doc("Quotation", q.name).save(ignore_permissions=True)
+		self.assertEqual(self._seqs(q.name), {"UX-A": 10, "UX-B": 20, "UX-C": 610, "UX-D": 620})
+
+	# 3) reorden SIN cruzar: mover B antes de A → punto medio, ambas siguen <500, orden [B,A,C,D]
+	def test_3_reorder_no_cross(self):
+		q = _make_draft(self)
+		self._rebuild(q.name, ["UX-B", "UX-A", "UX-C", "UX-D"])
+		s = self._seqs(q.name)
+		self.assertLess(s["UX-B"], s["UX-A"])
+		self.assertLess(s["UX-A"], B)
+		self.assertLess(s["UX-B"], B)
+		self.assertEqual(self._order(q.name), ["UX-B", "UX-A", "UX-C", "UX-D"])
+
+	# 4) drag que CRUZA hacia abajo: D (>=500) arrastrada entre A(10) y B(20) → punto medio 15 (<500)
+	def test_4_drag_crosses_boundary_down(self):
+		q = _make_draft(self)
+		self._rebuild(q.name, ["UX-A", "UX-D", "UX-B", "UX-C"])
+		s = self._seqs(q.name)
+		self.assertLess(s["UX-D"], B, "D cruzó a ANTES del bloque de Items")
+		self.assertEqual(s["UX-D"], (10 + 20) // 2, "valor intermedio entre sus vecinos reales (15)")
+		self.assertEqual(self._order(q.name), ["UX-A", "UX-D", "UX-B", "UX-C"])
+
+	# 5) drag que CRUZA hacia arriba: A (<500) arrastrada entre C(610) y D(620) → punto medio 615 (>=500)
+	def test_5_drag_crosses_boundary_up(self):
+		q = _make_draft(self)
+		self._rebuild(q.name, ["UX-B", "UX-C", "UX-A", "UX-D"])
+		s = self._seqs(q.name)
+		self.assertGreaterEqual(s["UX-A"], B, "A cruzó a DESPUÉS del bloque de Items")
+		self.assertEqual(s["UX-A"], (610 + 620) // 2, "valor intermedio entre C y D (615)")
+		self.assertEqual(self._order(q.name), ["UX-B", "UX-C", "UX-A", "UX-D"])
+
+	# 6) sección ad-hoc ENTRE dos secciones → valor intermedio EN RANGO (>0), posicionada entre vecinos
+	def test_6_adhoc_between_neighbors(self):
+		q = _make_draft(self)
+		self._rebuild(
+			q.name,
+			["UX-A", "UX-B", "UX-C", "UX-ADHOC", "UX-D"],
+			extra={"UX-ADHOC": {"title": "UX-ADHOC", "content": "<p>adhoc</p>", "hide_title": 0}},
+		)
+		s = self._seqs(q.name)
+		self.assertGreater(s["UX-ADHOC"], 0, "nunca 0/vacío")
+		self.assertTrue(s["UX-C"] < s["UX-ADHOC"] < s["UX-D"], "queda estrictamente entre sus vecinos")
+		self.assertEqual(self._order(q.name), ["UX-A", "UX-B", "UX-C", "UX-ADHOC", "UX-D"])
+
+	# 7) sección ad-hoc AL FRENTE → valor > 0, primera en el orden
+	def test_7_adhoc_at_front(self):
+		q = _make_draft(self)
+		self._rebuild(
+			q.name,
+			["UX-ADHOC", "UX-A", "UX-B", "UX-C", "UX-D"],
+			extra={"UX-ADHOC": {"title": "UX-ADHOC", "content": "<p>adhoc</p>", "hide_title": 0}},
+		)
+		s = self._seqs(q.name)
+		self.assertGreater(s["UX-ADHOC"], 0)
+		self.assertEqual(self._order(q.name)[0], "UX-ADHOC")
+
+	# 8) eliminar una fila conserva el orden y los readers lo reflejan
+	def test_8_delete_preserves_order(self):
+		q = _make_draft(self)
 		doc = frappe.get_doc("Quotation", q.name)
-		doc.append(
-			"proposal_sections",
-			{"title": "Sección manual", "content": "<p>Ad-hoc.</p>", "hide_title": 0},
-		)
+		doc.proposal_sections = [r for r in doc.proposal_sections if r.title != "UX-B"]
 		doc.save(ignore_permissions=True)
-		fresh = frappe.get_doc("Quotation", q.name)
-		self.assertEqual(len(fresh.proposal_sections), len(SECTIONS) + 1)
-		manual = next(r for r in fresh.proposal_sections if r.title == "Sección manual")
-		self.assertFalse(manual.proposal_section, "sección ad-hoc: proposal_section vacío")
-		self.assertTrue(int(manual.sequence) > 0, "sequence asignado por el sync")
-		# sequence contiguo 1..N+1
-		self.assertEqual(
-			sorted(r.sequence for r in fresh.proposal_sections), list(range(1, len(SECTIONS) + 2))
-		)
-
-	# 4) eliminar fila → persiste, orden preservado y `sequence` sigue estrictamente creciente
-	#    (borrar la del medio deja gaps válidos [10,30]; el sync NO renumera gratuitamente).
-	def test_4_delete_row(self):
-		q = self._make_draft()
-		doc = frappe.get_doc("Quotation", q.name)
-		doc.proposal_sections.pop(1)  # quita la del medio
-		doc.save(ignore_permissions=True)
-		fresh = frappe.get_doc("Quotation", q.name)
-		self.assertEqual(len(fresh.proposal_sections), len(SECTIONS) - 1)
-		self.assertEqual(
-			self._ordered_titles(q.name), [f"Título {SECTIONS[0][0]}", f"Título {SECTIONS[2][0]}"]
-		)
-		seqs = [r.sequence for r in sorted(fresh.proposal_sections, key=lambda r: r.sequence or 0)]
-		self.assertEqual(seqs, sorted(set(seqs)), "sequence estrictamente creciente (gaps válidos)")
-
-	# 5) editar title/content/hide_title persiste
-	def test_5_edit_fields_persist(self):
-		q = self._make_draft()
-		doc = frappe.get_doc("Quotation", q.name)
-		row = sorted(doc.proposal_sections, key=lambda r: r.sequence or 0)[0]
-		row.title = "Título editado"
-		row.content = "<p>Contenido editado.</p>"
-		row.hide_title = 1
-		doc.save(ignore_permissions=True)
-		fresh = frappe.get_doc("Quotation", q.name)
-		edited = sorted(fresh.proposal_sections, key=lambda r: r.sequence or 0)[0]
-		self.assertEqual(edited.title, "Título editado")
-		self.assertIn("Contenido editado", edited.content)
-		self.assertEqual(int(edited.hide_title), 1)
-
-	# 6) sequence NO se toca en submitted (guard docstatus del sync)
-	def test_6_sync_skips_when_not_draft(self):
-		from erpnext_proposals.erpnext_proposals.utils.quotation import _sync_proposal_section_sequence
-
-		doc = frappe.get_doc("Quotation", self._make_draft().name)
-		doc.docstatus = 1  # simular submitted en memoria
-		for r in doc.proposal_sections:
-			r.sequence = 99  # valor "sucio"
-		_sync_proposal_section_sequence(doc)
-		self.assertTrue(
-			all(r.sequence == 99 for r in doc.proposal_sections), "no toca filas si no es Borrador"
-		)
+		self.assertEqual(self._order(q.name), ["UX-A", "UX-C", "UX-D"])
+		snap = get_sections_snapshot(frappe.get_doc("Quotation", q.name))
+		self.assertEqual([e["title"] for e in snap["sections"]], ["UX-A", "UX-C", "UX-D"])
