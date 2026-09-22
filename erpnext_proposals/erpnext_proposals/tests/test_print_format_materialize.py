@@ -186,7 +186,7 @@ class TestPrintFormatMaterialize(unittest.TestCase):
 		doc = self._submit()
 		self.assertEqual(doc.docstatus, 1)
 		self.assertEqual(resolve_commercial_print_format(doc), PF, "resuelve el PF materializado")
-		self.assertFalse((doc.get("proposal_effective_print_format") or ""))
+		self.assertFalse(doc.get("proposal_effective_print_format") or "")
 		self.assertTrue(
 			is_print_format_historical(PF), "ADR-0011: PF usado por propuesta formalizada = histórico"
 		)
