@@ -212,7 +212,8 @@ class TestItemProposalFields(unittest.TestCase):
 			self.assertTrue(f.read_only, f"{fn} debe ser read_only en Quotation Item")
 
 	def test_loader_manages_item_proposal_fields(self):
-		"""El loader crea, actualiza y limpia (null explícito) los 3 campos de contenido en Item."""
+		"""El loader actualiza y limpia (null explícito) los 3 campos de contenido en un Item que YA
+		existe. No crea Items: el Item lo administra Desk y se precrea en el test."""
 		if not _migrated():
 			self.skipTest("requiere bench migrate del rediseño")
 		import os
@@ -227,30 +228,30 @@ class TestItemProposalFields(unittest.TestCase):
 		fd, path = tempfile.mkstemp(suffix=".json")
 		os.close(fd)
 
+		# El registro funcional del Item se administra en Desk: lo precreamos (el loader no crea Items).
+		if not frappe.db.exists("Item", code):
+			frappe.get_doc(
+				{
+					"doctype": "Item",
+					"item_code": code,
+					"item_name": "Loader Prop",
+					"item_group": grp,
+					"stock_uom": uom,
+					"is_stock_item": 0,
+				}
+			).insert(ignore_permissions=True)
+			frappe.db.commit()  # nosemgrep — fixture de test
+
 		def _cat(vals):
-			item = {
-				"item_code": code,
-				"item_name": "Loader Prop",
-				"item_group": grp,
-				"stock_uom": uom,
-				"is_stock_item": 0,
-			}
+			item = {"item_code": code}
 			item.update(vals)
-			return {
-				"version": "t",
-				"catalog": "demo",
-				"phases": [],
-				"sections": [],
-				"versioned": [],
-				"items": [item],
-				"scope_items": [],
-				"templates": [],
-			}
+			return {"version": "t", "catalog": "demo", "sections": [], "versioned": [], "items": [item]}
 
 		try:
 			with open(path, "w", encoding="utf-8") as fh:
 				json.dump(_cat({f: f"<p>{f}</p>" for f in QITEM_TECH_FIELDS}), fh)
-			catalog_loader.run(catalog_path=path, dry_run=False)
+			# El Item ya existe (Desk): fijar su contenido editorial requiere update_content=True.
+			catalog_loader.run(catalog_path=path, dry_run=False, update_content=True)
 			for f in QITEM_TECH_FIELDS:
 				self.assertEqual(frappe.db.get_value("Item", code, f), f"<p>{f}</p>")
 

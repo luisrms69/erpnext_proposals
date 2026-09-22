@@ -10,6 +10,7 @@ import unittest
 import frappe
 from frappe.utils import add_days, flt, today
 
+from erpnext_proposals.erpnext_proposals.tests.company import get_test_price_list
 from erpnext_proposals.erpnext_proposals.tests.fiscal_year import (
 	cleanup_fiscal_year,
 	ensure_current_fiscal_year,
@@ -167,6 +168,10 @@ class TestVersioningInheritFields(unittest.TestCase):
 			"party_name": self.customer,
 			"company": self.company,
 			"currency": "MXN",
+			# Hermeticidad: el site fresco de CI no siembra Price List default; sin selling_price_list
+			# la V2 (create_new_proposal_version inserta SIN ignore_mandatory) falla con MandatoryError.
+			# La V1 lo toma explícito y la V2 lo hereda (no está en _EXCLUDE). Ver tests/company.py.
+			"selling_price_list": get_test_price_list(),
 			"transaction_date": today(),
 			"proposal_group": f"IF-{frappe.generate_hash(length=6)}",
 			"proposal_template": self.template,

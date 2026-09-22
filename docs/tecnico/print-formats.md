@@ -321,6 +321,11 @@ propiedades para que el ciclo sea **idempotente** y **seguro**:
   "actualizado"), antes de que ADR-0011 lo bloquee en el `save` del `--apply`. `disabled` no es
   presentación → sí se permite. La vía correcta sigue siendo **crear una versión nueva**.
 
+> **Depuración de fuentes de verdad (ADR-0023):** tras retirar los Proposal Templates del pack (se
+> administran en Desk), los catálogos **ya no declaran `templates`** dentro de `print_format_versions`.
+> El versionamiento conserva solo *deshabilitar el anterior* + *adjuntar changelog*; el **repunte de la
+> plantilla al formato vigente lo decide un usuario en Desk** (con el warning del selector de arriba).
+
 ### Selector central + validación (elegibilidad única)
 
 Un Print Format es **elegible** para propuestas si `doc_type = "Quotation"` **y** `disabled = 0`. Ese
