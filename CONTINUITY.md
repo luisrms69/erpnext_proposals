@@ -1,8 +1,8 @@
 # CONTINUITY.md — erpnext_proposals
 
 **Fecha:** 2026-09-22
-**Rama activa:** `feat/quotation-proposal-content-ux` (base `upstream/version-16` = v0.28.0)
-**Tarea actual:** UX "Contenido de propuesta" + 2 fixes de QA (orden semántico de `proposal_sections`; preview/PDF de solo lectura).
+**Rama activa:** `feat/quotation-proposal-content-ux` (base `upstream/version-16` = v0.28.0 → objetivo **v0.29.0**)
+**Tarea actual:** PR abierto — UX "Contenido de propuesta" + 2 fixes de QA (orden semántico de `proposal_sections`; preview/PDF de solo lectura).
 
 ---
 
@@ -20,11 +20,12 @@ Pestaña **Contenido de propuesta** (grid simple + form hijo nativo; `sequence`/
 al activar la pestaña).
 
 Objetivo inmediato:
-Commit local de los 2 fixes (hecho, sin push). Prueba manual del usuario en http://localhost:8405.
+PR hacia `version-16` abierto con el bump a v0.29.0. Pendiente: revisión/CI, merge por el usuario y cierre
+de release (tag + GitHub Release v0.29.0) tras el merge.
 
 Criterio de avance:
-Suite completa 798 OK / 1 skip; ruff+prettier OK; mkdocs strict OK. Los dos fixes con tests dedicados en
-verde (8 + 3).
+QA funcional APROBADO (Vigencia 630→15 cruzando la frontera 500; preview/PDF read-only). Suite completa
+798 OK / 1 skip; ruff+prettier OK; mkdocs strict OK; migrate dev+test limpios. Bump 0.28.0 → 0.29.0 (MINOR).
 
 ---
 
