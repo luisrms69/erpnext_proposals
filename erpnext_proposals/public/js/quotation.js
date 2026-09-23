@@ -69,9 +69,59 @@ function refresh_optional_sections(frm) {
 	});
 }
 
+// ── Vista previa de la propuesta (pestaña "Vista previa") ──────────────────────
+// Render editorial (solo lectura) de las secciones materializadas. Lee EXCLUSIVAMENTE
+// frm.doc.proposal_sections (sin segunda copia, sin Page, sin llamada al servidor). Reutiliza la
+// sanitización NATIVA del Text Editor (frappe.dom.remove_script_and_style) para el contenido HTML.
+// Ordena por `idx` (estado visual actual del grid, que refleja arrastres en memoria). `sequence` es el
+// orden SEMÁNTICO/canónico (con la frontera 500 del bloque de Items) y lo sincroniza el servidor por
+// grupo al guardar — NO es espejo de idx. Se re-renderiza en refresh, ante cambios de contenido/alta/baja
+// de filas y al activar la pestaña, de modo que el contenido esté actualizado SIN recargar el formulario.
+function render_proposal_preview(frm) {
+	const field = frm.get_field("proposal_preview_html");
+	if (!field) return;
+	const rows = (frm.doc.proposal_sections || [])
+		.slice()
+		.sort((a, b) => (a.idx || 0) - (b.idx || 0));
+	if (!rows.length) {
+		field.html(
+			`<div class="text-muted" style="padding:1rem;">Sin secciones todavía. Aplica un Proposal Template o agrega secciones en la pestaña "Contenido de propuesta".</div>`
+		);
+		return;
+	}
+	const parts = rows.map((r) => {
+		const title =
+			!cint(r.hide_title) && r.title
+				? `<h3 style="margin:1.4rem 0 .4rem;">${frappe.utils.escape_html(r.title)}</h3>`
+				: "";
+		// Misma sanitización que aplica el propio control Text Editor a su valor.
+		const content = frappe.dom.remove_script_and_style(r.content || "");
+		return `<section style="margin-bottom:1rem;">${title}<div>${content}</div></section>`;
+	});
+	field.html(
+		`<div class="proposal-preview" style="max-width:820px;margin:0 auto;padding:1rem;line-height:1.5;">${parts.join(
+			""
+		)}</div>`
+	);
+}
+
+// Ediciones en el formulario hijo (Text Editor y demás) → refrescar la vista previa en memoria.
+frappe.ui.form.on("Proposal Quotation Section", {
+	content: (frm) => render_proposal_preview(frm),
+	title: (frm) => render_proposal_preview(frm),
+	hide_title: (frm) => render_proposal_preview(frm),
+});
+
+// Alta/baja de filas de la tabla → refrescar la vista previa.
+frappe.ui.form.on("Quotation", {
+	proposal_sections_add: (frm) => render_proposal_preview(frm),
+	proposal_sections_remove: (frm) => render_proposal_preview(frm),
+});
+
 // ── Sincronización de alcance con catálogo (aviso + resync) ────────────────────
-// Texto ÚNICO del aviso (centralizado): lo usan tanto la acción manual como la
-// sincronización que antecede a una generación/preview de PDF en Borrador.
+// Acción EXPLÍCITA y separada (botón "Sincronizar alcance desde catálogo"). Refresca SCOPE/actividades/
+// costos desde el catálogo; NO reconstruye la narrativa (`proposal_sections`). NUNCA es requisito para
+// ver/imprimir: el preview/PDF es de solo lectura (ver generate_pdf).
 function proposal_resync_message() {
 	return `
 <div style="line-height:1.5">
@@ -81,12 +131,12 @@ function proposal_resync_message() {
   <ul style="margin:0 0 8px">
     <li>Título, descripción, entregable, horas, fase, perfil y demás datos de las actividades generadas desde catálogo.</li>
     <li>Descripción, metodología, resultado esperado y límites de alcance de los servicios cotizados.</li>
-    <li>Secciones de la propuesta conforme al Template y a las secciones opcionales seleccionadas.</li>
     <li>Se agregarán nuevas actividades disponibles para los servicios cotizados.</li>
     <li>Se eliminarán actividades generadas desde catálogo deshabilitadas, eliminadas o que ya no correspondan a los servicios cotizados.</li>
   </ul>
   <p style="margin:8px 0 2px"><b>Se conservará</b></p>
   <ul style="margin:0 0 8px">
+    <li><b>El contenido de las secciones de la propuesta</b> (título, texto, orden, secciones agregadas a mano): esta sincronización NO toca la narrativa.</li>
     <li>Actividades agregadas manualmente.</li>
     <li>Alcance específico capturado para esta propuesta.</li>
     <li>Selección de actividades incluidas en la propuesta.</li>
@@ -131,19 +181,13 @@ function confirm_and_resync(frm, on_done) {
 	// Cancelar (No / cerrar): no sincroniza y no ejecuta on_done → no se genera el PDF.
 }
 
-// Solo un Borrador con template puede sincronizarse. En otros estados el contenido ya está congelado.
-function is_proposal_borrador(frm) {
-	return (
-		frm.doc.docstatus === 0 &&
-		frm.doc.workflow_state === "Borrador" &&
-		!!frm.doc.proposal_template
-	);
-}
-
-// Generación de PDF solicitada por el usuario: en Borrador antecede el aviso+resync; fuera de Borrador
-// (contenido ya congelado) genera directo. NUNCA se usa en el freeze (ese es server-side, sin JS).
-function generate_pdf_with_resync(frm, generate_fn) {
-	if (is_proposal_borrador(frm)) confirm_and_resync(frm, generate_fn);
+// Generación de PDF/preview solicitada por el usuario: es una acción de LECTURA — NUNCA reconstruye la
+// narrativa materializada ni ejecuta un resync de catálogo. Solo PERSISTE las ediciones pendientes del
+// usuario (el PDF se renderiza server-side desde la Quotation guardada, así que un guardado previo hace
+// que el PDF refleje sus cambios) y luego genera. La sincronización con catálogo es una acción explícita
+// y separada (botón "Sincronizar alcance desde catálogo"); nunca un requisito implícito para ver/imprimir.
+function generate_pdf(frm, generate_fn) {
+	if (frm.is_dirty()) frm.save().then(generate_fn);
 	else generate_fn();
 }
 
@@ -156,6 +200,16 @@ frappe.ui.form.on("Quotation", {
 				frm.reload_doc();
 			}
 		});
+
+		// Al ACTIVAR la pestaña "Vista previa", re-renderizar desde el estado ACTUAL del formulario
+		// (frm.doc.proposal_sections en orden idx). Así un arrastre en "Contenido de propuesta" se refleja
+		// de inmediato al entrar a la pestaña, aún sin guardar. El nav-link nativo del Tab Break lleva
+		// data-fieldname; binding delegado y namespaced (no se apila entre recargas). Sin hooks al drag.
+		frm.$wrapper
+			.off("click.proposalpreview")
+			.on("click.proposalpreview", '.nav-link[data-fieldname="proposal_preview_tab"]', () =>
+				render_proposal_preview(frm)
+			);
 	},
 
 	// Reload after workflow transition so PDF attachments appear immediately
@@ -196,6 +250,9 @@ frappe.ui.form.on("Quotation", {
 
 		// Fase 2B: refrescar la UX de financiamiento CAPEX (disclosure de la sección según haya CAPEX).
 		refresh_financing_ui(frm);
+
+		// Pestaña "Vista previa": render inicial desde las filas materializadas.
+		render_proposal_preview(frm);
 
 		// proposal_version and proposal_group are server-assigned — lock UI editing
 		frm.set_df_property("proposal_version", "read_only", 1);
@@ -281,8 +338,8 @@ frappe.ui.form.on("Quotation", {
 						frm.add_custom_button(
 							__("Vista previa comercial"),
 							() =>
-								// En Borrador: aviso + resync antes de abrir el PDF (cada preview refleja el catálogo vigente).
-								generate_pdf_with_resync(frm, () => {
+								// Lectura: persiste ediciones pendientes y abre el PDF. NUNCA resync/rebuild de la narrativa.
+								generate_pdf(frm, () => {
 									frappe
 										.call({
 											method: "erpnext_proposals.erpnext_proposals.utils.print_format.get_effective_commercial_print_format",
@@ -304,7 +361,7 @@ frappe.ui.form.on("Quotation", {
 						frm.add_custom_button(
 							__("Vista previa rentabilidad"),
 							() =>
-								generate_pdf_with_resync(frm, () => {
+								generate_pdf(frm, () => {
 									const url = `/printview?doctype=Quotation&name=${encodeURIComponent(
 										frm.doc.name
 									)}&format=Rentabilidad%20Estimada&no_letterhead=0`;
@@ -324,8 +381,8 @@ frappe.ui.form.on("Quotation", {
 				frm.add_custom_button(
 					__("Descargar PDF comercial"),
 					() =>
-						// Aviso + resync antes de generar, para que el borrador refleje el catálogo vigente.
-						generate_pdf_with_resync(frm, () => {
+						// Lectura: persiste ediciones pendientes y genera el borrador. NUNCA resync/rebuild de la narrativa.
+						generate_pdf(frm, () => {
 							open_url_post(
 								"/api/method/erpnext_proposals.erpnext_proposals.utils.print_format.download_commercial_draft_pdf",
 								{ quotation: frm.doc.name }
@@ -337,7 +394,7 @@ frappe.ui.form.on("Quotation", {
 				frm.add_custom_button(
 					__("Descargar PDF rentabilidad"),
 					() =>
-						generate_pdf_with_resync(frm, () => {
+						generate_pdf(frm, () => {
 							open_url_post(
 								"/api/method/erpnext_proposals.erpnext_proposals.utils.print_format.download_rentabilidad_draft_pdf",
 								{ quotation: frm.doc.name }
@@ -363,7 +420,7 @@ frappe.ui.form.on("Quotation", {
 							frm.add_custom_button(
 								__("Vista previa SOW"),
 								() =>
-									generate_pdf_with_resync(frm, () => {
+									generate_pdf(frm, () => {
 										const url = `/printview?doctype=Quotation&name=${encodeURIComponent(
 											frm.doc.name
 										)}&format=${encodeURIComponent(sowFmt)}&no_letterhead=0`;
@@ -375,7 +432,7 @@ frappe.ui.form.on("Quotation", {
 							frm.add_custom_button(
 								__("Descargar PDF SOW"),
 								() =>
-									generate_pdf_with_resync(frm, () => {
+									generate_pdf(frm, () => {
 										open_url_post(
 											"/api/method/erpnext_proposals.erpnext_proposals.utils.print_format.download_sow_draft_pdf",
 											{ quotation: frm.doc.name }

@@ -1,85 +1,72 @@
 # CONTINUITY.md — erpnext_proposals
 
 **Fecha:** 2026-09-22
-**Rama activa:** `refactor/loader-drop-desk-managed-seeders` (base `upstream/version-16` = v0.27.0; objetivo **0.28.0**)
-**Tarea actual:** Depuración de fuentes de verdad — el loader del pack deja de sembrar los maestros funcionales (ahora en Desk). Ver **ADR-0023**.
+**Rama activa:** `feat/quotation-proposal-content-ux` (base `upstream/version-16` = v0.28.0 → objetivo **v0.29.0**)
+**Tarea actual:** PR abierto — UX "Contenido de propuesta" + 2 fixes de QA (orden semántico de `proposal_sections`; preview/PDF de solo lectura).
 
 ---
 
 ## Recuperación rápida
 
 Estoy trabajando en:
-El loader de catálogos (`catalog_data/catalog_loader.py`) sembraba maestros funcionales que los usuarios
-administran en Desk (Templates, Scope Items, Phases, registro/flags de Item, Payment Terms, Designations,
-Skills, `economic_behavior_rules`) → segunda fuente de verdad + conflictos. Se depura a **caps v12** para
-conservar SOLO la capa editorial/de presentación.
+Mejora de UX para editar/revisar el contenido narrativo de una propuesta dentro de la Quotation. Fuente
+única = `Quotation.proposal_sections` (child `Proposal Quotation Section`). Más dos correcciones de QA
+sobre esa misma rama, con tests independientes.
 
 Plan que estoy siguiendo:
-Retirar esos seeders del loader + trimear `_CLEARABLE_TYPES`; `_seed_items` pasa a editorial-only y **nunca
-crea Items** (Item ausente → `pending`); `capabilities()` añade `no_functional_master_writes` y retira las
-capacidades muertas. Depurar los DOS packs reales (catálogos → v2.0.0, solo capa editorial) + ajustar
-instalador/normalizer/docs/manifest de Pack A. Sin borrar datos de BD. No nuevos mecanismos de migración.
+Pestaña **Contenido de propuesta** (grid simple + form hijo nativo; `sequence`/`proposal_section`/
+`is_executive_summary` ocultos) + pestaña **Vista previa** (renderer de cliente que lee
+`frm.doc.proposal_sections` en orden `idx`, sanitiza con `frappe.dom.remove_script_and_style`, re-render
+al activar la pestaña).
 
 Objetivo inmediato:
-Commit de este bloque (hecho, sin push por indicación del usuario) → revisión del usuario → luego push/PR.
+PR hacia `version-16` abierto con el bump a v0.29.0. Pendiente: revisión/CI, merge por el usuario y cierre
+de release (tag + GitHub Release v0.29.0) tras el merge.
 
 Criterio de avance:
-Suite completa 787 OK / 1 skip; ruff clean; mkdocs strict OK; ambos packs cargan en dry-run sin errores
-(Pack B 0 conflictos; Pack A solo el conflicto pre-existente de PF histórico, ADR-0011). Backup PRE-LIMPIEZA intacto.
+QA funcional APROBADO (Vigencia 630→15 cruzando la frontera 500; preview/PDF read-only). Suite completa
+798 OK / 1 skip; ruff+prettier OK; mkdocs strict OK; migrate dev+test limpios. Bump 0.28.0 → 0.29.0 (MINOR).
 
 ---
 
 ## Estado actual
 
-### Ya cerrado (esta rama) — lado app (git)
-- `catalog_data/catalog_loader.py`: retirados seeders de phases/tags, scope_items(+deps/n2m), templates,
-  economic_behavior_rules, payment_terms(+templates), skills, designations, y sus helpers/`_require`.
-  `_seed_items` → editorial-only, no crea Items. `_CLEARABLE_TYPES` = sections/items/letter_heads.
-  `capabilities()` v12 + `no_functional_master_writes`. `_seed_print_format_versions` intacto (dormido: los
-  catálogos ya no traen `templates`).
-- `catalog_data/sample_catalog.json`: solo `sections` (+versioned), v1.1.0.
-- Tests: eliminados `test_phase_tags_loader` / `test_scope_pmo_catalog` / `test_designations_skills`;
-  reescritos `test_catalog_loader` (re-basado en editorial + regresión de ausencia de seeders) y
-  `test_catalog_clear_fields` (sobre Item editorial); ajustado `test_item_proposal_fields` (Item precreado).
-- Bump 0.28.0 + CHANGELOG + **ADR-0023** + mkdocs nav + arquitectura.md + print-formats.md.
-
-### Ya cerrado — packs privados (working files, NO en este repo)
-- Pack A (`cconsultoriaennegociosmx/erpnext_proposals_catalog`) → **2.0.0**: catálogo depurado, items
-  editorial-only, pfv sin `templates`; instalador `MIN_CAPS_VERSION=12` + REQUIRED_CAPS depurado;
-  `tools/normalize_program.py` ya no escribe phases/scope_items; docs actualizadas; `release.sh --create`
-  (MANIFEST + releases/2.0.0 + RELEASES.md) verificado.
-- Pack B (`clientesconsultoriamx/actiglobal/erpnext_proposals_catalog`) → **2.0.0**: catálogo depurado,
-  items editorial-only (no tenía economic/payment/skills/designations/pfv; sin scripts propios ni manifest raíz).
-
-### Decisión de alcance (cerrada)
-**Extracción DETENIDA en la capa editorial.** `Proposal Section.content` (+ title/is_executive_summary/
-enabled) y el contenido editorial de Items **se quedan en el pack** como **deuda futura reconocida**: no
-hay aún alternativa satisfactoria para administrar contenido dinámico desde Desk sin perder versionamiento/
-reutilización/materialización (ADR-0022). Auditoría read-only del pack activo v2.0.0: sin ningún maestro
-funcional; el dato funcional histórico solo sobrevive fuera de la ruta de carga (releases pre-2.0.0 +
-sources/*.xlsx, normalizer neutralizado). Ver ADR-0023 §"Deuda futura".
+### Ya cerrado (esta rama)
+- **UX (commit f4dc9bc):** DocType `proposal_quotation_section.json` (grid simple), custom fields
+  (`proposal_content_tab`/`proposal_preview_tab`/`proposal_preview_html`), renderer de Vista previa.
+- **Fix 1 — orden SEMÁNTICO por `sequence` (no espejo de `idx`):** el PF ancla el bloque de
+  Items/Inversión en `sequence == 500` (`<500` antes, `>=500` después). `_sync_proposal_section_sequence`
+  reasigna `sequence` por **PUNTO MEDIO entre vecinos** desde el orden visual; el drag puede cruzar la
+  frontera 500; renumera preservando orden y lado de 500 si no hay hueco entero. Nunca `sequence=idx`,
+  nunca 0/vacío. Corre en TODO guardado en Borrador (antes de los early-return de `validate`).
+- **Fix 2 — preview/PDF de solo lectura:** `generate_pdf` (quotation.js) ya no dispara resync; los
+  botones de Vista previa/Descargar solo persisten ediciones y renderizan.
+  `resync_scope_from_catalog` deja de re-materializar `proposal_sections` (narrativa = fuente única,
+  ADR-0022). El resync explícito sigue sincronizando scope/costos/economía.
+- **Tests:** `TestProposalSectionOrder` (8: reorden <500 y >=500, cruce arriba/abajo, ad-hoc en rango,
+  borrado) + `TestPreviewPdfReadOnly` (3: resync y lector no mutan la narrativa).
+  `test_proposal_sections_materialize.test_05` actualizado al nuevo contrato (resync NO re-pulla).
 
 ### Pendiente inmediato
-1. Cierre de **v0.28.0**: `/ship pr` hacia `version-16` (base upstream/version-16 = 0.27.0 → 0.28.0 MINOR).
-   Push interno del modo + creación del PR con confirmación; el merge lo hace el usuario.
-2. Post-merge: `/ship release` → tag `v0.28.0` + GitHub Release sobre el commit mergeado.
-3. E2E de una propuesta en QA con el pack v2.0.0 (Items ya en Desk) para confirmar contenido editorial + PF.
-4. (Deuda futura) Decidir cómo administrar Section.content + editorial de Items sin sacrificar contenido dinámico.
+1. Prueba manual (usuario): aplicar template → editar/arrastrar (incluido cruce de la frontera de
+   Inversión) → Vista previa refleja el orden → guardar → PDF conserva orden → botón de resync no altera
+   la narrativa.
+2. Bump de versión al preparar el PR (feature → MINOR, objetivo 0.29.0 desde 0.28.0). No bump en WIP.
 
 ### No repetir / atención
-- El loader **nunca** crea Items: en un site nuevo, los Items deben existir en Desk antes de aplicar el pack.
-- `erpnext_proposals_deployment/` (sibling de Pack B) es LEGACY (jul-21 + tar.gz), fuera de alcance y NO
-  respaldado en PRE-LIMPIEZA — no tocar; confirmar con usuario si algún día se retira.
-- Backup inmutable PRE-LIMPIEZA en `/home/erpnext/backups/erpnext_proposals-PRECLEANUP-2026-09-22/` — no modificar.
+- El render del preview ordena por `idx` (estado del form); `sequence` es el orden persistido para
+  PF/`get_sections_snapshot`. El sync corre en `validate` (Borrador).
+- Para que el sync (Python) tome efecto en el server dev puede requerir `/server-restart`.
+- Los fixtures de test usan nombres `_Test UXB …` (los `_Test UX …` previos quedaron persistidos con
+  otra definición en el site de tests).
 
 ---
 
 ## Decisiones vigentes
-- El pack es puramente editorial/de presentación; los maestros funcionales viven solo en Desk (ADR-0023).
-- No se borra ningún dato de BD; la depuración solo retira la distribución por archivo.
-- `_seed_print_format_versions` conserva deshabilitar-anterior + changelog; el repunte de plantillas pasa a Desk.
-- Versión app 0.28.0 (MINOR); si se considera "breaking" la retirada de capacidades del loader, sería 1.0.0
-  — decisión del usuario antes del push (ajustable con un commit nuevo, nunca amend).
+- Fuente única del contenido efectivo = `Quotation.proposal_sections`; sin segunda copia para el preview.
+- `sequence` es dato SEMÁNTICO (posición real en el documento; frontera 500 del bloque de Items), no
+  espejo de `idx`; se reasigna por punto medio en Borrador; oculto al usuario.
+- Preview/PDF y `resync_scope_from_catalog` NUNCA reconstruyen la narrativa (ADR-0022).
 
 ## Información faltante
-- Confirmar con el usuario el nivel SemVer del bump (0.28.0 vs 1.0.0) antes del push.
+- Ninguna para el commit. Prueba manual y bump-para-PR pendientes.

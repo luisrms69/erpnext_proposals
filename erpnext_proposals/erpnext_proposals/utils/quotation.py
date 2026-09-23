@@ -75,6 +75,12 @@ def on_quotation_validate(doc, method=None):
 	# Uses validate (not before_insert) because validate is confirmed to run in web context.
 	if not doc.get("proposal_version") and not doc.get("previous_proposal"):
 		doc.proposal_version = 1
+	# UX "Contenido de propuesta": el usuario reordena las secciones por arrastre libre (idx). `sequence` es
+	# el orden SEMÁNTICO (con el landmark 500 del bloque de Items del PF) y se reasigna por PUNTO MEDIO entre
+	# vecinos desde el orden visual, SIN exponerse al usuario; un drag puede cruzar la frontera 500. Corre en
+	# TODO guardado en Borrador (antes de los early-return), para capturar reordenes aunque no se regenere
+	# el alcance.
+	_sync_proposal_section_sequence(doc)
 	# Fase 2A: precargar el plazo contractual desde el default de la Company SOLO en la creación y si está
 	# vacío. Nunca se reescribe después: si la preventa lo cambia (o lo deja vacío), se respeta.
 	_default_contract_term(doc)
@@ -720,10 +726,11 @@ def resync_scope_from_catalog(quotation_name: str) -> dict:
 	# (`add_missing_scope_items_from_items`); el guardado y el resync nunca repueblan.
 
 	# Resync explícito (acción del usuario): refresca los cuatro valores del bloque del servicio en TODAS
-	# las líneas y REAPLICA por completo las Sections narrativas desde el Template/Section vigentes,
-	# reemplazando las filas actuales de `proposal_sections`. Es la única vía de reaplicación narrativa.
+	# las líneas. **NO** reconstruye `proposal_sections`: la narrativa materializada es la fuente única del
+	# contenido de la propuesta (ADR-0022) y NUNCA se re-pulla desde el Template/Section por un resync —
+	# de lo contrario se perderían las ediciones manuales (título/contenido/hide_title/orden/ad-hoc). El
+	# resync sincroniza SCOPE/ITEMS/COSTOS, no la narrativa.
 	_copy_item_proposal_fields(doc, force=True)
-	_materialize_proposal_sections(doc, force=True)
 	# Reaplicación explícita también de la economía: recalcula tarifas/costos/comportamiento desde los
 	# masters vigentes en TODAS las filas. Es la única vía de refresco (nada se actualiza "mágicamente").
 	_materialize_economics(doc, force=True)
@@ -753,6 +760,79 @@ def add_missing_scope_items_from_items(quotation_name: str) -> dict:
 	if added:
 		doc.save()
 	return {"added": added, "total": len(doc.quotation_scope_items)}
+
+
+# Sequence-frontera (LANDMARK fijo) del bloque sintético de Items/Inversión en el Print Format comercial:
+# las secciones con `sequence < 500` se imprimen ANTES de ese bloque; las de `sequence >= 500`, DESPUÉS.
+_ITEMS_BLOCK_BOUNDARY = 500
+
+
+def _section_seq(row) -> int:
+	try:
+		return int(row.get("sequence") or 0)
+	except TypeError, ValueError:
+		return 0
+
+
+def _sync_proposal_section_sequence(doc) -> None:
+	"""Asigna ``sequence`` a ``proposal_sections`` desde el orden visual (drag), por PUNTO MEDIO entre vecinos.
+
+	``sequence`` es dato **SEMÁNTICO** (posición real del documento), oculto al usuario, NO un espejo de
+	``idx``. En el Print Format comercial el bloque sintético Plan/Entregables/Inversión se ancla en
+	``sequence == 500`` (``<500`` va antes, ``>=500`` después). El usuario reordena por **arrastre libre**
+	(puede cruzar esa frontera): al soltar, cada fila movida (o ad-hoc, sin ``sequence``) recibe un valor
+	**entre sus vecinos reales** del nuevo orden; una fila cuyo ``sequence`` ya respeta el orden se conserva.
+	Si no hay hueco entero entre dos vecinos, se **renumera preservando el orden y el lado de 500**. Nunca
+	``sequence = idx``, nunca ``0``/vacío. Solo en Borrador (``docstatus=0``); idempotente."""
+	if doc.docstatus != 0:
+		return
+	rows = list(doc.get("proposal_sections") or [])
+	if not rows:
+		return
+	boundary = _ITEMS_BLOCK_BOUNDARY
+
+	# Rank estrictamente creciente en orden visual, con MÍNIMO cambio: se conserva el `sequence` existente
+	# de una fila si respeta el orden; una fila movida o ad-hoc recibe el punto medio (float) entre su
+	# vecino previo ya fijado y la próxima ANCLA existente. El float nunca colisiona → da el orden y el lado
+	# de 500 de cada fila aunque el drag cruce la frontera.
+	ranks = []
+	prev = 0.0
+	for i, r in enumerate(rows):
+		cur = _section_seq(r)
+		nxt = None
+		for j in range(i + 1, len(rows)):
+			s = _section_seq(rows[j])
+			if s > prev:
+				nxt = float(s)
+				break
+		if cur > prev and (nxt is None or cur < nxt):
+			rk = float(cur)
+		else:
+			rk = (prev + nxt) / 2.0 if nxt is not None else prev + 10.0
+		ranks.append(rk)
+		prev = rk
+
+	# Sin cambios (no hubo reorden ni ad-hoc): todos los ranks son el entero ya almacenado → salir.
+	if all(rk == _section_seq(rows[i]) for i, rk in enumerate(ranks)):
+		return
+
+	# Intento directo: usar los ranks como enteros si quedan estrictamente crecientes y > 0.
+	ints = [int(rk) for rk in ranks]
+	if ints[0] > 0 and all(ints[k] > ints[k - 1] for k in range(1, len(ints))):
+		for r, s in zip(rows, ints, strict=False):
+			r.sequence = s
+	else:
+		# Fallback (sin hueco entero entre vecinos): renumerar preservando ORDEN y LADO de 500. El lado lo
+		# da el rank (float): ``< 500`` va antes del bloque; ``>= 500``, después.
+		lo = [i for i, rk in enumerate(ranks) if rk < boundary]
+		hi = [i for i, rk in enumerate(ranks) if rk >= boundary]
+		for pos, i in enumerate(lo):
+			rows[i].sequence = max(1, int(boundary * (pos + 1) / (len(lo) + 1)))  # entero en (0, 500)
+		for pos, i in enumerate(hi):
+			rows[i].sequence = boundary + (pos + 1) * 10  # 510, 520, … (>= 500)
+
+	# `idx` (orden persistido) sigue al orden canónico de `sequence`.
+	doc.get("proposal_sections").sort(key=lambda r: _section_seq(r))
 
 
 def _materialize_proposal_sections(doc, force: bool = False) -> None:

@@ -149,6 +149,36 @@ distintas que operan sobre el alcance. Ambas solo están disponibles en estado *
 Ver [Scope Items reutilizables](scope-items-reutilizables.md) para el detalle de la relación Item ↔
 Scope Item que alimenta estas acciones.
 
+## Paso 5 — Editar el contenido narrativo y previsualizar
+
+Al aplicar el Proposal Template, las secciones narrativas se copian a esta propuesta. A partir de ahí se
+trabajan desde dos pestañas de la Cotización, sin salir a los maestros:
+
+### Pestaña «Contenido de propuesta»
+
+Muestra las secciones de ESTA propuesta en una tabla simple (**Título** · **Ocultar título**). Mientras
+la Cotización está en **Borrador**:
+
+- **Editar**: hacer clic en una fila para abrir su formulario y editar **Título** y **Contenido**
+  (editor de texto enriquecido). *Ocultar título* quita el encabezado de esa sección en el PDF.
+- **Reordenar**: arrastrar las filas por el controlador de orden. No hay que escribir números: el orden
+  se guarda automáticamente y es el que usan la Vista previa y el PDF. En el PDF, la tabla de
+  **Inversión** (con los conceptos cotizados) ocupa un lugar fijo entre las secciones; al arrastrar una
+  sección puedes colocarla **antes o después** de esa tabla según dónde la sueltes.
+- **Agregar / eliminar**: usar los botones estándar de la tabla. Una sección agregada a mano (sin vínculo
+  a una Sección maestra) es válida y también se incluye.
+
+Los cambios son propios de esta propuesta y no modifican el catálogo maestro. Ni la **Vista previa** ni
+el **PDF** re-generan las secciones desde la plantilla: son de solo lectura sobre lo que editaste. Al
+pasar a **En Revisión** las secciones quedan inmutables.
+
+### Pestaña «Vista previa»
+
+Muestra la propuesta completa (título + contenido de cada sección, en orden) para lectura cómoda. Se
+actualiza con el estado actual del formulario: al editar una sección o **reordenar** y entrar a la
+pestaña, refleja el cambio de inmediato **aunque no se haya guardado**. Es una ayuda editorial; la
+comprobación final de presentación sigue siendo **Imprimir / PDF**.
+
 ---
 
 ## Validaciones que puede encontrar
