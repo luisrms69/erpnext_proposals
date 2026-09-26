@@ -86,9 +86,11 @@ def _buying_price_lists_with_price(item_code: str) -> list[str]:
 	return sorted({pl for pl in pls if pl})
 
 
-def _price_from_list(item_code: str, price_list: str, uom: str | None, transaction_date) -> float:
+def _price_from_list(item_code: str, price_list: str, uom: str | None, transaction_date) -> float | None:
 	"""``price_list_rate`` vigente del Item en una Price List concreta, vía resolver NATIVO (respeta UOM y
-	vigencia ``valid_from/valid_upto``). 0 si no hay precio aplicable."""
+	vigencia ``valid_from/valid_upto``). Devuelve el rate (**incluido ``0.0`` como valor legítimo**) si hay
+	un Item Price aplicable; **``None`` si NO hay** (no encontrado) — para distinguir "precio 0" de "sin
+	precio"."""
 	from erpnext.stock.get_item_details import get_item_price
 
 	rows = get_item_price(
@@ -96,26 +98,26 @@ def _price_from_list(item_code: str, price_list: str, uom: str | None, transacti
 		item_code,
 		ignore_party=True,
 	)
-	return flt(rows[0].get("price_list_rate")) if rows else 0.0
+	return flt(rows[0].get("price_list_rate")) if rows else None
 
 
 def _resolve_buying_price(item_code: str, uom: str | None, transaction_date) -> tuple:
 	"""Determina de forma DETERMINISTA y genérica el ``(price_list_rate, price_list)`` de compra aplicable.
 
-	Jerarquía (sin elegir arbitrariamente la primera de varias listas):
-	  - Se calculan las Buying Price Lists que realmente tienen precio vigente para el Item (respetando
-	    UOM/vigencia con el resolver nativo).
-	  - Si la Buying Price List configurada en Buying Settings tiene precio → se usa (desempate nativo).
-	  - Si exactamente UNA lista tiene precio → se usa.
-	  - Si NINGUNA tiene precio → ``(0, None)`` (se cae a los fallbacks nativos).
-	  - Si VARIAS tienen precio y la configurada no está entre ellas (o no hay configurada) → ambigüedad:
+	Contrato de retorno ``(rate, price_list)`` — distingue EXISTENCIA de VALOR (un Item Price con
+	``price_list_rate = 0`` es un costo válido de 0, NO "sin precio"):
+	  - **Encontrado** (incluye rate ``0.0``) → ``(rate, price_list)`` con ``price_list`` **no** ``None``.
+	  - **No encontrado** (ninguna lista con Item Price aplicable) → ``(0.0, None)`` (fallbacks nativos).
+	  - **Ambiguo** (varias listas con precio y la configurada no está entre ellas, o no hay configurada) →
 	    ``(None, None)`` (el llamador lo marca ``ambiguo_price_list``; nunca se elige la primera).
+
+	El discriminante para el llamador es ``price_list is not None`` (encontrado), **no** la verdad del rate.
 	"""
 	configured = get_buying_price_list()
 	hits = []
 	for pl in _buying_price_lists_with_price(item_code):
 		rate = _price_from_list(item_code, pl, uom, transaction_date)
-		if rate:
+		if rate is not None:  # encontrado (incluye 0.0), no solo truthy
 			hits.append((pl, rate))
 	if not hits:
 		return 0.0, None
@@ -187,22 +189,37 @@ def resolve_external_cost(
 	if rate is None:
 		# Varias listas aplicables sin criterio → ambigüedad (no se elige arbitrariamente).
 		return _fixed(None, SRC_AMBIGUOUS)
-	if rate:
+	if price_list is not None:
+		# Buying Item Price ENCONTRADO. Se distingue por EXISTENCIA (``price_list``), no por la verdad del
+		# rate: un ``price_list_rate = 0`` es un costo válido de 0 (source ``buying_item_price``), no ``sin_costo``.
 		source_amount = flt(rate)
 		source_currency = get_price_list_currency(price_list) or base_currency
 		source_label = SRC_ITEM_PRICE
 	elif flt(item.last_purchase_rate):
-		# Nativo: en moneda base de la Company.
+		# Nativo: en moneda base de la Company. (0 = sin dato → se cae al siguiente fallback.)
 		source_amount = flt(item.last_purchase_rate)
 		source_currency = base_currency
 		source_label = SRC_LAST_PURCHASE
 	elif flt(item.valuation_rate):
-		# Moneda base; solo significativo para stock items.
+		# Moneda base; solo significativo para stock items. (0 = sin dato.)
 		source_amount = flt(item.valuation_rate)
 		source_currency = base_currency
 		source_label = SRC_VALUATION
 	else:
 		return _fixed(0.0, SRC_NONE)
+
+	# Costo fuente CERO: 0 es 0 en cualquier moneda. Se conserva source/moneda/trazabilidad y NO se dispara
+	# FX (una conversión de 0 no debe fallar por falta de tipo de cambio ni degradar a sin_costo).
+	if source_amount == 0:
+		return ExternalCost(
+			amount=0.0,
+			source=source_label,
+			source_amount=0.0,
+			source_currency=source_currency,
+			normalized_currency=normalize_to,
+			exchange_rate=1.0 if source_currency == normalize_to else None,
+			exchange_date=transaction_date,
+		)
 
 	# Normalizar DIRECTO source → destino (base o target). Nunca source→base→target. Falta FX → fail-closed.
 	converted, fx = try_convert(
