@@ -220,6 +220,11 @@ igual**. Devuelve `amount` (normalizado a base), `source`, `source_amount`, `sou
   `conversion_rate` (fail-closed si falta). `economic_calendar` normaliza el ingreso a base con
   `conversion_rate` y expresa todo en base. `project_economics` soporta multimoneda (normaliza; solo
   bloquea si una Cotización en moneda distinta a la base carece de `conversion_rate`).
+- **Consulta en moneda objetivo (consumidores):** `resolve_external_cost(..., target_currency=...)` devuelve
+  el mismo costo externo en esa moneda (p. ej. `Quotation.currency`) sin duplicar FX fuera del app —
+  conversión **directa** `source → target` (nunca `source → base → target`); `source == target` → tasa 1;
+  falta FX → `sin_tipo_cambio`; no persiste la conversión ni crea Item Prices. **Sin `target_currency` el
+  comportamiento (economics en base) es idéntico.** Ver ADR-0024 §2.11.
 - **Compatibilidad:** Company MXN + Quotation MXN + Buying Price List MXN → factor 1.0, tasa 1.0,
   **idéntico** al comportamiento previo.
 - **Fuera de alcance (hoy):** la **presentación del Calendario Económico en `Quotation.currency`** (el

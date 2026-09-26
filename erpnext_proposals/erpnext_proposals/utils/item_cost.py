@@ -130,31 +130,48 @@ def _resolve_buying_price(item_code: str, uom: str | None, transaction_date) -> 
 
 
 def resolve_external_cost(
-	item_code: str, uom: str | None = None, transaction_date=None, company: str | None = None
+	item_code: str,
+	uom: str | None = None,
+	transaction_date=None,
+	company: str | None = None,
+	target_currency: str | None = None,
 ) -> ExternalCost:
 	"""Resolución genérica ÚNICA de costo externo (usada por ``Quotation.items`` y ``required_items``).
 
-	Devuelve un ``ExternalCost`` con el importe NORMALIZADO a la moneda base de la Company. ``company`` es
-	necesaria para conocer la moneda base y normalizar; si no se pasa se intenta con la Company por defecto
-	del sistema."""
+	Devuelve un ``ExternalCost``. Por defecto (``target_currency=None``) el importe se **normaliza a la
+	moneda base de la Company** (moneda canónica del análisis económico) — comportamiento histórico intacto.
+	``company`` es necesaria para conocer la moneda base; si no se pasa se intenta con la Company por defecto.
+
+	**Consulta en moneda objetivo (ADR-0024, extensión para consumidores):** un caller puede pasar
+	``target_currency`` para obtener el **mismo costo externo expresado en esa moneda** (p. ej. la
+	``Quotation.currency``), **sin duplicar lógica FX fuera de la app**. La conversión es **directa**
+	``source_currency → target_currency`` (nunca ``source → base → target``): ``source == target`` → tasa 1
+	sin FX; monedas distintas → FX nativo por ``transaction_date``; falta FX → ``sin_tipo_cambio``. La
+	conversión derivada **no se persiste** y **no** crea Item Prices. No afecta a los callers de economics
+	(no pasan ``target_currency`` → siguen recibiendo el costo en base)."""
 	base_currency = get_company_currency(company)
 	if not base_currency:
 		default_company = frappe.defaults.get_global_default("company")
 		base_currency = get_company_currency(default_company)
 
-	def _result(amount, source, source_amount=None, source_currency=None, rate=None):
+	# Moneda de normalización: la base para economics; la objetivo si un consumidor la solicita.
+	normalize_to = target_currency or base_currency
+
+	def _fixed(amount, source):
+		# Estados sin costo / no comprable / irresoluble: importe fijo (0 o None) en la moneda de
+		# normalización, sin FX ni trazabilidad de origen.
 		return ExternalCost(
 			amount=amount,
 			source=source,
-			source_amount=source_amount,
-			source_currency=source_currency,
-			normalized_currency=base_currency,
-			exchange_rate=rate,
+			source_amount=None,
+			source_currency=None,
+			normalized_currency=normalize_to,
+			exchange_rate=None,
 			exchange_date=transaction_date,
 		)
 
 	if not item_code:
-		return _result(0.0, SRC_NO_PURCHASE)
+		return _fixed(0.0, SRC_NO_PURCHASE)
 
 	item = frappe.db.get_value(
 		"Item",
@@ -163,41 +180,50 @@ def resolve_external_cost(
 		as_dict=True,
 	)
 	if not item or not item.is_purchase_item:
-		return _result(0.0, SRC_NO_PURCHASE)
+		return _fixed(0.0, SRC_NO_PURCHASE)
 
-	# 1) Buying Item Price vigente (con moneda de la lista → normalizado a base con FX nativo).
+	# Resolver el costo CRUDO en su propia moneda: (source_amount, source_currency, source_label).
 	rate, price_list = _resolve_buying_price(item_code, uom or item.stock_uom, transaction_date)
 	if rate is None:
 		# Varias listas aplicables sin criterio → ambigüedad (no se elige arbitrariamente).
-		return _result(None, SRC_AMBIGUOUS)
+		return _fixed(None, SRC_AMBIGUOUS)
 	if rate:
-		src_currency = get_price_list_currency(price_list) or base_currency
-		normalized, fx = try_convert(rate, src_currency, base_currency, transaction_date, for_buying=True)
-		if normalized is None:
-			# Costo en otra moneda pero sin tipo de cambio → fail-closed (nunca tasa 1).
-			return _result(None, SRC_MISSING_FX, source_amount=flt(rate), source_currency=src_currency)
-		return _result(
-			flt(normalized), SRC_ITEM_PRICE, source_amount=flt(rate), source_currency=src_currency, rate=fx
-		)
+		source_amount = flt(rate)
+		source_currency = get_price_list_currency(price_list) or base_currency
+		source_label = SRC_ITEM_PRICE
+	elif flt(item.last_purchase_rate):
+		# Nativo: en moneda base de la Company.
+		source_amount = flt(item.last_purchase_rate)
+		source_currency = base_currency
+		source_label = SRC_LAST_PURCHASE
+	elif flt(item.valuation_rate):
+		# Moneda base; solo significativo para stock items.
+		source_amount = flt(item.valuation_rate)
+		source_currency = base_currency
+		source_label = SRC_VALUATION
+	else:
+		return _fixed(0.0, SRC_NONE)
 
-	# 2) Último precio de compra (nativo: en moneda base de la Company).
-	if flt(item.last_purchase_rate):
-		return _result(
-			flt(item.last_purchase_rate),
-			SRC_LAST_PURCHASE,
-			source_amount=flt(item.last_purchase_rate),
-			source_currency=base_currency,
-			rate=1.0,
+	# Normalizar DIRECTO source → destino (base o target). Nunca source→base→target. Falta FX → fail-closed.
+	converted, fx = try_convert(
+		source_amount, source_currency, normalize_to, transaction_date, for_buying=True
+	)
+	if converted is None:
+		return ExternalCost(
+			amount=None,
+			source=SRC_MISSING_FX,
+			source_amount=source_amount,
+			source_currency=source_currency,
+			normalized_currency=normalize_to,
+			exchange_rate=None,
+			exchange_date=transaction_date,
 		)
-
-	# 3) Valuation rate (moneda base; solo significativo para stock items).
-	if flt(item.valuation_rate):
-		return _result(
-			flt(item.valuation_rate),
-			SRC_VALUATION,
-			source_amount=flt(item.valuation_rate),
-			source_currency=base_currency,
-			rate=1.0,
-		)
-
-	return _result(0.0, SRC_NONE)
+	return ExternalCost(
+		amount=flt(converted),
+		source=source_label,
+		source_amount=source_amount,
+		source_currency=source_currency,
+		normalized_currency=normalize_to,
+		exchange_rate=fx,
+		exchange_date=transaction_date,
+	)

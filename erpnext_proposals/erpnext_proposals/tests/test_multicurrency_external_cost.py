@@ -104,6 +104,7 @@ class TestMulticurrencyExternalCost(unittest.TestCase):
 		_price_list(BUY_USD, "USD")
 		_price_list(BUY_EUR, "EUR")
 		_fx("USD", "MXN", 18.0)  # para normalizar USD→MXN (base)
+		_fx("USD", "EUR", 0.9)  # para consultas en moneda objetivo (target_currency)
 		cls._prev_buying = get_buying_price_list()
 		frappe.db.commit()  # nosemgrep — fixtures de test
 
@@ -206,3 +207,55 @@ class TestMulticurrencyExternalCost(unittest.TestCase):
 		nop = _item("_Test MC H NOPUR", is_purchase=0)
 		ec = resolve_external_cost(nop, uom="Nos", transaction_date=DATE, company=self.company)
 		self.assertEqual((ec.amount, ec.source), (0.0, "no_purchase"))
+
+	# ── target_currency: consulta del costo en una moneda objetivo (ADR-0024) ───
+	def _usd_item(self):
+		"""Item comprable con Buying Item Price de 10 USD (Buying Settings → BUY_USD)."""
+		self._set_buying(BUY_USD)
+		it = _item("_Test MC TGT")
+		_item_price(it, BUY_USD, 10)
+		return it
+
+	def test_target_A_same_as_source_no_fx(self):
+		# Source USD 10, target USD → USD 10 (rate 1, sin FX). Economics (amount base) intacto en paralelo.
+		it = self._usd_item()
+		ec = resolve_external_cost(
+			it, uom="Nos", transaction_date=DATE, company=self.company, target_currency="USD"
+		)
+		self.assertEqual((ec.amount, ec.normalized_currency, ec.exchange_rate), (10.0, "USD", 1.0))
+		self.assertEqual(
+			(ec.source_amount, ec.source_currency, ec.source), (10.0, "USD", "buying_item_price")
+		)
+
+	def test_target_B_to_base_mxn(self):
+		# Source USD 10, target MXN (base), FX 18 → MXN 180 (mismo resultado que economics).
+		it = self._usd_item()
+		ec = resolve_external_cost(
+			it, uom="Nos", transaction_date=DATE, company=self.company, target_currency="MXN"
+		)
+		self.assertEqual((ec.amount, ec.normalized_currency, ec.exchange_rate), (180.0, "MXN", 18.0))
+
+	def test_target_C_to_third_currency_direct_fx(self):
+		# Source USD 10, target EUR → FX DIRECTO USD→EUR (0.9), NUNCA USD→MXN→EUR. → EUR 9.
+		it = self._usd_item()
+		ec = resolve_external_cost(
+			it, uom="Nos", transaction_date=DATE, company=self.company, target_currency="EUR"
+		)
+		self.assertEqual((ec.amount, ec.normalized_currency, ec.exchange_rate), (9.0, "EUR", 0.9))
+		self.assertEqual((ec.source_amount, ec.source_currency), (10.0, "USD"))
+
+	def test_target_D_without_target_is_base_unchanged(self):
+		# Sin target_currency → comportamiento actual idéntico (normaliza a base MXN).
+		it = self._usd_item()
+		ec = resolve_external_cost(it, uom="Nos", transaction_date=DATE, company=self.company)
+		self.assertEqual((ec.amount, ec.normalized_currency, ec.exchange_rate), (180.0, "MXN", 18.0))
+
+	def test_target_E_missing_fx_is_sin_tipo_cambio(self):
+		# Source USD, target GBP sin Currency Exchange USD→GBP → sin_tipo_cambio (nunca tasa 1).
+		it = self._usd_item()
+		ec = resolve_external_cost(
+			it, uom="Nos", transaction_date=DATE, company=self.company, target_currency="GBP"
+		)
+		self.assertEqual(ec.source, "sin_tipo_cambio")
+		self.assertIsNone(ec.amount)
+		self.assertEqual((ec.source_amount, ec.source_currency), (10.0, "USD"))

@@ -118,6 +118,42 @@ economics que no se pudo determinar correctamente. `resolve_external_cost` **nun
   normaliza en la evaluación); solo bloquea, fail-closed, si una Cotización en moneda distinta a la base
   no tiene `conversion_rate`.
 
+### 2.11. Consulta del costo en una moneda objetivo (consumidores)
+
+Economics y snapshots **siguen** normalizando a Company base (no cambia). Además, un **consumidor** (p. ej.
+otra app que calcula un `Quotation Item.rate` en `Quotation.currency`) puede pedir el **mismo costo externo
+expresado en una moneda objetivo**, sin duplicar lógica FX fuera de `erpnext_proposals`:
+
+```python
+resolve_external_cost(item_code, uom, transaction_date, company, target_currency="USD")
+```
+
+Semántica:
+
+- **Sin `target_currency`** → comportamiento histórico **idéntico** (normaliza a base; economics y callers
+  existentes no cambian).
+- **Con `target_currency`** → `ExternalCost.amount` es el costo en esa moneda y `normalized_currency ==
+  target_currency`. La conversión es **directa** `source_currency → target_currency` (**nunca**
+  `source → base → target`): `source == target` → tasa 1 sin FX; monedas distintas → FX **nativo** por
+  `transaction_date`; **falta FX → `sin_tipo_cambio`** (`amount = None`, nunca 1.0).
+- La conversión derivada **no se persiste** (no toca el snapshot congelado) y **no** crea Item Prices.
+- `ambiguo_price_list` se conserva igual (no hay un costo único que convertir).
+
+**Uso por un consumidor — costo en `Quotation.currency`:**
+
+```python
+from erpnext_proposals.erpnext_proposals.utils.item_cost import resolve_external_cost
+
+ec = resolve_external_cost(
+    row.item_code, row.get("uom"), quotation.transaction_date, quotation.company,
+    target_currency=quotation.currency,
+)
+if ec.amount is None:          # sin_tipo_cambio / ambiguo_price_list → decisión del consumidor
+    ...                         # no asumir 0 ni tasa 1
+else:
+    costo_en_quotation_currency = ec.amount   # ya en quotation.currency
+```
+
 ## 3. Consecuencias
 
 - No existe ninguna suma directa entre monedas distintas. El caso **Company MXN + Quotation MXN + Buying
