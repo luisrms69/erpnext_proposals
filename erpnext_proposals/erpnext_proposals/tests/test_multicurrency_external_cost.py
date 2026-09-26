@@ -100,6 +100,12 @@ class TestMulticurrencyExternalCost(unittest.TestCase):
 	def setUpClass(cls):
 		super().setUpClass()
 		cls.company = get_test_company()  # MXN
+		# HERMETICIDAD FX: deshabilitar el servicio de tipo de cambio (API externa) para que
+		# get_exchange_rate consulte SOLO los Currency Exchange que sembramos y devuelva 0 cuando falten
+		# (fail-closed). Sin esto, un runner con la API habilitada (p. ej. CI) resuelve tasas reales y los
+		# casos "falta FX" no se reproducen. Se restaura en tearDownClass.
+		cls._prev_fx_disabled = frappe.db.get_single_value("Currency Exchange Settings", "disabled")
+		frappe.db.set_single_value("Currency Exchange Settings", "disabled", 1)
 		_price_list(BUY_MXN, "MXN")
 		_price_list(BUY_USD, "USD")
 		_price_list(BUY_EUR, "EUR")
@@ -111,6 +117,7 @@ class TestMulticurrencyExternalCost(unittest.TestCase):
 	@classmethod
 	def tearDownClass(cls):
 		frappe.db.set_single_value("Buying Settings", "buying_price_list", cls._prev_buying or "")
+		frappe.db.set_single_value("Currency Exchange Settings", "disabled", cls._prev_fx_disabled or 0)
 		frappe.db.commit()  # nosemgrep — limpieza de test
 		super().tearDownClass()
 
