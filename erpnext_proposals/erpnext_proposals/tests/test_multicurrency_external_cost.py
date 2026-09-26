@@ -266,3 +266,35 @@ class TestMulticurrencyExternalCost(unittest.TestCase):
 		self.assertEqual(ec.source, "sin_tipo_cambio")
 		self.assertIsNone(ec.amount)
 		self.assertEqual((ec.source_amount, ec.source_currency), (10.0, "USD"))
+
+	# ── Buying Item Price con rate 0: costo VÁLIDO de 0, no sin_costo (fix v0.30.x) ──
+	def test_zero_rate_is_valid_cost_not_sin_costo(self):
+		# Item Price ENCONTRADO con price_list_rate = 0 → costo válido 0, source buying_item_price,
+		# moneda/trazabilidad normal (NO cae a fallbacks ni a sin_costo por truthiness).
+		self._set_buying(BUY_MXN)
+		it = _item("_Test MC ZERO")
+		_item_price(it, BUY_MXN, 0)
+		ec = resolve_external_cost(it, uom="Nos", transaction_date=DATE, company=self.company)
+		self.assertEqual((ec.amount, ec.source), (0.0, "buying_item_price"))
+		self.assertEqual((ec.source_amount, ec.source_currency, ec.normalized_currency), (0.0, "MXN", "MXN"))
+		self.assertEqual(ec.exchange_rate, 1.0)
+
+	def test_no_item_price_still_sin_costo(self):
+		# Sin Item Price y sin otras fuentes → sigue terminando en sin_costo (fallbacks intactos).
+		self._set_buying(BUY_MXN)
+		it = _item("_Test MC NO PRICE")
+		ec = resolve_external_cost(it, uom="Nos", transaction_date=DATE, company=self.company)
+		self.assertEqual((ec.amount, ec.source), (0.0, "sin_costo"))
+
+	def test_zero_rate_with_target_currency_stays_zero_no_fx(self):
+		# Source USD con rate 0, target EUR → 0 se conserva; NO dispara FX ni fallback (aunque exista
+		# USD→EUR). exchange_rate None: no se aplicó conversión a un importe cero.
+		self._set_buying(BUY_USD)
+		it = _item("_Test MC ZERO USD")
+		_item_price(it, BUY_USD, 0)
+		ec = resolve_external_cost(
+			it, uom="Nos", transaction_date=DATE, company=self.company, target_currency="EUR"
+		)
+		self.assertEqual((ec.amount, ec.source), (0.0, "buying_item_price"))
+		self.assertEqual((ec.source_amount, ec.source_currency, ec.normalized_currency), (0.0, "USD", "EUR"))
+		self.assertIsNone(ec.exchange_rate)
