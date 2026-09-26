@@ -1033,18 +1033,34 @@ def _materialize_item_costs(doc, force: bool = False) -> None:
 	from erpnext_proposals.erpnext_proposals.utils.item_cost import resolve_external_cost
 
 	txn = doc.get("transaction_date")
+	company = doc.get("company")
+	# ADR-0024: el costo externo se NORMALIZA a la moneda base de la Company (moneda canónica del análisis)
+	# y se congela CON su trazabilidad de origen: importe base (``*_rate``) + moneda base (``*_currency``) +
+	# importe original + moneda origen + FX usado (``*_source_amount``/``*_source_currency``/
+	# ``*_exchange_rate``). Un costo congelado nunca queda como un ``180`` sin contexto. Estados irresolubles
+	# (``sin_tipo_cambio``/``ambiguo_price_list``) se persisten como source (rate 0) para que el gate de
+	# snapshot los bloquee al formalizar; nunca se degradan silenciosamente a un 0 que parezca ``sin_costo``.
 	for row in doc.get("items") or []:
 		if not force and row.get("proposal_frozen_cost_source"):
 			continue  # ya materializada
-		rate, source = resolve_external_cost(row.item_code, row.get("uom"), txn)
-		row.proposal_frozen_cost_rate = flt(rate)
-		row.proposal_frozen_cost_source = source
+		ec = resolve_external_cost(row.item_code, row.get("uom"), txn, company)
+		_apply_external_cost(row, ec, "proposal_frozen_cost")
 	for row in doc.get("required_items") or []:
 		if not force and row.get("frozen_cost_source"):
 			continue  # ya materializada
-		rate, source = resolve_external_cost(row.item, row.get("uom"), txn)
-		row.frozen_cost_rate = flt(rate)
-		row.frozen_cost_source = source
+		ec = resolve_external_cost(row.item, row.get("uom"), txn, company)
+		_apply_external_cost(row, ec, "frozen_cost")
+
+
+def _apply_external_cost(row, ec, prefix: str) -> None:
+	"""Persiste el ``ExternalCost`` (ADR-0024) en la fila con trazabilidad completa. ``prefix`` es
+	``proposal_frozen_cost`` (Quotation Item) o ``frozen_cost`` (Proposal Required Item)."""
+	row.set(f"{prefix}_rate", flt(ec.amount or 0))
+	row.set(f"{prefix}_source", ec.source)
+	row.set(f"{prefix}_currency", ec.normalized_currency or "")
+	row.set(f"{prefix}_source_amount", flt(ec.source_amount or 0))
+	row.set(f"{prefix}_source_currency", ec.source_currency or "")
+	row.set(f"{prefix}_exchange_rate", flt(ec.exchange_rate or 0))
 
 
 def _materialize_economic_behavior(doc, force: bool = False) -> None:
@@ -1090,6 +1106,8 @@ def assert_economic_snapshot_complete(doc) -> None:
 	gate que el freeze; evita falsos positivos en cálculos en vivo/aislados)."""
 	if not doc.get("proposal_template"):
 		return
+	from erpnext_proposals.erpnext_proposals.utils.item_cost import UNRESOLVED_SOURCES
+
 	missing = []
 	for row in doc.get("quotation_scope_items") or []:
 		if (row.get("include_in_proposal") or row.get("is_internal_cost_task")) and not row.get(
@@ -1099,11 +1117,21 @@ def assert_economic_snapshot_complete(doc) -> None:
 	for row in doc.get("items") or []:
 		if not row.get("proposal_frozen_cost_source"):
 			missing.append(f"Item '{row.get('item_code')}': costo externo sin materializar")
+		elif row.get("proposal_frozen_cost_source") in UNRESOLVED_SOURCES:
+			# ADR-0024: costo externo irresoluble (sin tipo de cambio / lista de compra ambigua). No se
+			# formaliza con un costo que no se pudo normalizar a moneda base.
+			missing.append(
+				f"Item '{row.get('item_code')}': costo externo irresoluble ({row.get('proposal_frozen_cost_source')})"
+			)
 		if not row.get("proposal_economic_behavior"):
 			missing.append(f"Item '{row.get('item_code')}': sin proposal_economic_behavior")
 	for row in doc.get("required_items") or []:
 		if not row.get("frozen_cost_source"):
 			missing.append(f"Required '{row.get('item')}': costo externo sin materializar")
+		elif row.get("frozen_cost_source") in UNRESOLVED_SOURCES:
+			missing.append(
+				f"Required '{row.get('item')}': costo externo irresoluble ({row.get('frozen_cost_source')})"
+			)
 		if not row.get("economic_behavior"):
 			missing.append(f"Required '{row.get('item')}': sin economic_behavior")
 	if missing:

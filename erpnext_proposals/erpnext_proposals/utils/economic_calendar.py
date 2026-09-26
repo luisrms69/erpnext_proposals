@@ -160,11 +160,15 @@ def _labor_rate_source(row, is_frozen: bool) -> tuple:
 	return flt(rate), source
 
 
-def _external_rate_source(item_code, uom, txn, is_frozen: bool, locked, frozen_rate, frozen_source) -> tuple:
-	"""Costo externo por unidad + **fuente**: usa el valor MATERIALIZADO en la fila si existe; si no, vivo.
+def _external_rate_source(
+	item_code, uom, txn, is_frozen: bool, locked, frozen_rate, frozen_source, company=None
+) -> tuple:
+	"""Costo externo por unidad (en moneda BASE) + **fuente**: usa el valor MATERIALIZADO en la fila si
+	existe; si no, vivo.
 
 	Marcador de materializado: ``frozen_source`` presente. Compat legacy: submitted con ``locked`` también
-	cuenta. En Borrador resuelve pricing nativo en vivo; en formalizado sin materializar, fail-closed."""
+	cuenta. En Borrador resuelve pricing nativo en vivo (ya normalizado a base); en formalizado sin
+	materializar, fail-closed."""
 	if frozen_source or (is_frozen and locked):
 		return flt(frozen_rate), (frozen_source or "frozen")
 	if is_frozen:
@@ -174,8 +178,8 @@ def _external_rate_source(item_code, uom, txn, is_frozen: bool, locked, frozen_r
 				"Una propuesta formal no puede resolver costos desde datos vivos."
 			).format(item_code)
 		)
-	rate, source = resolve_external_cost(item_code, uom, txn)
-	return flt(rate), source
+	ec = resolve_external_cost(item_code, uom, txn, company)
+	return flt(ec.amount or 0), ec.source
 
 
 def _labor_by_month(doc, is_frozen: bool) -> dict:
@@ -445,11 +449,29 @@ def _evaluate_doc(doc, *, term: int, scope_scale: float = 1.0, base_term: int | 
 	# template no es propuesta formal (nunca materializa economía) → se resuelve en vivo, sin fail-closed.
 	is_frozen = doc.docstatus == 1 and bool(doc.get("proposal_template"))
 	company = doc.get("company")
-	currency = (
-		doc.get("currency")
-		or (frappe.db.get_value("Company", company, "default_currency") if company else None)
+	# ADR-0024: la Evaluación Económica opera y se expresa en la moneda BASE de la Company (moneda canónica).
+	# Los costos externos ya vienen normalizados a base; el INGRESO (net_amount) está en Quotation.currency y
+	# se convierte a base con el ``conversion_rate`` NATIVO (quotation→base). Misma moneda → factor 1
+	# (caso MXN/MXN idéntico). Monedas distintas SIN conversion_rate → fail-closed (nunca 1.0 implícito).
+	doc_currency = doc.get("currency")
+	base_currency = (
+		(frappe.db.get_value("Company", company, "default_currency") if company else None)
+		or doc_currency
 		or "MXN"
 	)
+	if not doc_currency or doc_currency == base_currency:
+		to_base = 1.0
+	else:
+		to_base = flt(doc.get("conversion_rate"))
+		if not to_base:
+			frappe.throw(
+				_(
+					"La Cotización {0} usa {1} pero no tiene conversion_rate para normalizar a la moneda base {2}. "
+					"Sin tipo de cambio no se puede evaluar la economía (fail-closed)."
+				).format(doc.name, doc_currency, base_currency)
+			)
+	# La evaluación se expresa en moneda base (todas las magnitudes ya normalizadas).
+	currency = base_currency
 	txn = doc.get("transaction_date")
 
 	effort_rows, labor_by_item, labor_by_month, hours_by_month = _scope_effort(doc, is_frozen, scope_scale)
@@ -595,8 +617,9 @@ def _evaluate_doc(doc, *, term: int, scope_scale: float = 1.0, base_term: int | 
 		label = row.get("item_name") or row.item_code
 		if behavior == "recurring":
 			_assert_recurring_valid(interval, count, term, label, company)
-		revenue = flt(
-			row.get("net_amount") or row.get("amount") or (flt(row.get("rate")) * flt(row.get("qty")))
+		revenue = (
+			flt(row.get("net_amount") or row.get("amount") or (flt(row.get("rate")) * flt(row.get("qty"))))
+			* to_base
 		)
 		ext_rate, ext_source = _external_rate_source(
 			row.item_code,
@@ -606,6 +629,7 @@ def _evaluate_doc(doc, *, term: int, scope_scale: float = 1.0, base_term: int | 
 			row.get("proposal_cost_locked"),
 			row.get("proposal_frozen_cost_rate"),
 			row.get("proposal_frozen_cost_source"),
+			company,
 		)
 		_add_line(
 			row.item_code,
@@ -635,6 +659,7 @@ def _evaluate_doc(doc, *, term: int, scope_scale: float = 1.0, base_term: int | 
 			row.get("cost_locked"),
 			row.get("frozen_cost_rate"),
 			row.get("frozen_cost_source"),
+			company,
 		)
 		_add_line(
 			row.item,

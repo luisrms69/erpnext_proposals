@@ -309,18 +309,28 @@ class TestRequiredItems(unittest.TestCase):
 	# ─────────────────────────── Costeo (resolver) ──────────────────────────
 
 	def test_09_no_purchase_zero_external(self):
-		self.assertEqual(resolve_external_cost(IT_NOPUR), (0.0, "no_purchase"))
-		self.assertEqual(resolve_external_cost(IT_SERVICE), (0.0, "no_purchase"))
+		# ADR-0024: el resolver devuelve un ExternalCost estructurado; .amount está en moneda base.
+		ec = resolve_external_cost(IT_NOPUR, company=self.company)
+		self.assertEqual((ec.amount, ec.source), (0.0, "no_purchase"))
+		ec = resolve_external_cost(IT_SERVICE, company=self.company)
+		self.assertEqual((ec.amount, ec.source), (0.0, "no_purchase"))
 
 	def test_10_native_item_price(self):
-		rate, source = resolve_external_cost(IT_RESALE, uom="Nos", transaction_date=frappe.utils.today())
-		self.assertEqual((rate, source), (300.0, "buying_item_price"))
+		ec = resolve_external_cost(
+			IT_RESALE, uom="Nos", transaction_date=frappe.utils.today(), company=self.company
+		)
+		self.assertEqual((ec.amount, ec.source), (300.0, "buying_item_price"))
+		# El costo conserva su trazabilidad de origen (misma moneda base → source == base, fx 1.0).
+		self.assertEqual(ec.source_amount, 300.0)
+		self.assertEqual(ec.exchange_rate, 1.0)
 
 	def test_11_fallback_last_purchase(self):
-		self.assertEqual(resolve_external_cost(IT_LPR), (250.0, "last_purchase_rate"))
+		ec = resolve_external_cost(IT_LPR, company=self.company)
+		self.assertEqual((ec.amount, ec.source), (250.0, "last_purchase_rate"))
 
 	def test_12_fallback_valuation(self):
-		self.assertEqual(resolve_external_cost(IT_VR), (200.0, "valuation_rate"))
+		ec = resolve_external_cost(IT_VR, company=self.company)
+		self.assertEqual((ec.amount, ec.source), (200.0, "valuation_rate"))
 
 	# ─────────────────────────── Valuación aditiva ──────────────────────────
 

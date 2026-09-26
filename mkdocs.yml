@@ -57,6 +57,7 @@ nav:
     - ADR-0021 Versionado inherit-by-default del estado comercial: adr/0021-versionado-inherit-by-default.md
     - ADR-0022 Narrativa materializada en la Quotation: adr/0022-materializacion-secciones-quotation.md
     - ADR-0023 Depuración de fuentes de verdad (pack editorial): adr/0023-depuracion-fuentes-de-verdad-pack.md
+    - ADR-0024 Costo externo multimoneda: adr/0024-costo-externo-multimoneda.md
 
 theme:
   name: material
