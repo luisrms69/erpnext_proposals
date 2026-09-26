@@ -16,6 +16,7 @@ import unittest
 import frappe
 from frappe.exceptions import PermissionError as FrappePermissionError
 from frappe.exceptions import ValidationError
+from frappe.tests import change_settings
 
 from erpnext_proposals.erpnext_proposals.tests.fiscal_year import (
 	cleanup_fiscal_year,
@@ -487,18 +488,14 @@ class TestScopeCatalogResync(unittest.TestCase):
 	def test_09b_duplicate_item_line_rejected_by_erpnext(self):
 		# ERPNext solo bloquea líneas de Item literalmente duplicadas
 		# (SellingController.validate_for_duplicate_items) cuando Selling Settings
-		# `allow_multiple_items` == 0. Este guard es NATIVO de ERPNext y depende de esa
-		# configuración; no es un requisito de erpnext_proposals. La unicidad de la clave
-		# (item_code, scope_item) que sí nos importa la protege test_09_resync_keeps_keys_unique.
-		# Si el entorno permite múltiples líneas del mismo Item, este guard nativo no aplica →
-		# se omite (no alteramos Selling Settings solo para forzar el rechazo).
-		if frappe.utils.cint(frappe.get_single_value("Selling Settings", "allow_multiple_items")):
-			raise unittest.SkipTest(
-				"Selling Settings.allow_multiple_items=1: ERPNext permite líneas de Item duplicadas; "
-				"el guard nativo no aplica (unicidad de clave cubierta por test_09)."
-			)
-		with self.assertRaises(ValidationError):
-			self._make_quotation([ITEM_A, ITEM_A])
+		# `allow_multiple_items` == 0. Ese guard es NATIVO de ERPNext y depende de esa configuración.
+		# En vez de omitir el test cuando el site tiene `allow_multiple_items = 1`, forzamos el valor
+		# temporalmente con el mecanismo NATIVO `frappe.tests.change_settings` (mismo que usa ERPNext en
+		# sus tests): modifica el Single durante el bloque y RESTAURA el valor previo al salir, sea cual
+		# sea. Así el test es determinista sin alterar permanentemente Selling Settings.
+		with change_settings("Selling Settings", {"allow_multiple_items": 0}):
+			with self.assertRaises(ValidationError):
+				self._make_quotation([ITEM_A, ITEM_A])
 
 	# ── F. Guardas de servidor por separado ─────────────────────────────────────
 
