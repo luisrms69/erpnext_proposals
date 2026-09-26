@@ -36,6 +36,22 @@ def get_profitability_data(quotation_name: str) -> dict:
 	company_currency = (
 		frappe.db.get_value("Company", quotation.company, "default_currency") if quotation.company else None
 	)
+	# ADR-0024: el análisis económico opera en moneda BASE de la Company (costos externos normalizados a
+	# base; costo laboral desde salarios ya en base). La PRESENTACIÓN es en ``Quotation.currency`` usando el
+	# ``conversion_rate`` NATIVO (quotation→base): base→presentación = 1/conversion_rate. Misma moneda →
+	# factor 1 (caso MXN/MXN idéntico). Monedas distintas SIN conversion_rate → fail-closed (nunca 1.0).
+	if not company_currency or currency == company_currency:
+		presentation_factor = 1.0
+	else:
+		conv = flt(quotation.conversion_rate)
+		if not conv:
+			frappe.throw(
+				_(
+					"La Cotización {0} se presenta en {1} pero no tiene conversion_rate para convertir desde la "
+					"moneda base {2}. Sin tipo de cambio no se puede presentar la rentabilidad (fail-closed)."
+				).format(quotation.name, currency, company_currency)
+			)
+		presentation_factor = 1.0 / conv
 
 	elaborated_by_name = frappe.db.get_value("User", quotation.owner, "full_name") if quotation.owner else ""
 
@@ -139,7 +155,8 @@ def get_profitability_data(quotation_name: str) -> dict:
 					"Una propuesta formal no puede resolver costos desde datos vivos."
 				).format(item_code)
 			)
-		return resolve_external_cost(item_code, uom, txn)
+		ec = resolve_external_cost(item_code, uom, txn, quotation.get("company"))
+		return flt(ec.amount or 0), ec.source
 
 	item_cost_rows = []
 	total_item_cost = 0.0
@@ -205,6 +222,19 @@ def get_profitability_data(quotation_name: str) -> dict:
 		for item in quotation.items
 	]
 
+	# ── Presentación en Quotation.currency (ADR-0024) ─────────────────────
+	# Costos calculados en base → se convierten a la moneda de presentación con el factor nativo. Los
+	# ingresos (net_total/rate/net_amount) ya están en Quotation.currency (nativos), no se tocan.
+	if presentation_factor != 1.0:
+		for r in labor_rows:
+			r["costing_rate"] = flt(r["costing_rate"] * presentation_factor)
+			r["cost"] = flt(r["cost"] * presentation_factor)
+		for r in item_cost_rows:
+			r["cost_per_unit"] = flt(r["cost_per_unit"] * presentation_factor)
+			r["total_cost"] = flt(r["total_cost"] * presentation_factor)
+	total_labor_cost = flt(total_labor_cost * presentation_factor)
+	total_item_cost = flt(total_item_cost * presentation_factor)
+
 	# ── Totals ───────────────────────────────────────────────────────────
 	net_total = flt(quotation.net_total)
 	taxes = flt(quotation.total_taxes_and_charges)
@@ -238,9 +268,10 @@ def get_profitability_data(quotation_name: str) -> dict:
 
 	if company_currency and currency != company_currency:
 		warnings.append(
-			_("Moneda de Quotation ({0}) distinta a moneda base ({1}) — comparacion no confiable.").format(
-				currency, company_currency
-			)
+			_(
+				"Rentabilidad presentada en {0}; los costos (moneda base {1}) se convirtieron con el tipo de "
+				"cambio de la Cotización (conversion_rate)."
+			).format(currency, company_currency)
 		)
 	if missing_designation:
 		warnings.append(
@@ -289,8 +320,8 @@ def get_profitability_data(quotation_name: str) -> dict:
 			"detail": str(len(items_sin_costo)),
 		},
 		{
-			"label": _("Moneda Quotation = moneda base Company"),
-			"status": "ok" if (not company_currency or currency == company_currency) else "warning",
+			"label": _("Presentación / moneda base"),
+			"status": "ok",
 			"detail": "{} / {}".format(currency, company_currency or "—"),
 		},
 	]

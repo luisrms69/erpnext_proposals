@@ -39,22 +39,18 @@ _MAGNITUDES = ("revenue", "total_cost", "margin", "labor", "external")
 
 
 def _assert_same_base_currency(doc, base_currency: str | None) -> None:
-	"""Moneda v1: la Quotation debe usar la moneda base de la Company y ``conversion_rate`` compatible con 1.
-	Sin FX propio: cualquier violación bloquea la sincronización (no se mezclan monedas)."""
+	"""Moneda (ADR-0024): el contrato económico del Project se expresa en la moneda BASE de la Company. La
+	Evaluación Económica (``_evaluate_doc``) ya normaliza el ingreso de cada Cotización a base con el
+	``conversion_rate`` NATIVO, así que el multimoneda SÍ está soportado. Aquí solo se exige, fail-closed,
+	que una Cotización en moneda distinta a la base tenga ``conversion_rate`` para poder normalizar (nunca
+	se asume 1.0)."""
 	cur = doc.get("currency")
-	if base_currency and cur and cur != base_currency:
+	if base_currency and cur and cur != base_currency and not flt(doc.get("conversion_rate")):
 		frappe.throw(
 			_(
-				"Moneda incompatible: la Cotización {0} usa {1} y la base del Project es {2}. La normalización "
-				"multidivisa es un cambio posterior; la sincronización se detiene (fail-closed)."
+				"La Cotización {0} usa {1} (base del Project: {2}) pero no tiene conversion_rate para normalizar "
+				"a la moneda base. Sin tipo de cambio no se puede sincronizar la economía (fail-closed)."
 			).format(doc.name, cur, base_currency)
-		)
-	cr = flt(doc.get("conversion_rate") or 0)
-	if cr and abs(cr - 1.0) > 1e-9:
-		frappe.throw(
-			_("La Cotización {0} tiene conversion_rate {1} (≠ 1); sin FX propio en v1 (fail-closed).").format(
-				doc.name, cr
-			)
 		)
 
 

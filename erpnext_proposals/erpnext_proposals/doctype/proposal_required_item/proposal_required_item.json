@@ -13,6 +13,10 @@
   "cost_snapshot_section",
   "frozen_cost_rate",
   "frozen_cost_source",
+  "frozen_cost_currency",
+  "frozen_cost_source_amount",
+  "frozen_cost_source_currency",
+  "frozen_cost_exchange_rate",
   "cost_locked",
   "economic_behavior",
   "billing_interval",
@@ -78,6 +82,40 @@
    "fieldname": "frozen_cost_source",
    "fieldtype": "Data",
    "label": "Origen del costo",
+   "read_only": 1
+  },
+  {
+   "allow_on_submit": 1,
+   "description": "Moneda base (Company) en la que se expresa el costo de compra congelado.",
+   "fieldname": "frozen_cost_currency",
+   "fieldtype": "Link",
+   "label": "Moneda base del costo",
+   "options": "Currency",
+   "read_only": 1
+  },
+  {
+   "allow_on_submit": 1,
+   "description": "Importe del costo en su moneda de origen (Buying Item Price), antes de normalizar a moneda base.",
+   "fieldname": "frozen_cost_source_amount",
+   "fieldtype": "Float",
+   "label": "Importe original del costo",
+   "read_only": 1
+  },
+  {
+   "allow_on_submit": 1,
+   "description": "Moneda de origen del costo (moneda de la Buying Price List).",
+   "fieldname": "frozen_cost_source_currency",
+   "fieldtype": "Link",
+   "label": "Moneda origen del costo",
+   "options": "Currency",
+   "read_only": 1
+  },
+  {
+   "allow_on_submit": 1,
+   "description": "Tipo de cambio nativo usado para normalizar el costo de origen a moneda base.",
+   "fieldname": "frozen_cost_exchange_rate",
+   "fieldtype": "Float",
+   "label": "Tipo de cambio aplicado",
    "read_only": 1
   },
   {

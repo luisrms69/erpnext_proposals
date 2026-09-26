@@ -284,21 +284,30 @@ class TestProjectEconomics(unittest.TestCase):
 		self._root_with(proj)
 		self.assertTrue(get_project_authorized_economics(proj)["currency_consistent"])
 
-	def test_currency_incompatible_blocks(self):
+	def test_currency_without_fx_blocks(self):
+		# ADR-0024: moneda distinta a la base SIN conversion_rate → fail-closed (no se puede normalizar).
 		proj = self._project()
 		root_g = self._root_with(proj)
 		root = frappe.get_all("Quotation", filters={"proposal_group": root_g}, pluck="name")[0]
-		frappe.db.set_value("Quotation", root, "currency", "USD", update_modified=False)
+		frappe.db.set_value(
+			"Quotation", root, {"currency": "USD", "conversion_rate": 0}, update_modified=False
+		)
 		with self.assertRaises(ValidationError):
 			get_project_authorized_economics(proj)
 
-	def test_conversion_rate_incompatible_blocks(self):
+	def test_foreign_currency_with_fx_normalizes(self):
+		# ADR-0024: moneda distinta a la base CON conversion_rate → NO bloquea; el ingreso se normaliza a
+		# base multiplicando por conversion_rate (quotation→base). Ya no se exige conversion_rate == 1.
 		proj = self._project()
-		root_g = self._root_with(proj)
+		root_g = self._root_with(proj, sold=[(1000, 1, 0)], labor=[(10, 50)])
 		root = frappe.get_all("Quotation", filters={"proposal_group": root_g}, pluck="name")[0]
-		frappe.db.set_value("Quotation", root, "conversion_rate", 1.5, update_modified=False)
-		with self.assertRaises(ValidationError):
-			get_project_authorized_economics(proj)
+		base = get_project_authorized_economics(proj)["authorized_revenue"]
+		frappe.db.set_value(
+			"Quotation", root, {"currency": "USD", "conversion_rate": 1.5}, update_modified=False
+		)
+		e = get_project_authorized_economics(proj)
+		# Ingreso normalizado a base = ingreso_quotation * conversion_rate (1000 USD * 1.5 = 1500 base).
+		self.assertAlmostEqual(e["authorized_revenue"], base * 1.5, places=2)
 
 	# ── Fail-closed: snapshot / root ───────────────────────────────────────────
 	def test_snapshot_incomplete_blocks(self):
