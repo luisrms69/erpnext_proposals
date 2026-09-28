@@ -1,48 +1,49 @@
 # CONTINUITY.md — erpnext_proposals
 
-**Fecha:** 2026-09-26
-**Rama activa:** `fix/issue-60-change-settings` (base `upstream/version-16` = v0.30.1 → objetivo **v0.30.2**)
-**Tarea actual:** PR — aislamiento hermético del test de #60 (`change_settings` nativo).
+**Fecha:** 2026-09-28
+**Rama activa:** `feat/rentabilidad-ux-fuente-costo` (base `upstream/version-16` = v0.30.2 → objetivo **v0.31.0**)
+**Tarea actual:** PR — UX de trazabilidad de la fuente del costo en el Print Format `Rentabilidad Estimada`.
 
 ---
 
 ## Recuperación rápida
 
 Estoy trabajando en:
-Entregar exclusivamente el cambio de **issue #60**: `test_09b_duplicate_item_line_rejected_by_erpnext`
-fuerza `Selling Settings.allow_multiple_items = 0` con el mecanismo NATIVO `frappe.tests.change_settings`
-(el mismo que usa ERPNext), que restaura el valor previo al salir. Elimina el `SkipTest` anterior.
+Mejora de PRESENTACIÓN del Print Format `Rentabilidad Estimada` (rentabilidad PREVISTA). El motor
+económico queda **sin cambios**. Usa datos que el read-model ya expone (`external_source` por línea).
 
 Plan que estoy siguiendo:
-Un único cambio de test (commit `26c5963`) + bump PATCH a v0.30.2. PR hacia `version-16`.
+Un cambio de PF + tests + doc (commit `7dd6458`) + bump MINOR a v0.31.0 (feat) + CONTINUITY. PR hacia `version-16`.
 
 Objetivo inmediato:
 Dejar el PR listo para merge (el merge lo hace el usuario).
 
 Criterio de avance:
-Suite completa **818 OK / 1 skip**; `allow_multiple_items` restaurado tras la corrida; ruff OK.
+Suite completa **824 OK**; ruff OK; `mkdocs build --strict` OK; PF activo se actualiza con `bench migrate`
+(no es PF histórico — el candado ADR-0011 rastrea el PF comercial, no la Rentabilidad Estimada).
 
 ---
 
 ## Estado actual
 
 ### Ya cerrado (esta rama)
-- **#60 (commit `26c5963`):** `tests/test_scope_catalog_resync.py` — `test_09b` usa `change_settings`
-  (import `from frappe.tests import change_settings`); sin cambios de código productivo.
+- **UX Rentabilidad (commit `7dd6458`):** `rentabilidad_estimada.json` (fuente del costo vía `srclabel`,
+  $0 válido vs `sin_costo`, warnings por línea, columna Fuente en Required, terminología "Mano de obra
+  interna"/"Costos externos"); `tests/test_rentabilidad_ux.py` (6 tests); `docs/usuario/evaluacion-economica.md`.
+- **Bump v0.31.0** (MINOR, feat) + CONTINUITY.
 
 ### Pendiente inmediato
-1. Gate `pr-ready` → push + PR (autorizado).
+1. Gate `pr-ready` → push + PR (autorizado por invocación de `/ship pr`).
 2. Merge: **lo ejecuta el usuario** (no autorizado a Claude en este ciclo).
-3. Tras merge (fuera de este ciclo): `/sync-check` + `/ship release` (tag/Release v0.30.2).
+3. Tras merge: `/sync-check` + `/ship release` (tag/Release v0.31.0).
 
 ### No repetir / atención
-- **#62:** auditoría cerrada (issue CLOSED), sin cambios de código.
-- **#41:** solo investigación; **abierto, sin implementación**; NO cerrar, NO implementar el vaciado de
-  `tc_name`/`terms` estudiado.
-- La rentabilidad se auditará en una conversación posterior (no en este ciclo).
+- Motor económico intacto: no tocar `economic_calendar`/`item_cost`/`resolve_external_cost`.
+- Auditoría de recurrencia/modalidades/handoff: analizada en conversación; **sin implementación** (fuera de este PR).
+- **#41:** abierto, sin implementación.
 
 ## Decisiones vigentes
-- El cambio de #60 es exclusivamente de test (hermeticidad FX del setting vía mecanismo nativo).
+- El cambio es exclusivamente de presentación del PF (previsto), sin cambios de motor ni de metadata.
 
 ## Información faltante
 - Ninguna para el PR.
