@@ -145,6 +145,39 @@ sube ligeramente el costo financiero y baja un poco el margen final.
 > El pico de horas por mes es un indicador de **intensidad**, no una verificación de disponibilidad de
 > recursos: dice cuánto esfuerzo mensual exigiría el escenario, no si el equipo puede absorberlo.
 
+## Cómo leer la rentabilidad y la fuente de cada costo
+
+La Rentabilidad Estimada separa claramente de dónde sale cada número:
+
+- **Ingreso:** de los Quotation Items (lo que se cotiza al cliente).
+- **Costos externos:** el costo de compra de los Items comprables (licencias, hardware, servicios de
+  terceros) y de los Required Items. Cada línea muestra **la fuente** del costo:
+    - **precio de compra** — hay un *Buying Item Price* vigente;
+    - **última compra** — se tomó `last_purchase_rate`;
+    - **valuación** — se tomó `valuation_rate`;
+    - **sin costo (no encontrado)** — el Item es comprable pero **no** hay ninguna fuente de costo;
+    - **sin tipo de cambio** / **lista de compra ambigua** — el costo no pudo determinarse.
+- **Mano de obra interna:** las horas de los Scope Items por su tarifa (perfil/designation).
+
+### Costo `$0` válido vs. costo no encontrado
+
+No es lo mismo un costo de **$0 legítimo** que un costo **no encontrado**:
+
+- Si el Buying Item Price resuelve a **$0**, se muestra `$0` con la fuente **precio de compra** — es un
+  costo válido de cero, **no** un problema.
+- Si el Item es comprable pero **no** tiene ninguna fuente, se muestra **sin costo (no encontrado)** y
+  aparece un **aviso** al inicio del documento que lista **qué líneas** tienen costo externo no
+  determinado. Revísalas antes de confiar en el margen (un costo faltante infla el margen).
+
+Las líneas **no comprables** (servicios propios ejecutados con mano de obra) no muestran costo externo:
+su costo es el esfuerzo interno.
+
+### Costos requeridos (incl. subcontratación)
+
+Los **Required Items** aparecen en su propio bloque, con su concepto, costo y fuente. Un servicio
+subcontratado se representa como un Required Item comprable (Service Item); se reconoce por su
+descripción y costo — el sistema **no** lo etiqueta automáticamente como «subcontratación».
+
 ## Congelamiento
 
 Mientras la propuesta está en **Borrador**, la evaluación es una proyección viva: si cambias la configuración
