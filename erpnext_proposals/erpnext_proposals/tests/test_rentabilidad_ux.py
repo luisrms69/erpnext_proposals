@@ -104,7 +104,13 @@ class TestRentabilidadUX(unittest.TestCase):
 			).insert(ignore_permissions=True)
 		if not frappe.db.exists("Price List", BPL):
 			frappe.get_doc(
-				{"doctype": "Price List", "price_list_name": BPL, "buying": 1, "selling": 0, "currency": "MXN"}
+				{
+					"doctype": "Price List",
+					"price_list_name": BPL,
+					"buying": 1,
+					"selling": 0,
+					"currency": "MXN",
+				}
 			).insert(ignore_permissions=True)
 		cls._prev_bpl = frappe.db.get_single_value("Buying Settings", "buying_price_list")
 		frappe.db.set_single_value("Buying Settings", "buying_price_list", BPL)
@@ -150,7 +156,9 @@ class TestRentabilidadUX(unittest.TestCase):
 				"proposal_template": TMPL,
 				"proposal_cost_center": self.cc,
 				"selling_price_list": self.pl,
-				"items": [{"item_code": c, "item_name": c, "qty": 1, "rate": 1000, "uom": "Nos"} for c in sold],
+				"items": [
+					{"item_code": c, "item_name": c, "qty": 1, "rate": 1000, "uom": "Nos"} for c in sold
+				],
 				"required_items": [{"item": it, "qty": 1, "uom": "Nos"} for it in (required or [])],
 			}
 		)
