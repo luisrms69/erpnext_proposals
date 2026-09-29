@@ -151,11 +151,12 @@
    "fieldname": "planned_start_offset_days",
    "fieldtype": "Data",
    "label": "Planned Start Offset (days)",
-   "description": "Offset en días calendario respecto de Project.expected_start_date, como texto entero. Vacío/NULL = SIN offset explícito (se programa por dependencias o queda sin fecha); '0' = inicio explícito en la fecha de inicio del proyecto; entero positivo = días después; negativo = días antes. Se rechaza cualquier valor no entero. Es una regla del catálogo, no una copia de Task.exp_start_date."
+   "description": "Opcional. Offset en días calendario respecto de Project.expected_start_date, como texto entero. Vacío/NULL = SIN offset explícito (se programa por dependencias o queda sin fecha); '0' = inicio explícito en la fecha de inicio del proyecto; entero positivo = días después; negativo = días antes. Se rechaza cualquier valor no entero. Es una regla reutilizable del catálogo (no una copia de Task.exp_start_date): además de precargar la fecha de la futura Task, refina la distribución mensual estimada de mano de obra en el forecast de preventa. Si se deja vacío, la propuesta sigue calculando totales y margen; solo la curva mensual es más gruesa."
   },
   {
    "fieldname": "moment",
    "fieldtype": "Data",
+   "hidden": 1,
    "label": "Moment",
    "description": "Momento relativo de ejecución tal como viene de la fuente autoritativa del programa (texto libre: 'Periodo 2-3', 'Día 0', 'Cierre del Periodo 3', 'Al finalizar', etc.). Se congela como snapshot comercial en la propuesta para presentar el programa con su temporalidad real y el paralelismo entre trabajos. No se deriva de sequence ni de fechas; puede quedar vacío."
   },
@@ -163,7 +164,7 @@
    "fieldname": "planned_duration_days",
    "fieldtype": "Int",
    "label": "Planned Duration (days)",
-   "description": "Duración en días calendario de la futura Task. No sustituye ni recalcula estimated_hours."
+   "description": "Opcional. Duración en días calendario de la futura Task; no sustituye ni recalcula estimated_hours. Regla reutilizable del catálogo: junto con el offset, reparte la mano de obra a lo largo de los meses en el forecast de preventa. Si se deja vacío, los totales y el margen no cambian; solo la distribución mensual es más gruesa."
   },
   {
    "fieldname": "is_milestone",
