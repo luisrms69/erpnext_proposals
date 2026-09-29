@@ -82,6 +82,16 @@ otra Compañía).
   cualquier precarga, si lo borras no reaparece. *(Sustituye al antiguo «Scope Item de abastecimiento por
   defecto», que se agregaba por cada Item comprable.)*
 
+> **Handoff de compras al Proyecto.** Cuando la propuesta se gana y se crea el Proyecto (y al aplicar una
+> addenda), la Tarea **Gestión de Compras** recibe automáticamente una sección **«Compras previstas»** en su
+> descripción, con la lista de lo que hay que adquirir según el alcance autorizado vigente (Items comprables
+> vendidos + requeridos, por ocurrencia; se excluyen los no comprables, los marcados con «Omitir tarea de
+> abastecimiento» y el propio Item-paquete). Es **solo documentación** para el equipo de compras: **no** crea
+> Material Request / Orden de Compra / factura; la compra se ejecuta después con el flujo nativo de ERPNext.
+> La sección se **refresca** (sin duplicarse) y **conserva** cualquier otra nota escrita en la Tarea. Hoy
+> refleja **altas/adiciones**; la reducción o cancelación específica de una obligación previa vía addenda no
+> está representada aún.
+
 La precarga es **solo un punto de partida**: una vez agregadas, las filas son de la propuesta. Puedes
 borrarlas, agregar otras o hacer excepciones; **lo que borras no reaparece** al guardar. Sin Proposal
 Settings para la Compañía de la propuesta, no hay precarga y todo se captura manualmente (comportamiento

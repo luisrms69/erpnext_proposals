@@ -222,6 +222,13 @@ def create_project_from_quotation(quotation_name: str):
 	from erpnext_proposals.erpnext_proposals.utils.project_economics import sync_project_authorized_cost
 
 	sync_project_authorized_cost(project.name)
+	# Handoff de compras (mínimo): documenta en la Task Gestión de Compras qué está previsto comprar.
+	# No-op seguro si no hay paquete/Task; no toca economía ni el paquete.
+	from erpnext_proposals.erpnext_proposals.utils.procurement import (
+		refresh_procurement_task_description,
+	)
+
+	refresh_procurement_task_description(project.name)
 	frappe.db.commit()  # nosemgrep
 	return res
 
@@ -510,12 +517,20 @@ def apply_addendum_to_project(quotation: str, project: str) -> dict:
 	has_exec_scope = any(
 		r.include_in_proposal or r.is_internal_cost_task for r in quotation_doc.quotation_scope_items
 	)
+	# Handoff de compras (mínimo): tras aplicar la addenda, refresca la sección gestionada de la Task
+	# Gestión de Compras con el alcance AUTORIZADO VIGENTE (root + addendas aplicadas). No-op si no aplica.
+	from erpnext_proposals.erpnext_proposals.utils.procurement import (
+		refresh_procurement_task_description,
+	)
+
 	if has_exec_scope:
 		exec_rows = _validate_scope_for_project(quotation_doc)
 		result = _materialize_scope_into_project(quotation_doc, project_doc, exec_rows)
 		result["scope_materialized"] = True
+		refresh_procurement_task_description(project)
 		return result
 
+	refresh_procurement_task_description(project)
 	return {
 		"project": project,
 		"parent_tasks_created": 0,
