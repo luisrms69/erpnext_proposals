@@ -241,7 +241,7 @@ def auto_create_project_on_won(quotation_name: str) -> None:
 	doc = frappe.get_doc("Quotation", quotation_name)
 	if doc.docstatus != 1 or doc.get("workflow_state") != "Ganada":
 		return
-	# Defensa en profundidad: aunque `_maybe_enqueue_auto_project` ya excluye addendas al encolar, el job
+	# Defensa en profundidad: aunque `_ensure_project_on_won` ya excluye addendas al encolar, el job
 	# revalida — una addenda nunca crea Project por esta vía.
 	if is_addendum_group(doc.proposal_group):
 		return

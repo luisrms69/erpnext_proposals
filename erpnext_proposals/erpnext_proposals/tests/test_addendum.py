@@ -324,7 +324,7 @@ class TestAddendumContract(unittest.TestCase):
 		self.assertEqual(frappe.db.count("Project"), n_before)
 
 	def test_enqueue_gate_skips_addendum(self):
-		"""`_maybe_enqueue_auto_project` no encola para una addenda (exclusión estructural al encolar)."""
+		"""`_ensure_project_on_won` no encola para una addenda (exclusión estructural al encolar)."""
 		_grp, _root, _proj = self._root_project()
 		add = self._quotation(f"{_grp}-ADD-01", addendum=True)
 		calls = []
