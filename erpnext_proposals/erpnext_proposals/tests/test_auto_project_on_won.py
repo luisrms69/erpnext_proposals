@@ -290,9 +290,7 @@ class TestAutoProjectOnWon(unittest.TestCase):
 			"Ganada",
 			"la transición a Ganada debe bloquearse si el programa no puede construirse",
 		)
-		self.assertFalse(
-			frappe.db.get_value("Quotation", q, "proposal_project"), "no debe quedar Project"
-		)
+		self.assertFalse(frappe.db.get_value("Quotation", q, "proposal_project"), "no debe quedar Project")
 
 	def test_5_normal_save_without_transition_does_not_enqueue(self):
 		# Borrador (no submitted): un re-guardado sin cambio de estado (old == new == Borrador) no es
