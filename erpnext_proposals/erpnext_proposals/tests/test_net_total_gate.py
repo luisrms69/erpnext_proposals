@@ -6,7 +6,7 @@ puramente contractual puede tener venta neta 0). `proposal_template` y `proposal
 obligatorios para AMBOS (requisito de formalización — no cambia en B1).
 
 Se prueba `_validate_blocking` directamente (mismo patrón que el resto de la suite, p. ej.
-`wfv_mod._maybe_enqueue_auto_project`), con docs ligeros `frappe._dict`: la función solo lee
+`wfv_mod._ensure_project_on_won`), con docs ligeros `frappe._dict`: la función solo lee
 `proposal_template`, `proposal_cost_center`, `net_total` y `proposal_group`.
 """
 

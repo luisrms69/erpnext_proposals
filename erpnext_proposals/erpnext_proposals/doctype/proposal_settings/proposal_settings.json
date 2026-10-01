@@ -10,6 +10,8 @@
   "required_item_rules",
   "procurement_section",
   "default_procurement_package_item",
+  "default_commitment_scope_item",
+  "default_purchase_scope_item",
   "economic_section",
   "economic_behavior_rules",
   "economic_col_break",
@@ -59,6 +61,20 @@
    "fieldtype": "Link",
    "label": "Paquete de Gestion de Compras",
    "options": "Item"
+  },
+  {
+   "description": "Scope Item de COMPROMISO usado como fallback cuando una ocurrencia de Item vendido no resuelve ningún Scope propio. Se materializa por ocurrencia (una Task de compromiso por línea vendida sin desglose). Define aquí su Proposal Phase y horas (recomendado 0). Vacío = un Item vendido sin Scope no genera Task de compromiso.",
+   "fieldname": "default_commitment_scope_item",
+   "fieldtype": "Link",
+   "label": "Scope de compromiso (fallback)",
+   "options": "Scope Item"
+  },
+  {
+   "description": "Scope Item de COMPRA usado por cada ocurrencia comprable aplicable (Item vendido o requerido con is_purchase_item=1, sin 'Omitir tarea de abastecimiento', distinto del paquete). Genera una Task individual de compra por obligación/ocurrencia. Define aquí su Proposal Phase; horas recomendadas 0 (Task de seguimiento, sin costo). Distinto del Paquete de Gestión de Compras (esfuerzo interno). Vacío = no se generan Tasks individuales de compra.",
+   "fieldname": "default_purchase_scope_item",
+   "fieldtype": "Link",
+   "label": "Scope de compra por obligación (fallback)",
+   "options": "Scope Item"
   },
   {
    "fieldname": "economic_section",
@@ -128,10 +144,11 @@
   },
   {
    "default": "0",
-   "description": "Si está activo, al pasar la Quotation a «Ganada» se crea automáticamente el Proyecto reutilizando «Crear Proyecto desde Propuesta» (idempotente), en un job posterior al commit. OFF por defecto. El botón manual sigue disponible como respaldo.",
+   "description": "DEPRECADO (ya no se lee). La creación del Proyecto al pasar a «Ganada» es ahora OBLIGATORIA e incondicional: toda Quotation que llega a «Ganada» crea su Proyecto y programa, y la transición falla si el programa no puede construirse. Campo conservado solo por compatibilidad; se retirará en una versión futura.",
    "fieldname": "auto_create_project_on_won",
    "fieldtype": "Check",
-   "label": "Crear Proyecto automáticamente"
+   "hidden": 1,
+   "label": "Crear Proyecto automáticamente (deprecado)"
   },
   {
    "default": "0",

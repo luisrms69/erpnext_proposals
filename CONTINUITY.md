@@ -1,49 +1,59 @@
 # CONTINUITY.md — erpnext_proposals
 
-**Fecha:** 2026-09-28
-**Rama activa:** `feat/rentabilidad-ux-fuente-costo` (base `upstream/version-16` = v0.30.2 → objetivo **v0.31.0**)
-**Tarea actual:** PR — UX de trazabilidad de la fuente del costo en el Print Format `Rentabilidad Estimada`.
+**Fecha:** 2026-09-30
+**Rama activa:** `feat/procurement-task-handoff` (base `upstream/version-16` = v0.31.0 → objetivo **v0.32.0**)
+**Tarea actual:** PR — handoff de compras por obligación + programa mínimo por fallbacks de Scope + Ganada→Project incondicional.
 
 ---
 
 ## Recuperación rápida
 
 Estoy trabajando en:
-Mejora de PRESENTACIÓN del Print Format `Rentabilidad Estimada` (rentabilidad PREVISTA). El motor
-económico queda **sin cambios**. Usa datos que el read-model ya expone (`external_source` por línea).
+Entregar, sobre la ruta única `Item/Required → Scope Item → Proposal Phase → Quotation Scope Item → Task`,
+tres bloques funcionales ya validados (835 OK):
+
+1. **Handoff de compras por obligación** — cada ocurrencia comprable (vendida o requerida) genera UNA Task
+   individual de compra vía `default_purchase_scope_item`; se retira hacia adelante el handoff de lista única
+   (`procurement.py`); el package de Gestión de Compras se conserva como esfuerzo interno.
+2. **Integridad compromiso → programa** — Item vendido sin Scope propio → `default_commitment_scope_item`
+   (Task de compromiso por ocurrencia); identidad `(source_row, scope_item)`; la fase vive en Scope Item.
+3. **Ganada → Project incondicional** — toda Quotation que llega a «Ganada» crea Project + programa; la
+   transición valida fail-closed (template + fila ejecutable + fase + Project Type + prerrequisitos de
+   fallback). `auto_create_project_on_won` queda DEPRECADO/oculto (ya no gobierna la creación).
 
 Plan que estoy siguiendo:
-Un cambio de PF + tests + doc (commit `7dd6458`) + bump MINOR a v0.31.0 (feat) + CONTINUITY. PR hacia `version-16`.
+3 commits (`aedcff2`, `978c931`, `c048246`) + bump MINOR a v0.32.0 + CONTINUITY. PR hacia `version-16`.
 
 Objetivo inmediato:
 Dejar el PR listo para merge (el merge lo hace el usuario).
 
 Criterio de avance:
-Suite completa **824 OK**; ruff OK; `mkdocs build --strict` OK; PF activo se actualiza con `bench migrate`
-(no es PF histórico — el candado ADR-0011 rastrea el PF comercial, no la Rentabilidad Estimada).
+Suite completa **835 OK**; ruff OK; `mkdocs build --strict` OK; migrate limpio en dev/test.
 
 ---
 
 ## Estado actual
 
 ### Ya cerrado (esta rama)
-- **UX Rentabilidad (commit `7dd6458`):** `rentabilidad_estimada.json` (fuente del costo vía `srclabel`,
-  $0 válido vs `sin_costo`, warnings por línea, columna Fuente en Required, terminología "Mano de obra
-  interna"/"Costos externos"); `tests/test_rentabilidad_ux.py` (6 tests); `docs/usuario/evaluacion-economica.md`.
-- **Bump v0.31.0** (MINOR, feat) + CONTINUITY.
+- **`aedcff2`:** handoff mínimo de compras (superado hacia adelante por `c048246`; sin código muerto).
+- **`978c931`:** UX mínima de Scope Item (`moment` oculto; offset/duración = planeación PMO opcional).
+- **`c048246`:** fallbacks de Scope (compromiso/compra por ocurrencia) + subjects humanos + retiro de
+  `procurement.py` + Ganada→Project incondicional + validación fail-closed + deprecación del toggle.
 
 ### Pendiente inmediato
-1. Gate `pr-ready` → push + PR (autorizado por invocación de `/ship pr`).
-2. Merge: **lo ejecuta el usuario** (no autorizado a Claude en este ciclo).
-3. Tras merge: `/sync-check` + `/ship release` (tag/Release v0.31.0).
+1. Gate `pr-ready` → push + PR (autorizado por la invocación de `/ship pr`).
+2. Merge: **lo ejecuta el usuario** (no autorizado a Claude).
+3. Tras merge: `/sync-check` + `/ship release` (tag/Release v0.32.0).
 
 ### No repetir / atención
-- Motor económico intacto: no tocar `economic_calendar`/`item_cost`/`resolve_external_cost`.
-- Auditoría de recurrencia/modalidades/handoff: analizada en conversación; **sin implementación** (fuera de este PR).
-- **#41:** abierto, sin implementación.
+- No es una «simplificación masiva de Scope»: fue UX mínima, no rediseño.
+- Forward-only: cero backfill; históricos/roots intactos; addendas doc-scoped; motor económico sin cambios;
+  sin jerarquía fuera de Proposal Phase; sin campos nuevos en Task.
+- `auto_create_project_on_won`: deprecado/oculto, conservado solo por compatibilidad (retiro físico futuro).
 
 ## Decisiones vigentes
-- El cambio es exclusivamente de presentación del PF (previsto), sin cambios de motor ni de metadata.
+- Opción A: creación de Project incondicional al ganar; el toggle ya no gobierna.
+- Settings nuevos: `default_commitment_scope_item`, `default_purchase_scope_item` (Links a Scope Item).
 
 ## Información faltante
 - Ninguna para el PR.

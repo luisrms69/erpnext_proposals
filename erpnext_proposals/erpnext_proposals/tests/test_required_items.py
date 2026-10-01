@@ -419,26 +419,42 @@ class TestRequiredItems(unittest.TestCase):
 	def test_21_project_from_required_item_scope(self):
 		from erpnext_proposals.erpnext_proposals.utils.project import create_project_from_quotation
 
-		q = self._make_quotation(sold=[IT_RESALE], required=[IT_REQ_BUY])
-		doc = self._transition(frappe.get_doc("Quotation", q.name))
-		apply_workflow(doc, _action(doc, "En Revision", "Aprobada"))
-		doc.reload()
-		apply_workflow(doc, _action(doc, "Aprobada", "Enviada al Cliente"))
-		doc.reload()
-		apply_workflow(doc, _action(doc, "Enviada al Cliente", "Ganada"))
-		create_project_from_quotation(q.name)
-		project = frappe.db.get_value("Quotation", q.name, "proposal_project")
-		self.assertTrue(project)
-		# Existe al menos una Task originada en un scope de Required Item.
-		req_scope_rows = [
-			r.name
-			for r in frappe.get_doc("Quotation", q.name).quotation_scope_items
-			if r.item_code == IT_REQ_BUY
-		]
-		tasks = frappe.get_all(
-			"Task", {"project": project, "source_quotation_scope_item": ["in", req_scope_rows]}
-		)
-		self.assertTrue(tasks)
+		# Invariante (opción A): IT_RESALE / IT_REQ_BUY son comprables → ganar exige `default_purchase_scope_item`
+		# configurado. Se configura AISLADO a este test (singleton por Company; se elimina en el finally) para
+		# no alterar el conteo de scope de los demás tests del módulo.
+		if not frappe.db.exists("Scope Item", "_RI_PURCH"):
+			self._make_scope("_RI_PURCH", None, hours=0)
+		ps_name = frappe.db.get_value("Proposal Settings", {"company": self.company}, "name")
+		ps = frappe.get_doc("Proposal Settings", ps_name) if ps_name else frappe.new_doc("Proposal Settings")
+		ps.company = self.company
+		ps.default_purchase_scope_item = "_RI_PURCH"
+		ps.flags.ignore_permissions = True
+		ps.save(ignore_permissions=True)
+		try:
+			q = self._make_quotation(sold=[IT_RESALE], required=[IT_REQ_BUY])
+			doc = self._transition(frappe.get_doc("Quotation", q.name))
+			apply_workflow(doc, _action(doc, "En Revision", "Aprobada"))
+			doc.reload()
+			apply_workflow(doc, _action(doc, "Aprobada", "Enviada al Cliente"))
+			doc.reload()
+			apply_workflow(doc, _action(doc, "Enviada al Cliente", "Ganada"))
+			create_project_from_quotation(q.name)
+			project = frappe.db.get_value("Quotation", q.name, "proposal_project")
+			self.assertTrue(project)
+			# Existe al menos una Task originada en un scope de Required Item.
+			req_scope_rows = [
+				r.name
+				for r in frappe.get_doc("Quotation", q.name).quotation_scope_items
+				if r.item_code == IT_REQ_BUY
+			]
+			tasks = frappe.get_all(
+				"Task", {"project": project, "source_quotation_scope_item": ["in", req_scope_rows]}
+			)
+			self.assertTrue(tasks)
+		finally:
+			nm = frappe.db.get_value("Proposal Settings", {"company": self.company}, "name")
+			if nm:
+				frappe.delete_doc("Proposal Settings", nm, force=True, ignore_permissions=True)
 
 
 def flt_first(rows):

@@ -82,6 +82,22 @@ otra Compañía).
   cualquier precarga, si lo borras no reaparece. *(Sustituye al antiguo «Scope Item de abastecimiento por
   defecto», que se agregaba por cada Item comprable.)*
 
+> **Programa mínimo en el Proyecto (compromiso y compras).** Al ganar (y al aplicar una addenda), toda la
+> ruta usa Scope Items → fases → Tasks. Además del alcance propio de cada Item:
+> - **Item vendido sin Scope propio** → una **Task de compromiso** por ocurrencia, usando el Scope de
+>   compromiso configurado (*Scope de compromiso (fallback)* en Proposal Settings), con su Proposal Phase.
+> - **Cada obligación comprable** (Item vendido o requerido con `is_purchase_item`, sin «Omitir tarea de
+>   abastecimiento», distinto del paquete) → una **Task individual de compra por ocurrencia** (con su qty en
+>   el título), usando el *Scope de compra por obligación (fallback)* configurado, con su fase. Así cada
+>   compra puede tener responsable/estado/fechas propios.
+>
+> El **Paquete de Gestión de Compras** se conserva como el **esfuerzo interno** de gestionar compras (horas/
+> costo); es distinto de las Tasks individuales de compra. Estas Tasks son **operativas y sin costo**
+> (recomendado `estimated_hours=0` en el Scope de compra); **no** crean Material Request / Orden de Compra /
+> factura (la compra se ejecuta después con el flujo nativo de ERPNext). Todo es **forward-only**: solo
+> aplica a ocurrencias nuevas del documento que origina el evento; no reconstruye propuestas/Proyectos
+> históricos ni el root al aplicar una addenda.
+
 La precarga es **solo un punto de partida**: una vez agregadas, las filas son de la propuesta. Puedes
 borrarlas, agregar otras o hacer excepciones; **lo que borras no reaparece** al guardar. Sin Proposal
 Settings para la Compañía de la propuesta, no hay precarga y todo se captura manualmente (comportamiento

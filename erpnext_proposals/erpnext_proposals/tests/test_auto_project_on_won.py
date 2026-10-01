@@ -73,8 +73,11 @@ class TestAutoProjectOnWon(unittest.TestCase):
 						"stock_uom": "Nos",
 						"is_stock_item": 0,
 						"is_sales_item": 1,
+						"is_purchase_item": 0,
 					}
 				).insert(ignore_permissions=True)
+			# No comprable: este módulo prueba la creación de Project, no abastecimiento (fuerza aunque exista).
+			frappe.db.set_value("Item", code, "is_purchase_item", 0)
 		if not frappe.db.exists("Proposal Template", TEMPLATE):
 			frappe.get_doc(
 				{"doctype": "Proposal Template", "template_name": TEMPLATE, "description": "t"}
@@ -225,18 +228,21 @@ class TestAutoProjectOnWon(unittest.TestCase):
 
 	# ── Tests ────────────────────────────────────────────────────────────────
 
-	def test_1_toggle_off_does_not_enqueue(self):
+	def test_1_project_enqueued_unconditionally(self):
+		# Invariante nueva (opción A): toda Ganada crea Project. El toggle `auto_create_project_on_won` quedó
+		# DEPRECADO → la creación se encola SIEMPRE, incluso con el toggle (ignorado) en OFF.
 		self._set_toggle(self.company, on=False)
 		q = self._quotation(self.company, self.cc)
 		captured = self._transition(q, "Ganada")
-		self.assertIsNone(self._enqueued_job(captured, q), "toggle OFF no debe encolar")
+		self.assertIsNotNone(
+			self._enqueued_job(captured, q), "creación incondicional: debe encolar aunque el toggle esté OFF"
+		)
 
-	def test_2_toggle_on_enqueues_after_commit(self):
-		self._set_toggle(self.company, on=True)
+	def test_2_enqueues_after_commit(self):
 		q = self._quotation(self.company, self.cc)
 		captured = self._transition(q, "Ganada")
 		job = self._enqueued_job(captured, q)
-		self.assertIsNotNone(job, "toggle ON debe encolar el job")
+		self.assertIsNotNone(job, "debe encolar el job de creación del Project")
 		self.assertTrue(job.get("enqueue_after_commit"), "debe ser enqueue_after_commit=True (post-commit)")
 
 	def test_2b_job_creates_project(self):
@@ -271,6 +277,21 @@ class TestAutoProjectOnWon(unittest.TestCase):
 			frappe.db.get_value("Quotation", q, "workflow_state"), "Ganada", "la transición permanece"
 		)
 
+	def test_4b_transition_to_ganada_blocks_when_unbuildable(self):
+		# Regla: toda venta ganada debe tener Project + programa. Con el toggle ON y un programa NO
+		# construible (scope ejecutable sin fase), la TRANSICIÓN a Ganada debe fallar en vivo (fail-closed),
+		# no dejar la propuesta Ganada sin Project por el fail-soft del job.
+		self._set_toggle(self.company, on=True)
+		q = self._quotation(self.company, self.cc, item=ITEM_NOPHASE)
+		with self.assertRaises(frappe.ValidationError):
+			self._transition(q, "Ganada")
+		self.assertNotEqual(
+			frappe.db.get_value("Quotation", q, "workflow_state"),
+			"Ganada",
+			"la transición a Ganada debe bloquearse si el programa no puede construirse",
+		)
+		self.assertFalse(frappe.db.get_value("Quotation", q, "proposal_project"), "no debe quedar Project")
+
 	def test_5_normal_save_without_transition_does_not_enqueue(self):
 		# Borrador (no submitted): un re-guardado sin cambio de estado (old == new == Borrador) no es
 		# transición → no encola. (Un Borrador evita el guard de inmutabilidad de propuestas submitted.)
@@ -292,8 +313,9 @@ class TestAutoProjectOnWon(unittest.TestCase):
 		captured = self._transition(q, "Enviada al Cliente", from_state="Aprobada")
 		self.assertIsNone(self._enqueued_job(captured, q), "transición a otro estado no debe encolar")
 
-	def test_7_strict_per_company(self):
-		# A: ON → encola; B: sin settings (o OFF) → no encola.
+	def test_7_unconditional_across_companies(self):
+		# El gating per-company del toggle quedó DEPRECADO: ambas Companies crean Project (incondicional),
+		# independientemente del valor (ignorado) del toggle.
 		self._set_toggle(self.company, on=True)
 		self._set_toggle(CO_B, on=False)
 		qa = self._quotation(self.company, self.cc)
@@ -301,8 +323,8 @@ class TestAutoProjectOnWon(unittest.TestCase):
 		qb = self._quotation(CO_B, cc_b)
 		ca = self._transition(qa, "Ganada")
 		cb = self._transition(qb, "Ganada")
-		self.assertIsNotNone(self._enqueued_job(ca, qa), "Company A (ON) encola")
-		self.assertIsNone(self._enqueued_job(cb, qb), "Company B (OFF) no encola")
+		self.assertIsNotNone(self._enqueued_job(ca, qa), "Company A encola (incondicional)")
+		self.assertIsNotNone(self._enqueued_job(cb, qb), "Company B también encola (incondicional)")
 
 
 if __name__ == "__main__":

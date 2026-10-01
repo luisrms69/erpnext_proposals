@@ -456,62 +456,107 @@ def _existing_scope_keys(doc) -> set:
 	return keys
 
 
-def _append_scope_rows_for_row(doc, src: dict, existing: set) -> int:
-	"""Materializa en ``quotation_scope_items`` los Scope Items FALTANTES de UNA fila origen ``src``
-	(``{source_type, source_row, item_code}``), resolviendo Item → Scope Items por la FUENTE ÚNICA
-	(``resolve_scope_items_for_item``: child N:N + legacy, habilitados). La identidad es por **fila origen**:
-	no duplica dentro de la misma ocurrencia, pero SÍ materializa por separado dos ocurrencias del mismo
-	Item. Respeta snapshots legacy (no re-materializa un item_code ya cubierto por una fila sin source_row).
-	``existing`` se actualiza in situ."""
-	item_code = src["item_code"]
-	names = _applicable_scope_items(item_code)
-	if not names:
+def _append_one_scope(doc, si, src: dict, existing: set, dep_codes: dict) -> int:
+	"""Materializa UNA fila de alcance (``si`` = Scope Item, dict/doc) para la ocurrencia ``src``, con la
+	identidad por fila origen ``(source_row, scope_item)`` (y compat legacy por item_code). Devuelve 1 si la
+	añadió, 0 si ya existía. ``existing`` se actualiza in situ. La fase se toma SIEMPRE de ``si.phase``."""
+	if (src["source_row"], si.name) in existing or ("__legacy__", src["item_code"], si.name) in existing:
 		return 0
-	scope_items = frappe.get_all(
-		"Scope Item",
-		filters={"name": ["in", names]},
-		fields=list(_SCOPE_GEN_FIELDS),
-		order_by="sequence asc",
+	doc.append(
+		"quotation_scope_items",
+		{
+			"scope_item": si.name,
+			"item_code": src["item_code"],
+			"source_type": src["source_type"],
+			"source_row": src["source_row"],
+			"sequence": si.sequence,
+			"code": si.code,
+			"title": si.title,
+			"description": si.description,
+			"deliverable": si.deliverable,
+			"phase": si.phase,
+			"activity_type": si.default_activity_type,
+			"designation": si.default_designation,
+			"estimated_hours": si.estimated_hours,
+			# Valor inicial de include_in_proposal desde el catálogo (visible_in_proposal). Después es
+			# propiedad de la propuesta; el resync NO lo sobrescribe.
+			"include_in_proposal": 1 if si.visible_in_proposal else 0,
+			"is_internal_cost_task": si.is_internal_cost_task or 0,
+			# Planeación PMO congelada (opcional; puede venir vacía).
+			"planned_start_offset_days": si.planned_start_offset_days,
+			# Momento relativo de ejecución (snapshot comercial; puede venir vacío).
+			"moment": si.moment,
+			"planned_duration_days": si.planned_duration_days,
+			"is_milestone": si.is_milestone or 0,
+			"dependency_scope_item_codes": dep_codes.get(si.name, "[]"),
+			"auto_generated": 1,
+		},
 	)
-	dep_codes = _dependency_codes_map([si.name for si in scope_items])
-	added = 0
-	for si in scope_items:
-		# Ya presente para ESTA ocurrencia, o cubierto por un snapshot legacy del mismo item_code.
-		if (src["source_row"], si.name) in existing or ("__legacy__", item_code, si.name) in existing:
-			continue
-		doc.append(
-			"quotation_scope_items",
-			{
-				"scope_item": si.name,
-				"item_code": item_code,
-				"source_type": src["source_type"],
-				"source_row": src["source_row"],
-				"sequence": si.sequence,
-				"code": si.code,
-				"title": si.title,
-				"description": si.description,
-				"deliverable": si.deliverable,
-				"phase": si.phase,
-				"activity_type": si.default_activity_type,
-				"designation": si.default_designation,
-				"estimated_hours": si.estimated_hours,
-				# Valor inicial de include_in_proposal desde el catálogo (visible_in_proposal). Después es
-				# propiedad de la propuesta; el resync NO lo sobrescribe.
-				"include_in_proposal": 1 if si.visible_in_proposal else 0,
-				"is_internal_cost_task": si.is_internal_cost_task or 0,
-				# Planeación PMO congelada (opcional; puede venir vacía).
-				"planned_start_offset_days": si.planned_start_offset_days,
-				# Momento relativo de ejecución (snapshot comercial; puede venir vacío).
-				"moment": si.moment,
-				"planned_duration_days": si.planned_duration_days,
-				"is_milestone": si.is_milestone or 0,
-				"dependency_scope_item_codes": dep_codes.get(si.name, "[]"),
-				"auto_generated": 1,
-			},
+	existing.add((src["source_row"], si.name))
+	return 1
+
+
+def _is_applicable_purchasable_code(item_code: str | None, package: str | None) -> bool:
+	"""Item comprable aplicable para una ocurrencia: ``is_purchase_item=1``, sin ``proposal_skip_procurement``
+	y distinto del paquete de Gestión de Compras. Mismo criterio que ``_applicable_purchasables``, por Item."""
+	if not item_code or item_code == package:
+		return False
+	it = frappe.db.get_value(
+		"Item", item_code, ["is_purchase_item", "proposal_skip_procurement"], as_dict=True
+	)
+	return bool(it and it.is_purchase_item and not it.get("proposal_skip_procurement"))
+
+
+def _append_fallback_scope(doc, src: dict, scope_code: str | None, existing: set) -> int:
+	"""Materializa un Scope fallback CONFIGURADO (resuelto por código, no por N:M) para la ocurrencia ``src``,
+	por el MISMO pipeline e identidad. La fase la aporta el propio Scope fallback. Si no está configurado o el
+	Scope no existe → 0 (no inyecta; el gate de creación de Project es fail-closed)."""
+	if not scope_code or (src["source_row"], scope_code) in existing:
+		return 0
+	si = frappe.db.get_value("Scope Item", scope_code, list(_SCOPE_GEN_FIELDS), as_dict=True)
+	if not si:
+		return 0
+	return _append_one_scope(doc, si, src, existing, _dependency_codes_map([scope_code]))
+
+
+def _append_scope_rows_for_row(doc, src: dict, existing: set) -> int:
+	"""Materializa los Scope Items de UNA fila origen ``src`` (``{source_type, source_row, item_code}``) por
+	la RUTA ÚNICA Item→Scope→Phase→QSI:
+
+	1. Alcance PROPIO del Item (``resolve_scope_items_for_item``: child N:N + legacy, habilitados).
+	2. Si una ocurrencia **vendida** no resolvió alcance propio → Scope de **compromiso**
+	   (``default_commitment_scope_item``).
+	3. Para cualquier ocurrencia **comprable aplicable** (vendida o requerida) → Scope de **compra**
+	   (``default_purchase_scope_item``), independiente del compromiso (una obligación de compra = su Task).
+
+	Identidad por fila origen ``(source_row, scope_item)`` (no dedup por item_code); la fase vive SIEMPRE en
+	el Scope Item. ``existing`` se actualiza in situ. Forward-only: solo corre para ``source_row`` nuevas
+	(``_generate_scope_items``) o en la acción MANUAL ``add_missing_scope_items_from_items``."""
+	item_code = src["item_code"]
+	own_added = 0
+	names = _applicable_scope_items(item_code)
+	if names:
+		scope_items = frappe.get_all(
+			"Scope Item",
+			filters={"name": ["in", names]},
+			fields=list(_SCOPE_GEN_FIELDS),
+			order_by="sequence asc",
 		)
-		existing.add((src["source_row"], si.name))
-		added += 1
-	return added
+		dep_codes = _dependency_codes_map([si.name for si in scope_items])
+		for si in scope_items:
+			own_added += _append_one_scope(doc, si, src, existing, dep_codes)
+
+	settings = _proposal_settings(doc.get("company"))
+	if not settings:
+		return own_added
+	fb_added = 0
+	# Compromiso: SOLO ocurrencia vendida sin alcance propio (el Item se vende sin desglose).
+	if src["source_type"] == "sold" and own_added == 0:
+		fb_added += _append_fallback_scope(doc, src, settings.get("default_commitment_scope_item"), existing)
+	# Compra: cualquier ocurrencia comprable aplicable (vendida o requerida), excluyendo el package.
+	if _is_applicable_purchasable_code(item_code, settings.get("default_procurement_package_item")):
+		fb_added += _append_fallback_scope(doc, src, settings.get("default_purchase_scope_item"), existing)
+	return own_added + fb_added
 
 
 def _source_item_codes(doc) -> list:
@@ -525,6 +570,52 @@ def _source_item_codes(doc) -> list:
 			codes.append(src["item_code"])
 			seen.add(src["item_code"])
 	return codes
+
+
+def assert_program_prerequisites(doc) -> None:
+	"""Fail-closed de la invariante «toda Ganada → Project + programa»: verifica que CADA ocurrencia que debe
+	generar Task tenga la configuración de fallback suficiente, **incluso si la propuesta ya tiene otro Scope
+	ejecutable** (evita que una obligación quede silenciosamente sin Task). Reutiliza la resolución de alcance
+	(`_applicable_scope_items`) y el predicado de comprable (`_is_applicable_purchasable_code`); NO materializa
+	nada. Bloquea si:
+
+	- una ocurrencia **vendida** sin alcance propio no tiene `default_commitment_scope_item` configurado;
+	- una ocurrencia **comprable aplicable** no tiene `default_purchase_scope_item` configurado.
+
+	Complementa a `_validate_scope_for_project` (template + ≥1 fila ejecutable + fase) y a `_resolve_project_type`."""
+	settings = _proposal_settings(doc.get("company"))
+	commitment = settings.get("default_commitment_scope_item") if settings else None
+	purchase = settings.get("default_purchase_scope_item") if settings else None
+	package = settings.get("default_procurement_package_item") if settings else None
+	sin_compromiso: list = []
+	sin_compra: list = []
+	for src in _source_rows(doc):
+		if src["source_type"] == "sold" and not commitment and not _applicable_scope_items(src["item_code"]):
+			sin_compromiso.append(src["item_code"])
+		if not purchase and _is_applicable_purchasable_code(src["item_code"], package):
+			sin_compra.append(src["item_code"])
+	msgs = []
+	if sin_compromiso:
+		msgs.append(
+			_("Items vendidos sin alcance propio y sin «Scope de compromiso» configurado: {0}.").format(
+				", ".join(sorted(set(sin_compromiso)))
+			)
+		)
+	if sin_compra:
+		msgs.append(
+			_("Obligaciones de compra sin «Scope de compra por obligación» configurado: {0}.").format(
+				", ".join(sorted(set(sin_compra)))
+			)
+		)
+	if msgs:
+		frappe.throw(
+			_(
+				"No se puede completar la transición a «Ganada»: el programa mínimo del Proyecto no puede "
+				"construirse."
+			)
+			+ " "
+			+ " ".join(msgs)
+		)
 
 
 def _generate_scope_items(doc):

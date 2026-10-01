@@ -72,8 +72,11 @@ class TestWonNotification(unittest.TestCase):
 					"stock_uom": "Nos",
 					"is_stock_item": 0,
 					"is_sales_item": 1,
+					"is_purchase_item": 0,
 				}
 			).insert(ignore_permissions=True)
+		# No comprable: este módulo prueba la notificación, no abastecimiento (fuerza aunque el Item ya exista).
+		frappe.db.set_value("Item", ITEM, "is_purchase_item", 0)
 		if not frappe.db.exists("Proposal Template", TEMPLATE):
 			frappe.get_doc(
 				{"doctype": "Proposal Template", "template_name": TEMPLATE, "description": "t"}
@@ -305,19 +308,21 @@ class TestWonNotification(unittest.TestCase):
 		captured = self._transition(q, "Enviada al Cliente", from_state="Aprobada")
 		self.assertIsNone(self._has_job(captured, WON_JOB, q), "transición != Ganada no encola")
 
-	def test_9_independent_from_auto_project(self):
-		# correo ON / project OFF → solo correo.
+	def test_9_project_unconditional_email_independent(self):
+		# Invariante (opción A): el Project se crea SIEMPRE al ganar (incondicional; el toggle de project está
+		# deprecado). El correo depende de su propio toggle `send_won_notification_email`.
+		# correo ON → ambos encolan (project siempre).
 		self._settings(self.company, project_on=False, email_on=True, email=EMAIL)
 		q1 = self._quotation(self.company, self.cc)
 		c1 = self._transition(q1, "Ganada")
-		self.assertIsNotNone(self._has_job(c1, WON_JOB, q1), "correo encolado")
-		self.assertIsNone(self._has_job(c1, PROJ_JOB, q1), "project NO encolado")
-		# project ON / correo OFF → solo project.
+		self.assertIsNotNone(self._has_job(c1, WON_JOB, q1), "correo encolado (toggle ON)")
+		self.assertIsNotNone(self._has_job(c1, PROJ_JOB, q1), "project SIEMPRE encolado (incondicional)")
+		# correo OFF → project igual encola, correo no.
 		self._settings(self.company, project_on=True, email_on=False)
 		q2 = self._quotation(self.company, self.cc)
 		c2 = self._transition(q2, "Ganada")
-		self.assertIsNotNone(self._has_job(c2, PROJ_JOB, q2), "project encolado")
-		self.assertIsNone(self._has_job(c2, WON_JOB, q2), "correo NO encolado")
+		self.assertIsNotNone(self._has_job(c2, PROJ_JOB, q2), "project encolado (incondicional)")
+		self.assertIsNone(self._has_job(c2, WON_JOB, q2), "correo NO encolado (toggle OFF)")
 
 
 if __name__ == "__main__":
