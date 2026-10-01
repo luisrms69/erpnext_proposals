@@ -2,7 +2,7 @@ import json
 
 import frappe
 from frappe import _
-from frappe.utils import add_days, getdate
+from frappe.utils import add_days, flt, getdate
 
 from erpnext_proposals.erpnext_proposals.utils.permissions import assert_can_manage_proposals
 from erpnext_proposals.erpnext_proposals.utils.phase import phase_label, phase_sequence
@@ -222,13 +222,6 @@ def create_project_from_quotation(quotation_name: str):
 	from erpnext_proposals.erpnext_proposals.utils.project_economics import sync_project_authorized_cost
 
 	sync_project_authorized_cost(project.name)
-	# Handoff de compras (mínimo): documenta en la Task Gestión de Compras qué está previsto comprar.
-	# No-op seguro si no hay paquete/Task; no toca economía ni el paquete.
-	from erpnext_proposals.erpnext_proposals.utils.procurement import (
-		refresh_procurement_task_description,
-	)
-
-	refresh_procurement_task_description(project.name)
 	frappe.db.commit()  # nosemgrep
 	return res
 
@@ -257,11 +250,50 @@ def auto_create_project_on_won(quotation_name: str) -> None:
 	create_project_from_quotation(quotation_name)
 
 
+def _origin_display(row) -> tuple:
+	"""Nombre legible + qty + UOM de la ocurrencia origen de una fila de scope, por `(source_type,
+	source_row)`. Solo lectura; sin campos nuevos. Fallback al item_code si no se resuelve."""
+	if row.get("source_type") == "sold" and row.get("source_row"):
+		qi = frappe.db.get_value("Quotation Item", row.source_row, ["item_name", "qty", "uom"], as_dict=True)
+		if qi:
+			return (qi.item_name or row.item_code, qi.qty, qi.uom)
+	elif row.get("source_type") == "required" and row.get("source_row"):
+		ri = frappe.db.get_value(
+			"Proposal Required Item", row.source_row, ["item", "qty", "uom"], as_dict=True
+		)
+		if ri:
+			return (frappe.db.get_value("Item", ri.item, "item_name") or ri.item, ri.qty, ri.uom)
+	return (row.item_code, None, None)
+
+
+def _scope_task_subject(row, commitment_code: str | None, purchase_code: str | None) -> str:
+	"""Subject humano de la Task. Para los Scope fallback (compromiso/compra) usa la identidad de la
+	ocurrencia origen (nombre/qty/UOM); para el resto, el comportamiento actual (título — item_code)."""
+	sc = row.get("scope_item")
+	if sc and purchase_code and sc == purchase_code:
+		name, qty, uom = _origin_display(row)
+		suffix = ""
+		if qty:
+			suffix = f" × {flt(qty):g}" + (f" {uom}" if uom else "")  # noqa: RUF001
+		return _("Comprar") + f" — {name}{suffix}"
+	if sc and commitment_code and sc == commitment_code:
+		name, _qty, _uom = _origin_display(row)
+		return _("Entregar") + f" — {name}"
+	if row.item_code:
+		return f"{row.title or row.code} — {row.item_code}"
+	return row.title or row.code
+
+
 def _materialize_scope_into_project(quotation, project, exec_rows) -> dict:
 	"""Materializa las filas ejecutables (`exec_rows`) como Tasks jerárquicas sobre un Project **ya
 	resuelto**. NO crea Project y NO hace `frappe.db.commit()` (composable: el caller decide la
 	transacción). Idempotente por `(project, source_quotation_scope_item)` para las hijas y por
 	`(project, proposal_phase)` para las Task-fase: reejecutar no duplica."""
+	from erpnext_proposals.erpnext_proposals.utils.quotation import _proposal_settings
+
+	_settings = _proposal_settings(quotation.get("company"))
+	_commitment_code = _settings.get("default_commitment_scope_item") if _settings else None
+	_purchase_code = _settings.get("default_purchase_scope_item") if _settings else None
 	# ── Tasks jerárquicas: Task-fase (padre, is_group) → Task-hija (Scope Item) ──
 	counters = {
 		"parent_created": 0,
@@ -340,9 +372,7 @@ def _materialize_scope_into_project(quotation, project, exec_rows) -> dict:
 				task_name = existing_child
 				counters["tasks_skipped"] += 1
 			else:
-				subject = (
-					f"{row.title or row.code} — {row.item_code}" if row.item_code else (row.title or row.code)
-				)
+				subject = _scope_task_subject(row, _commitment_code, _purchase_code)
 				desc_parts = []
 				if row.description:
 					desc_parts.append(row.description)
@@ -517,20 +547,12 @@ def apply_addendum_to_project(quotation: str, project: str) -> dict:
 	has_exec_scope = any(
 		r.include_in_proposal or r.is_internal_cost_task for r in quotation_doc.quotation_scope_items
 	)
-	# Handoff de compras (mínimo): tras aplicar la addenda, refresca la sección gestionada de la Task
-	# Gestión de Compras con el alcance AUTORIZADO VIGENTE (root + addendas aplicadas). No-op si no aplica.
-	from erpnext_proposals.erpnext_proposals.utils.procurement import (
-		refresh_procurement_task_description,
-	)
-
 	if has_exec_scope:
 		exec_rows = _validate_scope_for_project(quotation_doc)
 		result = _materialize_scope_into_project(quotation_doc, project_doc, exec_rows)
 		result["scope_materialized"] = True
-		refresh_procurement_task_description(project)
 		return result
 
-	refresh_procurement_task_description(project)
 	return {
 		"project": project,
 		"parent_tasks_created": 0,

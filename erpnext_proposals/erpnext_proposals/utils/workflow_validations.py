@@ -59,36 +59,45 @@ def _on_workflow_transition(doc, old_state: str, new_state: str):
 	# validate), pero la ACCIÓN (crear Project) se DIFIERE con enqueue_after_commit=True para no producir
 	# efectos secundarios antes de persistir la transición ni revertir `Ganada` si el Project falla.
 	if new_state == "Ganada":
-		# Acciones INDEPENDIENTES (cada una con su propio toggle y su propio job): un fallo de una no
-		# impide la otra. No se encadena la notificación al resultado de la creación del Project.
-		_maybe_enqueue_auto_project(doc)
+		# Invariante: toda Quotation que llega a «Ganada» DEBE crear su Project y programa (fail-closed).
+		# La notificación es independiente (su propio toggle/job); un fallo de una no encadena la otra.
+		_ensure_project_on_won(doc)
 		_maybe_enqueue_won_notification(doc)
 		return
 
 	# Aprobada → Enviada al Cliente: optionally add future logic here
 
 
-def _maybe_enqueue_auto_project(doc) -> None:
-	"""Issue #39, Fase 1: si la Company de la Quotation tiene ``auto_create_project_on_won`` activo, encola
-	la creación automática del Project **después del commit** (``enqueue_after_commit=True``) — nunca dentro
-	de ``validate``. Resolución estricta por Company (sin fallback global): si no hay ``Proposal Settings``
-	de esa Company o el toggle está OFF, no hace nada. El job corre como el usuario que dispara la transición
-	(``frappe.enqueue`` captura ``frappe.session.user``): sin Administrator ni elevación de privilegios."""
-	# Exclusión ESTRUCTURAL de addendas: una addenda nunca crea un Project, ni siquiera con el toggle ON.
-	# `auto_create_project_on_won` aplica únicamente a propuestas normales; para addendas la aplicación al
-	# Project raíz es explícita (PMO → apply_addendum_to_project). No existe un segundo toggle de addenda.
+def _ensure_project_on_won(doc) -> None:
+	"""Invariante funcional: **toda Quotation que llega a «Ganada» DEBE crear su Project y programa**. La
+	creación ya NO es opcional — el antiguo toggle ``auto_create_project_on_won`` queda **DEPRECADO** (no se
+	lee). Se valida SINCRÓNICAMENTE el programa dentro de la transición (fail-closed): si no puede construirse,
+	`frappe.throw` revierte la transición y la Quotation **no** queda «Ganada» sin Project. La creación real se
+	encola **post-commit** (idempotente), por lo que un fallo posterior no deja estado inconsistente: la
+	transición ya quedó validada.
+
+	Exclusión ESTRUCTURAL de addendas: una addenda nunca crea Project (su alcance se aplica al Project raíz por
+	`apply_addendum_to_project`, no por esta vía)."""
 	from erpnext_proposals.erpnext_proposals.utils.addendum import is_addendum_group
 
 	if is_addendum_group(doc.get("proposal_group")):
 		return
-	company = doc.get("company")
-	if not company:
+	if not doc.get("company"):
 		return
-	settings = frappe.db.get_value("Proposal Settings", {"company": company}, "name")
-	if not settings:
-		return
-	if not frappe.db.get_value("Proposal Settings", settings, "auto_create_project_on_won"):
-		return
+	# Prerrequisitos del programa (fail-closed, ANTES del commit de la transición): template + ≥1 fila
+	# ejecutable + fase (`_validate_scope_for_project`), Project Type no ambiguo (`_resolve_project_type`) y
+	# configuración de fallbacks suficiente por ocurrencia (`assert_program_prerequisites`).
+	from erpnext_proposals.erpnext_proposals.utils.project import (
+		_resolve_project_type,
+		_validate_scope_for_project,
+	)
+	from erpnext_proposals.erpnext_proposals.utils.quotation import assert_program_prerequisites
+
+	_validate_scope_for_project(doc)
+	_resolve_project_type(doc)
+	assert_program_prerequisites(doc)
+	# Creación INCONDICIONAL del Project (post-commit, idempotente; no revierte la transición ya validada).
+	# El job corre como el usuario que dispara la transición (`frappe.enqueue` captura `frappe.session.user`).
 	frappe.enqueue(
 		"erpnext_proposals.erpnext_proposals.utils.project.auto_create_project_on_won",
 		quotation_name=doc.name,

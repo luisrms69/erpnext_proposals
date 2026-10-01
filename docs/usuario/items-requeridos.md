@@ -82,15 +82,21 @@ otra Compañía).
   cualquier precarga, si lo borras no reaparece. *(Sustituye al antiguo «Scope Item de abastecimiento por
   defecto», que se agregaba por cada Item comprable.)*
 
-> **Handoff de compras al Proyecto.** Cuando la propuesta se gana y se crea el Proyecto (y al aplicar una
-> addenda), la Tarea **Gestión de Compras** recibe automáticamente una sección **«Compras previstas»** en su
-> descripción, con la lista de lo que hay que adquirir según el alcance autorizado vigente (Items comprables
-> vendidos + requeridos, por ocurrencia; se excluyen los no comprables, los marcados con «Omitir tarea de
-> abastecimiento» y el propio Item-paquete). Es **solo documentación** para el equipo de compras: **no** crea
-> Material Request / Orden de Compra / factura; la compra se ejecuta después con el flujo nativo de ERPNext.
-> La sección se **refresca** (sin duplicarse) y **conserva** cualquier otra nota escrita en la Tarea. Hoy
-> refleja **altas/adiciones**; la reducción o cancelación específica de una obligación previa vía addenda no
-> está representada aún.
+> **Programa mínimo en el Proyecto (compromiso y compras).** Al ganar (y al aplicar una addenda), toda la
+> ruta usa Scope Items → fases → Tasks. Además del alcance propio de cada Item:
+> - **Item vendido sin Scope propio** → una **Task de compromiso** por ocurrencia, usando el Scope de
+>   compromiso configurado (*Scope de compromiso (fallback)* en Proposal Settings), con su Proposal Phase.
+> - **Cada obligación comprable** (Item vendido o requerido con `is_purchase_item`, sin «Omitir tarea de
+>   abastecimiento», distinto del paquete) → una **Task individual de compra por ocurrencia** (con su qty en
+>   el título), usando el *Scope de compra por obligación (fallback)* configurado, con su fase. Así cada
+>   compra puede tener responsable/estado/fechas propios.
+>
+> El **Paquete de Gestión de Compras** se conserva como el **esfuerzo interno** de gestionar compras (horas/
+> costo); es distinto de las Tasks individuales de compra. Estas Tasks son **operativas y sin costo**
+> (recomendado `estimated_hours=0` en el Scope de compra); **no** crean Material Request / Orden de Compra /
+> factura (la compra se ejecuta después con el flujo nativo de ERPNext). Todo es **forward-only**: solo
+> aplica a ocurrencias nuevas del documento que origina el evento; no reconstruye propuestas/Proyectos
+> históricos ni el root al aplicar una addenda.
 
 La precarga es **solo un punto de partida**: una vez agregadas, las filas son de la propuesta. Puedes
 borrarlas, agregar otras o hacer excepciones; **lo que borras no reaparece** al guardar. Sin Proposal

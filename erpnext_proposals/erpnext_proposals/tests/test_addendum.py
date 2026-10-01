@@ -335,7 +335,7 @@ class TestAddendumContract(unittest.TestCase):
 
 		frappe.enqueue = _spy
 		try:
-			wfv_mod._maybe_enqueue_auto_project(add)
+			wfv_mod._ensure_project_on_won(add)
 		finally:
 			frappe.enqueue = orig
 		self.assertEqual(calls, [], "no debe encolar auto-creación de Project para una addenda")
