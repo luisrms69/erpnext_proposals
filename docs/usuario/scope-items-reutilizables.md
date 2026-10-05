@@ -36,8 +36,9 @@ En el **Scope Item** existe la tabla **ERPNext Items**: cada fila es un Item al 
 Item. Es la vista administrativa inversa de lo que editas desde el Item; el botón del Item es la vía
 principal de trabajo.
 
-> El campo antiguo **ERPNext Item** (un solo Item) se conserva por compatibilidad. Sigue funcionando en
-> lectura, pero la relación vigente es la tabla **ERPNext Items**.
+> El campo antiguo **ERPNext Item** (un solo Item) queda **oculto** de la pantalla normal: se conserva
+> por compatibilidad de datos históricos, pero ya no se usa para capturar. La relación vigente es la
+> tabla **ERPNext Items**.
 
 ---
 

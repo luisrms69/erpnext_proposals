@@ -6,45 +6,46 @@
  "editable_grid": 1,
  "engine": "InnoDB",
  "field_order": [
+  "section_main",
   "code",
-  "sequence",
   "title",
-  "enabled",
-  "visible_in_proposal",
-  "is_internal_cost_task",
+  "phase",
+  "section_effort",
+  "estimated_hours",
+  "default_designation",
+  "default_activity_type",
+  "section_items",
+  "erpnext_items",
+  "erpnext_item",
   "section_narrative",
   "description",
   "deliverable",
-  "section_classification",
-  "phase",
-  "erpnext_item",
-  "erpnext_items",
-  "section_effort",
-  "estimated_hours",
-  "default_activity_type",
-  "default_designation",
+  "visible_in_proposal",
+  "section_options",
+  "enabled",
+  "sequence",
+  "is_internal_cost_task",
   "section_pmo",
   "planned_start_offset_days",
-  "moment",
   "planned_duration_days",
   "is_milestone",
-  "depends_on_scope_items"
+  "depends_on_scope_items",
+  "moment"
  ],
  "fields": [
+  {
+   "fieldname": "section_main",
+   "fieldtype": "Section Break",
+   "label": "Información principal"
+  },
   {
    "fieldname": "code",
    "fieldtype": "Data",
    "in_list_view": 1,
    "label": "Code",
    "reqd": 1,
-   "unique": 1
-  },
-  {
-   "fieldname": "sequence",
-   "fieldtype": "Int",
-   "in_list_view": 1,
-   "label": "Sequence",
-   "description": "Orden dentro de la fase. Múltiplos de 10 recomendados (10, 20, 30…). Determina el orden en el PDF."
+   "unique": 1,
+   "description": "Identificador técnico estable (no cambia). El nombre visible del catálogo es el Título."
   },
   {
    "fieldname": "title",
@@ -54,30 +55,62 @@
    "reqd": 1
   },
   {
-   "fieldname": "enabled",
-   "default": "1",
-   "fieldtype": "Check",
-   "in_list_view": 1,
-   "label": "Enabled"
+   "fieldname": "phase",
+   "fieldtype": "Link",
+   "options": "Proposal Phase",
+   "label": "Phase",
+   "description": "Fase del catálogo Proposal Phase para agrupar alcances. El orden en la propuesta y reportes usa Proposal Phase.sequence. Dejar vacío si no aplica."
   },
   {
-   "fieldname": "visible_in_proposal",
-   "default": "1",
-   "fieldtype": "Check",
-   "in_list_view": 1,
-   "label": "Visible in Proposal"
+   "fieldname": "section_effort",
+   "fieldtype": "Section Break",
+   "label": "Costeo y esfuerzo"
   },
   {
-   "fieldname": "is_internal_cost_task",
-   "default": "0",
-   "fieldtype": "Check",
-   "label": "Tarea interna de costo",
-   "description": "Trabajo necesario para ejecutar/costear el proyecto que NO se muestra al cliente pero SÍ se costea y genera Task. No combinar con 'Visible in Proposal'."
+   "fieldname": "estimated_hours",
+   "fieldtype": "Float",
+   "label": "Estimated Hours",
+   "description": "Horas base estándar de esta actividad. Se utilizan como punto de partida para el costeo y la planeación de la propuesta."
+  },
+  {
+   "fieldname": "default_designation",
+   "fieldtype": "Link",
+   "label": "Default Designation",
+   "options": "Designation",
+   "description": "Puesto estándar utilizado para calcular el costo de mano de obra (matriz de costos). Valor por defecto; la propuesta trabaja sobre su copia."
+  },
+  {
+   "fieldname": "default_activity_type",
+   "fieldtype": "Link",
+   "label": "Default Activity Type",
+   "options": "Activity Type",
+   "description": "Tipo de actividad estándar utilizado para calcular el costo (matriz de costos). Valor por defecto; la propuesta trabaja sobre su copia."
+  },
+  {
+   "fieldname": "section_items",
+   "fieldtype": "Section Break",
+   "label": "Items asociados"
+  },
+  {
+   "fieldname": "erpnext_items",
+   "fieldtype": "Table",
+   "label": "ERPNext Items",
+   "options": "Scope Item ERPNext Item",
+   "description": "Asocia esta actividad a todos los Items comerciales donde aplique. Reutiliza el mismo Scope Item en lugar de crear duplicados. (Relación N:N; también se administra desde el Item, botón 'Scope Items'.)"
+  },
+  {
+   "fieldname": "erpnext_item",
+   "fieldtype": "Link",
+   "label": "ERPNext Item",
+   "options": "Item",
+   "hidden": 1,
+   "description": "LEGACY (transición): un único Item. La relación vigente es la tabla 'ERPNext Items'. Oculto de la UX normal; se conserva por compatibilidad de datos. No duplica precio ni costo — solo vincula el catálogo."
   },
   {
    "fieldname": "section_narrative",
    "fieldtype": "Section Break",
-   "label": "Narrative"
+   "label": "Contenido para propuesta",
+   "collapsible": 1
   },
   {
    "fieldname": "description",
@@ -90,55 +123,39 @@
    "label": "Deliverable"
   },
   {
-   "fieldname": "section_classification",
+   "fieldname": "visible_in_proposal",
+   "default": "1",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "label": "Visible in Proposal"
+  },
+  {
+   "fieldname": "section_options",
    "fieldtype": "Section Break",
-   "label": "Estructura del programa"
+   "label": "Opciones",
+   "collapsible": 1
   },
   {
-   "fieldname": "phase",
-   "fieldtype": "Link",
-   "options": "Proposal Phase",
-   "label": "Phase",
-   "description": "Fase del catálogo Proposal Phase para agrupar alcances. El orden en la propuesta y reportes usa Proposal Phase.sequence. Dejar vacío si no aplica."
+   "fieldname": "enabled",
+   "default": "1",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "label": "Enabled",
+   "description": "Activo — se usa para generar alcance en las propuestas. Desactivar lo retira del catálogo sin borrarlo."
   },
   {
-   "fieldname": "erpnext_item",
-   "fieldtype": "Link",
-   "label": "ERPNext Item",
-   "options": "Item",
-   "description": "LEGACY (transición): un único Item. La relación vigente es la tabla 'ERPNext Items'. No duplica precio ni costo — solo vincula el catálogo."
+   "fieldname": "sequence",
+   "fieldtype": "Int",
+   "in_list_view": 1,
+   "label": "Sequence",
+   "description": "Orden dentro de la fase. Múltiplos de 10 recomendados (10, 20, 30…). Determina el orden en el PDF."
   },
   {
-   "fieldname": "erpnext_items",
-   "fieldtype": "Table",
-   "label": "ERPNext Items",
-   "options": "Scope Item ERPNext Item",
-   "description": "Items ERPNext a los que aplica este Scope Item (relación N:N). Se administra desde el Item (botón 'Scope Items')."
-  },
-  {
-   "fieldname": "section_effort",
-   "fieldtype": "Section Break",
-   "label": "Costeo y esfuerzo"
-  },
-  {
-   "fieldname": "estimated_hours",
-   "fieldtype": "Float",
-   "label": "Estimated Hours",
-   "description": "Esfuerzo estimado. Se copia a Task.expected_time al generar el Proyecto."
-  },
-  {
-   "fieldname": "default_activity_type",
-   "fieldtype": "Link",
-   "label": "Default Activity Type",
-   "options": "Activity Type",
-   "description": "Perfil/actividad para tarifa y costeo."
-  },
-  {
-   "fieldname": "default_designation",
-   "fieldtype": "Link",
-   "label": "Default Designation",
-   "options": "Designation",
-   "description": "Puesto para tarifa y costeo."
+   "fieldname": "is_internal_cost_task",
+   "default": "0",
+   "fieldtype": "Check",
+   "label": "Tarea interna de costo",
+   "description": "Trabajo necesario para ejecutar/costear el proyecto que NO se muestra al cliente pero SÍ se costea y genera Task. No combinar con 'Visible in Proposal'."
   },
   {
    "fieldname": "section_pmo",
@@ -152,13 +169,6 @@
    "fieldtype": "Data",
    "label": "Planned Start Offset (days)",
    "description": "Opcional. Offset en días calendario respecto de Project.expected_start_date, como texto entero. Vacío/NULL = SIN offset explícito (se programa por dependencias o queda sin fecha); '0' = inicio explícito en la fecha de inicio del proyecto; entero positivo = días después; negativo = días antes. Se rechaza cualquier valor no entero. Es una regla reutilizable del catálogo (no una copia de Task.exp_start_date): además de precargar la fecha de la futura Task, refina la distribución mensual estimada de mano de obra en el forecast de preventa. Si se deja vacío, la propuesta sigue calculando totales y margen; solo la curva mensual es más gruesa."
-  },
-  {
-   "fieldname": "moment",
-   "fieldtype": "Data",
-   "hidden": 1,
-   "label": "Moment",
-   "description": "Momento relativo de ejecución tal como viene de la fuente autoritativa del programa (texto libre: 'Periodo 2-3', 'Día 0', 'Cierre del Periodo 3', 'Al finalizar', etc.). Se congela como snapshot comercial en la propuesta para presentar el programa con su temporalidad real y el paralelismo entre trabajos. No se deriva de sequence ni de fechas; puede quedar vacío."
   },
   {
    "fieldname": "planned_duration_days",
@@ -179,6 +189,13 @@
    "label": "Depends On (Scope Items)",
    "options": "Scope Item Dependency",
    "description": "Otros Scope Items que preceden a este. Se congelan por código en la Quotation y se resuelven a Task.depends_on nativo al crear el Proyecto."
+  },
+  {
+   "fieldname": "moment",
+   "fieldtype": "Data",
+   "hidden": 1,
+   "label": "Moment",
+   "description": "Momento relativo de ejecución tal como viene de la fuente autoritativa del programa (texto libre: 'Periodo 2-3', 'Día 0', 'Cierre del Periodo 3', 'Al finalizar', etc.). Se congela como snapshot comercial en la propuesta para presentar el programa con su temporalidad real y el paralelismo entre trabajos. No se deriva de sequence ni de fechas; puede quedar vacío."
   }
  ],
  "links": [],
@@ -232,8 +249,10 @@
    "share": 0
   }
  ],
+ "show_title_field_in_link": 1,
  "sort_field": "modified",
  "sort_order": "DESC",
  "states": [],
+ "title_field": "title",
  "track_changes": 1
 }
