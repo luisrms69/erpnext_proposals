@@ -1,59 +1,58 @@
 # CONTINUITY.md — erpnext_proposals
 
-**Fecha:** 2026-09-30
-**Rama activa:** `feat/procurement-task-handoff` (base `upstream/version-16` = v0.31.0 → objetivo **v0.32.0**)
-**Tarea actual:** PR — handoff de compras por obligación + programa mínimo por fallbacks de Scope + Ganada→Project incondicional.
+**Fecha:** 2026-10-01
+**Rama activa:** `feat/scope-item-ux-catalog` (base `upstream/version-16` = v0.32.0 → objetivo **v0.33.0**)
+**Tarea actual:** PR — simplificación UX del catálogo `Scope Item` (solo presentación).
 
 ---
 
 ## Recuperación rápida
 
 Estoy trabajando en:
-Entregar, sobre la ruta única `Item/Required → Scope Item → Proposal Phase → Quotation Scope Item → Task`,
-tres bloques funcionales ya validados (835 OK):
+Reorganizar el DocType `Scope Item` para que el catálogo sea fácil de mantener, **sin tocar lógica**.
+Cambio exclusivamente de metadata del DocType propio + un ajuste de doc de usuario:
 
-1. **Handoff de compras por obligación** — cada ocurrencia comprable (vendida o requerida) genera UNA Task
-   individual de compra vía `default_purchase_scope_item`; se retira hacia adelante el handoff de lista única
-   (`procurement.py`); el package de Gestión de Compras se conserva como esfuerzo interno.
-2. **Integridad compromiso → programa** — Item vendido sin Scope propio → `default_commitment_scope_item`
-   (Task de compromiso por ocurrencia); identidad `(source_row, scope_item)`; la fase vive en Scope Item.
-3. **Ganada → Project incondicional** — toda Quotation que llega a «Ganada» crea Project + programa; la
-   transición valida fail-closed (template + fila ejecutable + fase + Project Type + prerrequisitos de
-   fallback). `auto_create_project_on_won` queda DEPRECADO/oculto (ya no gobierna la creación).
+- Secciones **expandidas**: "Información principal" (code, title, phase), "Costeo y esfuerzo"
+  (estimated_hours, default_designation, default_activity_type), "Items asociados" (erpnext_items).
+- Secciones **colapsadas**: "Contenido para propuesta" (description, deliverable, visible_in_proposal),
+  "Opciones" (enabled, sequence, is_internal_cost_task), "Planeación PMO".
+- Legacy `erpnext_item` → `hidden=1` (se conserva por compatibilidad; la relación vigente es `erpnext_items`).
+  `moment` permanece oculto.
+- `title_field=title` + `show_title_field_in_link=1` (identificación por título). `autoname=field:code` intacto.
 
 Plan que estoy siguiendo:
-3 commits (`aedcff2`, `978c931`, `c048246`) + bump MINOR a v0.32.0 + CONTINUITY. PR hacia `version-16`.
+Commit funcional (`9a23a1f`) + bump MINOR a v0.33.0 + CONTINUITY → push → PR hacia `version-16`.
 
 Objetivo inmediato:
-Dejar el PR listo para merge (el merge lo hace el usuario).
+Dejar el PR listo para revisión/merge (el merge lo hace el usuario).
 
 Criterio de avance:
-Suite completa **835 OK**; ruff OK; `mkdocs build --strict` OK; migrate limpio en dev/test.
+36 tests de Scope Item OK (generation/resync/row-identity); `mkdocs --strict` OK; migrate limpio en
+`proposals.dev` y en el site de tests; validación de layout vía `frappe.get_meta`.
 
 ---
 
 ## Estado actual
 
-### Ya cerrado (esta rama)
-- **`aedcff2`:** handoff mínimo de compras (superado hacia adelante por `c048246`; sin código muerto).
-- **`978c931`:** UX mínima de Scope Item (`moment` oculto; offset/duración = planeación PMO opcional).
-- **`c048246`:** fallbacks de Scope (compromiso/compra por ocurrencia) + subjects humanos + retiro de
-  `procurement.py` + Ganada→Project incondicional + validación fail-closed + deprecación del toggle.
+### Alcance (estricto)
+Solo `erpnext_proposals/.../doctype/scope_item/scope_item.json` + `docs/usuario/scope-items-reutilizables.md`.
+**No** se tocó: Quotation, Quotation Scope Item, resync, costeo, generación de alcance, Designation /
+Activity Type / Proposal Cost Matrix, ni históricos.
 
 ### Pendiente inmediato
-1. Gate `pr-ready` → push + PR (autorizado por la invocación de `/ship pr`).
-2. Merge: **lo ejecuta el usuario** (no autorizado a Claude).
-3. Tras merge: `/sync-check` + `/ship release` (tag/Release v0.32.0).
+1. Gate `pr-ready` → push + PR (autorizado por la invocación de `/ship`).
+2. Revisión CodeRabbit si aplica.
+3. Merge: **lo ejecuta el usuario** (`/ship merge`).
+4. Tras merge: `/sync-check` + `/ship release` (tag/Release v0.33.0).
 
 ### No repetir / atención
-- No es una «simplificación masiva de Scope»: fue UX mínima, no rediseño.
-- Forward-only: cero backfill; históricos/roots intactos; addendas doc-scoped; motor económico sin cambios;
-  sin jerarquía fuera de Proposal Phase; sin campos nuevos en Task.
-- `auto_create_project_on_won`: deprecado/oculto, conservado solo por compatibilidad (retiro físico futuro).
+- Cambio **100% presentación/metadata**: Property-less (DocType propio, no Custom Field). `migrate` lo aplica.
+- Históricos intactos por construcción: `read_only`/`hidden`/orden no alteran datos; `name` no cambia.
+- El ajuste específico por oportunidad en Quotation Scope Item **queda fuera de alcance** (ronda futura).
 
 ## Decisiones vigentes
-- Opción A: creación de Project incondicional al ganar; el toggle ya no gobierna.
-- Settings nuevos: `default_commitment_scope_item`, `default_purchase_scope_item` (Links a Scope Item).
+- Scope Item = catálogo de actividad estándar reutilizable; Quotation = copia específica; fallback intacto.
+- SemVer MINOR por precedente (v0.31.0 fue cambio UX/metadata de Scope Item clasificado MINOR).
 
 ## Información faltante
 - Ninguna para el PR.
