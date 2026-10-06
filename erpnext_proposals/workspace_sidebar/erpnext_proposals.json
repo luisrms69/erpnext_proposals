@@ -12,8 +12,8 @@
   },
   {
    "child": 0, "collapsible": 1, "indent": 0, "keep_closed": 0,
-   "label": "Operacion", "link_to": "", "link_type": "DocType",
-   "show_arrow": 0, "type": "Card Break"
+   "label": "Operacion",
+   "show_arrow": 0, "type": "Section Break"
   },
   {
    "child": 0, "collapsible": 1, "indent": 0, "keep_closed": 0,
@@ -37,8 +37,8 @@
   },
   {
    "child": 0, "collapsible": 1, "indent": 0, "keep_closed": 0,
-   "label": "Configuracion de Propuestas", "link_to": "", "link_type": "DocType",
-   "show_arrow": 0, "type": "Card Break"
+   "label": "Configuracion de Propuestas",
+   "show_arrow": 0, "type": "Section Break"
   },
   {
    "child": 0, "collapsible": 1, "indent": 0, "keep_closed": 0,
@@ -57,8 +57,8 @@
   },
   {
    "child": 0, "collapsible": 1, "indent": 0, "keep_closed": 0,
-   "label": "Reportes", "link_to": "", "link_type": "DocType",
-   "show_arrow": 0, "type": "Card Break"
+   "label": "Reportes",
+   "show_arrow": 0, "type": "Section Break"
   },
   {
    "child": 0, "collapsible": 1, "indent": 0, "keep_closed": 0,
@@ -77,8 +77,8 @@
   },
   {
    "child": 0, "collapsible": 1, "indent": 0, "keep_closed": 0,
-   "label": "Referencia", "link_to": "", "link_type": "DocType",
-   "show_arrow": 0, "type": "Card Break"
+   "label": "Referencia",
+   "show_arrow": 0, "type": "Section Break"
   },
   {
    "child": 0, "collapsible": 1, "indent": 0, "keep_closed": 0,
