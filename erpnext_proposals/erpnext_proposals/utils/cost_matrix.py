@@ -29,6 +29,12 @@ def rebuild_cost_matrix() -> dict:
 	run_id = _generate_run_id()
 	created = updated = skipped = logged = 0
 
+	# Retiro de filas legacy con activity_type (dimensión eliminada) ANTES de upsert, para dejar una sola
+	# tarifa por Designation. Guardado por existencia de columna: en un install fresco la columna nunca se
+	# crea (el DocType ya no la define); en installs existentes queda huérfana hasta su retiro físico.
+	if "activity_type" in frappe.db.get_table_columns("Proposal Cost Matrix"):
+		frappe.db.delete("Proposal Cost Matrix", {"activity_type": ["is", "set"]})
+
 	activity_rows = _fetch_activity_cost_data()
 	timesheet_rows = _fetch_timesheet_data()
 	salary_rows = _fetch_salary_data()
@@ -89,11 +95,6 @@ def rebuild_cost_matrix() -> dict:
 		created += c
 		updated += u
 		logged += l
-
-	# Limpieza determinista: retirar filas legacy con activity_type (dimensión eliminada). La tarifa
-	# vigente es la fila por Designation (activity_type NULL). Es un registro recomputado, no un documento
-	# histórico de propuesta.
-	frappe.db.delete("Proposal Cost Matrix", {"activity_type": ["is", "set"]})
 
 	frappe.db.sql(
 		"UPDATE `tabProposal Cost Matrix` SET status=%s WHERE avg_costing_rate = 0 OR avg_costing_rate IS NULL",
@@ -189,8 +190,8 @@ def _upsert(
 	notes: str,
 	run_id: str,
 ) -> tuple:
-	"""Create or update la fila por Designation (activity_type NULL). Returns (created, updated, logged)."""
-	filters = {"designation": designation, "activity_type": ["is", "not set"]}
+	"""Create or update la fila por Designation. Returns (created, updated, logged)."""
+	filters = {"designation": designation}
 
 	existing = frappe.db.get_value(
 		"Proposal Cost Matrix", filters, ["name", "avg_costing_rate"], as_dict=True
