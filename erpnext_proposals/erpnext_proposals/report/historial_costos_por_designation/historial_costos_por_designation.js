@@ -7,12 +7,6 @@ frappe.query_reports["Historial de costos por Designation"] = {
 			options: "Designation",
 		},
 		{
-			fieldname: "activity_type",
-			label: __("Tipo de Actividad"),
-			fieldtype: "Link",
-			options: "Activity Type",
-		},
-		{
 			fieldname: "from_date",
 			label: __("Desde"),
 			fieldtype: "Date",

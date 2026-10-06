@@ -21,8 +21,6 @@ Fuente: `erpnext_proposals/erpnext_proposals/doctype/proposal_cost_matrix/propos
 | Campo | Label | Tipo | Requerido | Opciones |
 |---|---|---|---|---|
 | `designation` | Designation | Link | ✅ | Designation |
-| `activity_type` | Tipo de Actividad | Link |  | Activity Type |
-| `is_general_rate` | Es Tasa General | Check |  |  |
 | `avg_costing_rate` | Costo/hora Promedio | Currency |  |  |
 | `avg_billing_rate` | Precio/hora Promedio | Currency |  |  |
 | `employee_count` | Empleados | Int |  |  |
@@ -201,7 +199,7 @@ Fuente: `erpnext_proposals/erpnext_proposals/doctype/quotation_scope_item/quotat
 | `phase` | Phase | Link |  | Proposal Phase |
 | `erpnext_item` | ERPNext Item (deprecated) | Link |  | Item |
 | `estimated_hours` | Estimated Hours | Float |  |  |
-| `activity_type` | Activity Type | Link |  | Activity Type |
+| `activity_type` | Activity Type (legacy, oculto) | Link |  | Activity Type |
 | `designation` | Designation | Link |  | Designation |
 | `project_task` | Project Task | Link |  | Task |
 | `planned_start_offset_days` | Planned Start Offset (days) | Data |  |  |
@@ -234,7 +232,6 @@ Fuente: `erpnext_proposals/erpnext_proposals/doctype/scope_item/scope_item.json`
 | `erpnext_item` | ERPNext Item | Link |  | Item |
 | `erpnext_items` | ERPNext Items | Table |  | Scope Item ERPNext Item |
 | `estimated_hours` | Estimated Hours | Float |  |  |
-| `default_activity_type` | Default Activity Type | Link |  | Activity Type |
 | `default_designation` | Default Designation | Link |  | Designation |
 | `planned_start_offset_days` | Planned Start Offset (days) | Data |  |  |
 | `moment` | Moment | Data |  |  |

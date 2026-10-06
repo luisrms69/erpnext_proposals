@@ -2,6 +2,16 @@
 
 ## [No liberado]
 
+### Changed — Activity Type retirado del modelo de costeo
+
+El costo laboral depende **únicamente de la Designation**: `labor = horas × tarifa(Designation)`. Activity
+Type deja de ser dimensión de costeo. Cambios: `get_designation_cost(designation)` (sin `activity_type`, sin
+match exacto, sin fallback a `Activity Type.costing_rate`); **Proposal Cost Matrix** queda con una tarifa por
+Designation (se retiran `activity_type` e `is_general_rate` y el `rebuild` agrega por Designation);
+`Scope Item.default_activity_type` eliminado; `Quotation Scope Item.activity_type` se oculta y deja de
+poblarse (se conserva por compatibilidad de snapshots históricos); reportes, Print Format comercial, Task y
+Workspace dejan de mostrar/usar Activity Type. Forward-only; no se modifican propuestas históricas.
+
 ### Changed — Depuración de fuentes de verdad: el loader del pack deja de sembrar maestros funcionales (v0.28.0)
 
 El loader de catálogos (`catalog_data/catalog_loader.py`, **caps v12**) se depura para conservar **solo la

@@ -32,13 +32,12 @@ class TestWarnCostingDesignationRate(unittest.TestCase):
 				frappe.get_doc({"doctype": "Designation", "designation_name": d}).insert(
 					ignore_permissions=True
 				)
-		# Tarifa GENERAL válida (is_general_rate=1, status=ok) para 3 designations; D_NORATE sin tarifa.
+		# Tarifa por Designation (status=ok) para 3 designations; D_NORATE sin tarifa.
 		for d, rate in RATES.items():
 			row = frappe.get_doc(
 				{
 					"doctype": "Proposal Cost Matrix",
 					"designation": d,
-					"is_general_rate": 1,
 					"avg_costing_rate": rate,
 					"status": "ok",
 					"notes": "_WT",
@@ -82,10 +81,10 @@ class TestWarnCostingDesignationRate(unittest.TestCase):
 
 	# ── tests ────────────────────────────────────────────────────────────────
 	def test_general_rate_resolves_without_activity_type(self):
-		"""El motor resuelve la tarifa general de la Designation con Activity Type vacío."""
-		rate, source = get_designation_cost(D_PMO, None)
+		"""El motor resuelve la tarifa de la Designation (ruta única, sin Activity Type)."""
+		rate, source = get_designation_cost(D_PMO)
 		self.assertEqual(flt(rate), 800.0)
-		self.assertEqual(source, "matrix_general")
+		self.assertEqual(source, "matrix")
 
 	def test_scenario_total_192800_and_no_false_warning(self):
 		"""Escenario DEMO completo: 4 vendibles + 3 PMO internas, Activity Type vacío en todas."""
@@ -99,10 +98,7 @@ class TestWarnCostingDesignationRate(unittest.TestCase):
 			self._row(D_PMO, 20, internal=True),
 		]
 		# Costo laboral como lo calcula el reporte: hours * get_designation_cost (sin Activity Type).
-		total = sum(
-			flt(r.estimated_hours) * flt(get_designation_cost(r.designation, r.activity_type)[0])
-			for r in rows
-		)
+		total = sum(flt(r.estimated_hours) * flt(get_designation_cost(r.designation)[0]) for r in rows)
 		self.assertEqual(total, 192800.0)
 		pmo = sum(flt(r.estimated_hours) * 800 for r in rows if r.designation == D_PMO)
 		self.assertEqual(pmo, 28800.0)

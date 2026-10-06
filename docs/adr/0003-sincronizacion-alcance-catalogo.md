@@ -40,7 +40,7 @@ toca; el problema era exclusivamente el rango Borrador.
 - `auto_generated=0` → **propiedad de la propuesta**: nunca se toca ni elimina.
 
 **Campos controlados por catálogo** (los únicos que refresca el resync): `sequence`, `code`,
-`title`, `description`, `deliverable`, `phase`, `activity_type`, `designation`, `estimated_hours`.
+`title`, `description`, `deliverable`, `phase`, `designation`, `estimated_hours`.
 Se preservan `include_in_proposal`, `auto_generated` y los campos de costeo/congelamiento
 (`costing_rate`, `rate_source`, `rate_locked`, `rate_locked_on`).
 

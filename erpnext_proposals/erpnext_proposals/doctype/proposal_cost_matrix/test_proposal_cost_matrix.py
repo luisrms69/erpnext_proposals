@@ -9,11 +9,13 @@ class TestProposalCostMatrix(unittest.TestCase):
 		if not designation:
 			self.skipTest("No Designation records available")
 
+		if frappe.db.exists("Proposal Cost Matrix", {"designation": designation}):
+			self.skipTest("Designation ya tiene tarifa en la matriz")
+
 		doc = frappe.get_doc(
 			{
 				"doctype": "Proposal Cost Matrix",
 				"designation": designation,
-				"is_general_rate": 1,
 				"avg_costing_rate": 500.0,
 				"source": "activity_cost",
 				"status": "ok",
@@ -39,19 +41,26 @@ class TestProposalCostMatrix(unittest.TestCase):
 	def test_get_designation_cost_no_data(self):
 		from erpnext_proposals.erpnext_proposals.utils.cost_matrix import get_designation_cost
 
-		rate, source = get_designation_cost("__nonexistent_designation__", None)
+		rate, source = get_designation_cost("__nonexistent_designation__")
 		self.assertEqual(rate, 0.0)
 		self.assertEqual(source, "sin_datos")
 
-	def test_get_designation_cost_fallback_activity_type(self):
+	def test_get_designation_cost_resolves_by_designation(self):
+		"""Ruta única: la tarifa viene de la Designation en Proposal Cost Matrix (sin Activity Type)."""
 		from erpnext_proposals.erpnext_proposals.utils.cost_matrix import get_designation_cost
 
-		# With no designation but a valid activity_type that has a rate,
-		# should fall back to activity_type costing_rate
-		at = frappe.db.get_value("Activity Type", {"costing_rate": [">", 0]}, "name")
-		if not at:
-			self.skipTest("No Activity Type with costing_rate > 0")
-
-		rate, source = get_designation_cost(None, at)
-		self.assertEqual(source, "activity_type")
-		self.assertGreater(rate, 0)
+		d = "__PCM Test Perfil__"
+		if not frappe.db.exists("Designation", d):
+			frappe.get_doc({"doctype": "Designation", "designation_name": d}).insert(ignore_permissions=True)
+		if not frappe.db.exists("Proposal Cost Matrix", {"designation": d}):
+			frappe.get_doc(
+				{
+					"doctype": "Proposal Cost Matrix",
+					"designation": d,
+					"avg_costing_rate": 777.0,
+					"status": "ok",
+				}
+			).insert(ignore_permissions=True)
+		rate, source = get_designation_cost(d)
+		self.assertEqual(rate, 777.0)
+		self.assertEqual(source, "matrix")

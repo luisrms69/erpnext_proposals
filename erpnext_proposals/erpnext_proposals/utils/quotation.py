@@ -225,7 +225,6 @@ _SCOPE_GEN_FIELDS = (
 	"description",
 	"deliverable",
 	"phase",
-	"default_activity_type",
 	"default_designation",
 	"estimated_hours",
 	"visible_in_proposal",
@@ -475,7 +474,6 @@ def _append_one_scope(doc, si, src: dict, existing: set, dep_codes: dict) -> int
 			"description": si.description,
 			"deliverable": si.deliverable,
 			"phase": si.phase,
-			"activity_type": si.default_activity_type,
 			"designation": si.default_designation,
 			"estimated_hours": si.estimated_hours,
 			# Valor inicial de include_in_proposal desde el catálogo (visible_in_proposal). Después es
@@ -678,7 +676,6 @@ _CATALOG_CONTROLLED_FIELDS = (
 	"description",
 	"deliverable",
 	"phase",
-	"activity_type",
 	"designation",
 	"estimated_hours",
 	"is_internal_cost_task",
@@ -714,7 +711,6 @@ def _catalog_rows_for_items(item_codes: list) -> dict:
 			"description",
 			"deliverable",
 			"phase",
-			"default_activity_type",
 			"default_designation",
 			"estimated_hours",
 			"is_internal_cost_task",
@@ -740,7 +736,6 @@ def _catalog_rows_for_items(item_codes: list) -> dict:
 				"description": si.description,
 				"deliverable": si.deliverable,
 				"phase": si.phase,
-				"activity_type": si.default_activity_type,
 				"designation": si.default_designation,
 				"estimated_hours": si.estimated_hours,
 				"is_internal_cost_task": si.is_internal_cost_task or 0,
@@ -1110,7 +1105,7 @@ def _materialize_costing_rates(doc, force: bool = False) -> None:
 			continue
 		if not force and row.get("rate_source"):
 			continue  # ya materializada — no recalcular
-		rate, source = get_designation_cost(row.designation, row.activity_type)
+		rate, source = get_designation_cost(row.designation)
 		row.costing_rate = flt(rate)
 		row.rate_source = source
 

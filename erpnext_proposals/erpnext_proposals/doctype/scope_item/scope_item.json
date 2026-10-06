@@ -13,7 +13,6 @@
   "section_effort",
   "estimated_hours",
   "default_designation",
-  "default_activity_type",
   "section_items",
   "erpnext_items",
   "erpnext_item",
@@ -77,14 +76,7 @@
    "fieldtype": "Link",
    "label": "Default Designation",
    "options": "Designation",
-   "description": "Puesto estándar utilizado para calcular el costo de mano de obra (matriz de costos). Valor por defecto; la propuesta trabaja sobre su copia."
-  },
-  {
-   "fieldname": "default_activity_type",
-   "fieldtype": "Link",
-   "label": "Default Activity Type",
-   "options": "Activity Type",
-   "description": "Tipo de actividad estándar utilizado para calcular el costo (matriz de costos). Valor por defecto; la propuesta trabaja sobre su copia."
+   "description": "Puesto que ejecuta esta actividad. Determina la tarifa de costo (matriz de costos por Designation). Valor por defecto; la propuesta trabaja sobre su copia."
   },
   {
    "fieldname": "section_items",

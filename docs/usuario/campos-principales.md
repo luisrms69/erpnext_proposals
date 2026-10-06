@@ -45,8 +45,7 @@ Cada fila de la tabla de alcance en la Cotización tiene estos campos editables.
 | Descripción | Descripción | Texto enriquecido | Descripción del trabajo. Aparece en el PDF debajo del título de la actividad. |
 | Entregable | Entregable | Texto enriquecido | Qué se entrega al completar esta actividad. Aparece en la sección de Entregables del PDF. |
 | Horas estimadas | Horas estimadas | Número | Esfuerzo esperado. Usado en el cálculo de rentabilidad y en la tarea del proyecto. |
-| Tipo de actividad | Tipo de actividad | Referencia | Tipo de trabajo (Desarrollo, Consultoría, etc.). Se usa para calcular el costo por hora en el reporte de rentabilidad. |
-| Perfil | Perfil | Referencia | Designación o perfil del profesional que ejecuta. Aparece en el Plan de Trabajo del PDF. |
+| Perfil | Perfil | Referencia | Designación o perfil del profesional que ejecuta. Determina el costo por hora en el reporte de rentabilidad (`costo = horas × tarifa(Designation)`) y aparece en el Plan de Trabajo del PDF. |
 
 ### Campos internos de costo (solo lectura, no visibles en PDF comercial)
 
@@ -54,8 +53,8 @@ Estos campos se llenan automáticamente al **Enviar (Submit)** la Cotización. R
 
 | Campo | Descripción |
 |---|---|
-| Tasa de costo | Costo/hora congelado al momento del submit. Viene de la Proposal Cost Matrix según el Perfil y Tipo de actividad. |
-| Fuente de tasa | De dónde provino el costo: `matrix` (tasa exacta), `matrix_general` (promedio del perfil), `activity_type` (fallback legacy), `sin_datos`. |
+| Tasa de costo | Costo/hora congelado al momento del submit. Viene de la Proposal Cost Matrix según el Perfil (Designation). |
+| Fuente de tasa | De dónde provino el costo: `matrix` (tarifa de la Designation) o `sin_datos`. |
 | Costo congelado | Marcado automáticamente al submitir. Indica que la tasa ya no se recalcula aunque cambie la matriz. |
 | Congelado el | Fecha y hora en que se congeló el costo. |
 
@@ -141,6 +140,5 @@ genéricos y vienen del catálogo.
 | Descripción | Descripción | Descripción del trabajo. | Al crear. |
 | Entregable | Entregable | Qué se entrega. | Al crear. |
 | Horas estimadas | Horas estimadas | Esfuerzo típico en horas. Puede ajustarse por propuesta. | Al crear. |
-| Tipo de actividad | Tipo de actividad | Categoría de trabajo para cálculo de costo. | Necesario para rentabilidad. |
-| Perfil | Perfil | Designación del profesional. | Opcional, aparece en el PDF. |
+| Perfil | Perfil | Designación del profesional. Determina el costo por hora (`horas × tarifa(Designation)`). | Necesario para rentabilidad; aparece en el PDF. |
 | Ítem ERPNext | Ítem ERPNext | El ítem de precio en ERPNext al que corresponde este alcance. Este vínculo permite al sistema generar el alcance automáticamente cuando ese ítem aparece en una cotización. | Al crear. Requerido para generación automática. |

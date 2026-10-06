@@ -22,7 +22,7 @@ En el formulario de un **Item ya guardado** aparece, directamente en la barra de
 5. Pulsa **Guardar**.
 
 El diálogo solo **selecciona** Scope Items existentes: no crea Scope Items ni edita su fase, horas,
-tipo de actividad, designación ni secuencia (eso vive en el Scope Item maestro).
+designación ni secuencia (eso vive en el Scope Item maestro).
 
 **Aislamiento por Item:** al quitar un Scope Item desde un Item, solo se elimina la relación con **ese**
 Item; las relaciones de ese Scope Item con **otros** Items permanecen intactas. Ejemplo: si un Scope

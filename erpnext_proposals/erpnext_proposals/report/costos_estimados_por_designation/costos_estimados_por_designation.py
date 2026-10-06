@@ -17,19 +17,6 @@ def _get_columns():
 			"width": 160,
 		},
 		{
-			"label": _("Tipo de Actividad"),
-			"fieldname": "activity_type",
-			"fieldtype": "Link",
-			"options": "Activity Type",
-			"width": 160,
-		},
-		{
-			"label": _("Tasa General"),
-			"fieldname": "is_general_rate",
-			"fieldtype": "Check",
-			"width": 90,
-		},
-		{
 			"label": _("Costo/hora"),
 			"fieldname": "avg_costing_rate",
 			"fieldtype": "Currency",
@@ -98,14 +85,14 @@ def _get_data(filters: dict) -> list:
 
 	query = """
 		SELECT
-			designation, activity_type, is_general_rate,
+			designation,
 			avg_costing_rate, avg_billing_rate, employee_count,
 			source, status, last_updated, rate_changed_on, notes
 		FROM `tabProposal Cost Matrix`
 	"""
 	if conditions:
 		query += " WHERE " + " AND ".join(conditions)
-	query += " ORDER BY designation, is_general_rate DESC, activity_type"
+	query += " ORDER BY designation"
 
 	rows = frappe.db.sql(query, values=values, as_dict=True)
 

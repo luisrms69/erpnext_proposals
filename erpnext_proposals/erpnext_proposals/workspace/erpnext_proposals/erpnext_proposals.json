@@ -109,16 +109,6 @@
   {
    "hidden": 0,
    "is_query_report": 0,
-   "label": "Activity Type",
-   "link_count": 0,
-   "link_to": "Activity Type",
-   "link_type": "DocType",
-   "onboard": 0,
-   "type": "Link"
-  },
-  {
-   "hidden": 0,
-   "is_query_report": 0,
    "label": "Reportes",
    "link_count": 0,
    "onboard": 0,

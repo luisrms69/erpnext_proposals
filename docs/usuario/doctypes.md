@@ -142,7 +142,7 @@ Estos documentos son generados y mantenidos automáticamente por el sistema. No 
 
 ### Matriz de costos por perfil (Proposal Cost Matrix)
 
-**Propósito:** Tabla interna que contiene el costo estimado por hora para cada combinación de Designation (perfil) y Activity Type (tipo de trabajo). Es la fuente principal que usa la Rentabilidad Estimada para calcular costos laborales.
+**Propósito:** Tabla interna que contiene el costo estimado por hora para cada Designation (perfil). Es la fuente única que usa la Rentabilidad Estimada para calcular el costo laboral: `costo = horas × tarifa(Designation)`. (Activity Type ya no interviene en el costeo.)
 
 **Cuándo se usa:**
 - Se genera automáticamente al ejecutar "Recalcular Costos" desde el reporte **Costos estimados por Designation**
@@ -150,9 +150,8 @@ Estos documentos son generados y mantenidos automáticamente por el sistema. No 
 - Nunca se edita manualmente — se deriva de los datos de empleados
 
 **Qué contiene:**
-- Una fila por combinación de Designation + Activity Type (con tasa específica)
-- Una fila general por Designation (promedio de todos sus activity types)
-- Fuente de los datos: Activity Cost, Timesheets históricos o Salary Assignments
+- Una fila por Designation (tarifa única por perfil)
+- Fuente de los datos: Activity Cost, Timesheets históricos o Salary Assignments (agregados por Designation)
 - Estado: `ok`, `warning` (pocos datos), `sin_datos`
 
 **Relación con otros documentos:**
@@ -169,7 +168,7 @@ Estos documentos son generados y mantenidos automáticamente por el sistema. No 
 - Se crea automáticamente — no requiere acción del usuario
 
 **Qué contiene por registro:**
-- Designation y Activity Type afectados
+- Designation afectada
 - Tasa anterior y tasa nueva
 - Fuente de los datos
 - Fecha del cambio y ID del rebuild
