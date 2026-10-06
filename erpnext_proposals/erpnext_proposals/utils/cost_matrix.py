@@ -11,38 +11,42 @@ from erpnext_proposals.erpnext_proposals.utils.permissions import assert_can_man
 @frappe.whitelist()
 def rebuild_cost_matrix() -> dict:
 	"""
-	Rebuilds Proposal Cost Matrix from employee cost data.
+	Rebuilds Proposal Cost Matrix from employee cost data — UNA tarifa por Designation.
 
-	Source hierarchy per (designation, activity_type):
-	  1. Activity Cost  — employee-level explicit rate
-	  2. Timesheet Detail — historical average from real timesheets
-	  3. Salary Structure Assignment — base/160h as hourly proxy
+	Activity Type dejó de ser una dimensión del costeo: la tarifa se agrega directamente por
+	``Designation`` desde las fuentes HR, con esta precedencia por Designation:
+	  1. Activity Cost  — tarifa explícita a nivel empleado
+	  2. Timesheet Detail — promedio histórico de timesheets reales
+	  3. Salary Structure Assignment — base/160h como proxy horario
 
-	Does NOT mix sources within the same (designation, activity_type) pair.
-	Updates existing records; does not wipe the table between runs.
-	Creates a Proposal Cost Matrix Log entry on every real rate change,
-	and on first insert (old_rate=0).
-	Returns a summary dict.
+	No mezcla fuentes para la misma Designation. Actualiza en sitio (no vacía la tabla entre corridas)
+	y, al final, elimina filas legacy con ``activity_type`` (dimensión retirada) para que quede una sola
+	tarifa efectiva por Designation. Registra un Proposal Cost Matrix Log en cada cambio real de tarifa
+	y en el primer alta (old_rate=0). Devuelve un resumen.
 	"""
 	assert_can_manage_proposals()
 
 	run_id = _generate_run_id()
 	created = updated = skipped = logged = 0
 
+	# Retiro de filas legacy con activity_type (dimensión eliminada) ANTES de upsert, para dejar una sola
+	# tarifa por Designation. Guardado por existencia de columna: en un install fresco la columna nunca se
+	# crea (el DocType ya no la define); en installs existentes queda huérfana hasta su retiro físico.
+	if "activity_type" in frappe.db.get_table_columns("Proposal Cost Matrix"):
+		frappe.db.delete("Proposal Cost Matrix", {"activity_type": ["is", "set"]})
+
 	activity_rows = _fetch_activity_cost_data()
 	timesheet_rows = _fetch_timesheet_data()
 	salary_rows = _fetch_salary_data()
 
-	activity_keys = {(r.designation, r.activity_type) for r in activity_rows}
-	timesheet_keys = {(r.designation, r.activity_type) for r in timesheet_rows}
-	covered_by_upper = activity_keys | timesheet_keys
+	activity_desigs = {r.designation for r in activity_rows}
+	timesheet_desigs = {r.designation for r in timesheet_rows}
+	covered_by_upper = activity_desigs | timesheet_desigs
 
 	for row in activity_rows:
 		notes = _single_employee_note(row.employee_count)
 		c, u, l = _upsert(
 			designation=row.designation,
-			activity_type=row.activity_type,
-			is_general_rate=0,
 			avg_costing_rate=flt(row.avg_costing_rate),
 			avg_billing_rate=flt(row.avg_billing_rate),
 			employee_count=int(row.employee_count or 0),
@@ -56,14 +60,12 @@ def rebuild_cost_matrix() -> dict:
 		logged += l
 
 	for row in timesheet_rows:
-		if (row.designation, row.activity_type) in activity_keys:
+		if row.designation in activity_desigs:
 			skipped += 1
 			continue
 		notes = _single_employee_note(row.employee_count)
 		c, u, l = _upsert(
 			designation=row.designation,
-			activity_type=row.activity_type,
-			is_general_rate=0,
 			avg_costing_rate=flt(row.avg_costing_rate),
 			avg_billing_rate=flt(row.avg_billing_rate),
 			employee_count=int(row.employee_count or 0),
@@ -77,17 +79,11 @@ def rebuild_cost_matrix() -> dict:
 		logged += l
 
 	for row in salary_rows:
-		if (row.designation, None) in covered_by_upper:
-			skipped += 1
-			continue
-		has_upper = any(d == row.designation for (d, _) in covered_by_upper)
-		if has_upper:
+		if row.designation in covered_by_upper:
 			skipped += 1
 			continue
 		c, u, l = _upsert(
 			designation=row.designation,
-			activity_type=None,
-			is_general_rate=1,
 			avg_costing_rate=flt(row.avg_costing_rate),
 			avg_billing_rate=0.0,
 			employee_count=int(row.employee_count or 0),
@@ -99,8 +95,6 @@ def rebuild_cost_matrix() -> dict:
 		created += c
 		updated += u
 		logged += l
-
-	_rebuild_general_rates(run_id)
 
 	frappe.db.sql(
 		"UPDATE `tabProposal Cost Matrix` SET status=%s WHERE avg_costing_rate = 0 OR avg_costing_rate IS NULL",
@@ -118,42 +112,21 @@ def rebuild_cost_matrix() -> dict:
 	}
 
 
-def get_designation_cost(designation: str, activity_type: str) -> tuple:
+def get_designation_cost(designation: str) -> tuple:
 	"""
-	Returns (costing_rate, source_label) for use in profitability calculations.
+	Devuelve (costing_rate, source_label) para el costeo laboral: ``labor = estimated_hours x rate(Designation)``.
 
-	Lookup order:
-	1. Proposal Cost Matrix exact match (designation + activity_type)
-	2. Proposal Cost Matrix general rate (designation only, is_general_rate=1)
-	3. Activity Type.costing_rate (legacy fallback)
-	4. (0.0, 'sin_datos')
+	Ruta única: ``Designation → Proposal Cost Matrix → avg_costing_rate``. Activity Type ya NO interviene
+	(sin match exacto por actividad, sin fallback a ``Activity Type.costing_rate``). Sin tarifa → ('sin_datos').
 	"""
 	if designation:
-		if activity_type:
-			row = frappe.db.get_value(
-				"Proposal Cost Matrix",
-				{
-					"designation": designation,
-					"activity_type": activity_type,
-					"status": ["in", ["ok", "warning"]],
-				},
-				"avg_costing_rate",
-			)
-			if row:
-				return flt(row), "matrix"
-
-		gen_row = frappe.db.get_value(
+		row = frappe.db.get_value(
 			"Proposal Cost Matrix",
-			{"designation": designation, "is_general_rate": 1, "status": ["in", ["ok", "warning"]]},
+			{"designation": designation, "status": ["in", ["ok", "warning"]]},
 			"avg_costing_rate",
 		)
-		if gen_row:
-			return flt(gen_row), "matrix_general"
-
-	if activity_type:
-		at_rate = flt(frappe.db.get_value("Activity Type", activity_type, "costing_rate") or 0)
-		if at_rate:
-			return at_rate, "activity_type"
+		if row:
+			return flt(row), "matrix"
 
 	return 0.0, "sin_datos"
 
@@ -185,8 +158,6 @@ def _generate_run_id() -> str:
 
 def _log_rate_change(
 	designation: str,
-	activity_type: str | None,
-	is_general_rate: int,
 	old_rate: float,
 	new_rate: float,
 	source: str,
@@ -198,8 +169,6 @@ def _log_rate_change(
 		{
 			"doctype": "Proposal Cost Matrix Log",
 			"designation": designation,
-			"activity_type": activity_type or None,
-			"is_general_rate": is_general_rate,
 			"old_rate": flt(old_rate),
 			"new_rate": flt(new_rate),
 			"source": source,
@@ -213,8 +182,6 @@ def _log_rate_change(
 
 def _upsert(
 	designation: str,
-	activity_type: str | None,
-	is_general_rate: int,
 	avg_costing_rate: float,
 	avg_billing_rate: float,
 	employee_count: int,
@@ -223,12 +190,8 @@ def _upsert(
 	notes: str,
 	run_id: str,
 ) -> tuple:
-	"""Create or update one Proposal Cost Matrix row. Returns (created, updated, logged)."""
-	filters = {"designation": designation, "is_general_rate": is_general_rate}
-	if activity_type:
-		filters["activity_type"] = activity_type
-	else:
-		filters["activity_type"] = ["is", "not set"]
+	"""Create or update la fila por Designation. Returns (created, updated, logged)."""
+	filters = {"designation": designation}
 
 	existing = frappe.db.get_value(
 		"Proposal Cost Matrix", filters, ["name", "avg_costing_rate"], as_dict=True
@@ -254,17 +217,7 @@ def _upsert(
 		frappe.db.set_value("Proposal Cost Matrix", existing.name, update_values, update_modified=False)
 
 		if rate_changed:
-			_log_rate_change(
-				designation,
-				activity_type,
-				is_general_rate,
-				old_rate,
-				avg_costing_rate,
-				source,
-				employee_count,
-				run_id,
-				notes,
-			)
+			_log_rate_change(designation, old_rate, avg_costing_rate, source, employee_count, run_id, notes)
 			return 0, 1, 1
 
 		return 0, 1, 0
@@ -273,8 +226,6 @@ def _upsert(
 		{
 			"doctype": "Proposal Cost Matrix",
 			"designation": designation,
-			"activity_type": activity_type or None,
-			"is_general_rate": is_general_rate,
 			"avg_costing_rate": avg_costing_rate,
 			"avg_billing_rate": avg_billing_rate,
 			"employee_count": employee_count,
@@ -290,8 +241,6 @@ def _upsert(
 	# Log first insert with old_rate=0
 	_log_rate_change(
 		designation,
-		activity_type,
-		is_general_rate,
 		0.0,
 		avg_costing_rate,
 		source,
@@ -302,47 +251,11 @@ def _upsert(
 	return 1, 0, 1
 
 
-def _rebuild_general_rates(run_id: str) -> None:
-	"""
-	For each designation that has specific activity_type rows,
-	create/update one is_general_rate=1 row with the weighted average.
-	"""
-	rows = frappe.db.sql(
-		"""
-        SELECT
-            designation,
-            AVG(avg_costing_rate) AS avg_costing_rate,
-            AVG(avg_billing_rate) AS avg_billing_rate,
-            SUM(employee_count) AS employee_count,
-            MIN(source) AS source
-        FROM `tabProposal Cost Matrix`
-        WHERE is_general_rate = 0
-            AND avg_costing_rate > 0
-        GROUP BY designation
-        """,
-		as_dict=True,
-	)
-	for row in rows:
-		_upsert(
-			designation=row.designation,
-			activity_type=None,
-			is_general_rate=1,
-			avg_costing_rate=flt(row.avg_costing_rate),
-			avg_billing_rate=flt(row.avg_billing_rate),
-			employee_count=int(row.employee_count or 0),
-			source=row.source,
-			status="ok",
-			notes="",
-			run_id=run_id,
-		)
-
-
 def _fetch_activity_cost_data() -> list:
 	return frappe.db.sql(
 		"""
         SELECT
             e.designation,
-            ac.activity_type,
             AVG(ac.costing_rate) AS avg_costing_rate,
             AVG(COALESCE(ac.billing_rate, 0)) AS avg_billing_rate,
             COUNT(DISTINCT ac.employee) AS employee_count
@@ -352,7 +265,7 @@ def _fetch_activity_cost_data() -> list:
             AND e.designation IS NOT NULL
             AND e.designation != ''
             AND ac.costing_rate > 0
-        GROUP BY e.designation, ac.activity_type
+        GROUP BY e.designation
         """,
 		as_dict=True,
 	)
@@ -363,7 +276,6 @@ def _fetch_timesheet_data() -> list:
 		"""
         SELECT
             e.designation,
-            td.activity_type,
             AVG(td.costing_rate) AS avg_costing_rate,
             AVG(COALESCE(td.billing_rate, 0)) AS avg_billing_rate,
             COUNT(DISTINCT ts.employee) AS employee_count
@@ -374,7 +286,7 @@ def _fetch_timesheet_data() -> list:
             AND e.designation IS NOT NULL
             AND e.designation != ''
             AND td.costing_rate > 0
-        GROUP BY e.designation, td.activity_type
+        GROUP BY e.designation
         """,
 		as_dict=True,
 	)

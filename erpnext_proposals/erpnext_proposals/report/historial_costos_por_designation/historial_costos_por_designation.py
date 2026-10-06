@@ -17,19 +17,6 @@ def _get_columns():
 			"width": 160,
 		},
 		{
-			"label": _("Tipo de Actividad"),
-			"fieldname": "activity_type",
-			"fieldtype": "Link",
-			"options": "Activity Type",
-			"width": 150,
-		},
-		{
-			"label": _("Tasa General"),
-			"fieldname": "is_general_rate",
-			"fieldtype": "Check",
-			"width": 85,
-		},
-		{
 			"label": _("Tasa Anterior"),
 			"fieldname": "old_rate",
 			"fieldtype": "Currency",
@@ -94,10 +81,6 @@ def _get_data(filters: dict) -> list:
 		conditions.append("designation = %(designation)s")
 		values["designation"] = filters["designation"]
 
-	if filters.get("activity_type"):
-		conditions.append("activity_type = %(activity_type)s")
-		values["activity_type"] = filters["activity_type"]
-
 	if filters.get("from_date"):
 		conditions.append("changed_on >= %(from_date)s")
 		values["from_date"] = filters["from_date"]
@@ -108,14 +91,14 @@ def _get_data(filters: dict) -> list:
 
 	query = """
 		SELECT
-			designation, activity_type, is_general_rate,
+			designation,
 			old_rate, new_rate, source, employee_count,
 			changed_on, rebuild_run_id, notes
 		FROM `tabProposal Cost Matrix Log`
 	"""
 	if conditions:
 		query += " WHERE " + " AND ".join(conditions)
-	query += " ORDER BY designation, activity_type, changed_on DESC"
+	query += " ORDER BY designation, changed_on DESC"
 
 	rows = frappe.db.sql(query, values=values, as_dict=True)
 

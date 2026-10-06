@@ -52,6 +52,8 @@ from erpnext_proposals.erpnext_proposals.utils.quotation import _economic_behavi
 
 TEMPLATE = "_EC Template"
 ACT = "_EC Activity"
+DESIG = "_EC Perfil"
+DESIG2 = "_EC Perfil Hi"
 PHASE = "_EC_PHASE"
 BPL = "_EC Buying PL"
 GROUP_INFRA = "_EC Infra Group"
@@ -327,6 +329,23 @@ class TestEconomicCalendar(unittest.TestCase):
 		if not frappe.db.exists("Activity Type", ACT):
 			frappe.get_doc({"doctype": "Activity Type", "activity_type": ACT}).insert(ignore_permissions=True)
 		frappe.db.set_value("Activity Type", ACT, "costing_rate", 100)
+
+		# Costeo por Designation (ruta única): tarifa en Proposal Cost Matrix por Designation.
+		for _d, _r in ((DESIG, 100), (DESIG2, 2000)):
+			if not frappe.db.exists("Designation", _d):
+				frappe.get_doc({"doctype": "Designation", "designation_name": _d}).insert(
+					ignore_permissions=True
+				)
+			if not frappe.db.exists("Proposal Cost Matrix", {"designation": _d}):
+				frappe.get_doc(
+					{
+						"doctype": "Proposal Cost Matrix",
+						"designation": _d,
+						"avg_costing_rate": _r,
+						"status": "ok",
+						"notes": "_EC",
+					}
+				).insert(ignore_permissions=True)
 
 		if not frappe.db.exists("Proposal Phase", PHASE):
 			frappe.get_doc(
@@ -668,7 +687,7 @@ class TestEconomicCalendar(unittest.TestCase):
 					"scope_item": SC_MASTER,
 					"item_code": IT_LAB,
 					"estimated_hours": 3,
-					"activity_type": ACT,
+					"designation": DESIG,
 					"phase": PHASE,
 					"include_in_proposal": 1,
 					"planned_start_offset_days": "0",
@@ -741,7 +760,7 @@ class TestEconomicCalendar(unittest.TestCase):
 					"scope_item": SC_MASTER,
 					"item_code": IT_ONE,  # atribuible a una línea vendida (sin unattributed_labor)
 					"estimated_hours": hours,
-					"activity_type": ACT,  # costing_rate 100 → costo 180000
+					"designation": DESIG,  # rate 100 → costo 180000
 					"phase": PHASE,
 					"include_in_proposal": 1,
 					"planned_start_offset_days": "0",
@@ -848,7 +867,7 @@ class TestEconomicCalendar(unittest.TestCase):
 					"scope_item": SC_MASTER,
 					"item_code": IT_ONE,
 					"estimated_hours": 10,
-					"activity_type": ACT,
+					"designation": DESIG,
 					"phase": PHASE,
 					"include_in_proposal": 1,
 					"planned_start_offset_days": "360",  # Mes 12 en base
@@ -958,7 +977,7 @@ class TestEconomicCalendar(unittest.TestCase):
 					"scope_item": SC_MASTER,
 					"item_code": IT_ONE,
 					"estimated_hours": 100,
-					"activity_type": ACT,
+					"designation": DESIG,
 					"phase": PHASE,
 					"include_in_proposal": 1,
 					"planned_start_offset_days": "0",
@@ -968,7 +987,7 @@ class TestEconomicCalendar(unittest.TestCase):
 					"scope_item": SC_MASTER,
 					"item_code": IT_ONE,
 					"estimated_hours": 10,
-					"activity_type": act2,
+					"designation": DESIG2,
 					"phase": PHASE,
 					"include_in_proposal": 1,
 					"planned_start_offset_days": "30",
@@ -1020,7 +1039,7 @@ class TestEconomicCalendar(unittest.TestCase):
 					"scope_item": SC_MASTER,
 					"item_code": IT_ONE,
 					"estimated_hours": 10,
-					"activity_type": ACT,
+					"designation": DESIG,
 					"phase": PHASE,
 					"include_in_proposal": 1,
 					"planned_start_offset_days": "0",
@@ -1137,7 +1156,7 @@ class TestEconomicCalendar(unittest.TestCase):
 					"scope_item": SC_MASTER,
 					"item_code": IT_LAB,
 					"estimated_hours": 5,
-					"activity_type": ACT,
+					"designation": DESIG,
 					"phase": PHASE,
 					"include_in_proposal": 1,
 					"planned_start_offset_days": "400",
@@ -1166,7 +1185,6 @@ class TestEconomicCalendar(unittest.TestCase):
 					"title": "Diseño de arquitectura",
 					"item_code": IT_LAB,
 					"estimated_hours": 10,
-					"activity_type": ACT,
 					"designation": "_EC Perfil",
 					"phase": PHASE,
 					"include_in_proposal": 1,
@@ -1261,7 +1279,7 @@ class TestEconomicCalendar(unittest.TestCase):
 					"scope_item": SC_MASTER,
 					"item_code": IT_REC,
 					"estimated_hours": 3,
-					"activity_type": ACT,
+					"designation": DESIG,
 					"phase": PHASE,
 					"include_in_proposal": 1,
 					"planned_start_offset_days": "0",
@@ -1284,7 +1302,7 @@ class TestEconomicCalendar(unittest.TestCase):
 					"scope_item": SC_MASTER,
 					"item_code": IT_REC,
 					"estimated_hours": 5,
-					"activity_type": ACT,
+					"designation": DESIG,
 					"phase": PHASE,
 					"include_in_proposal": 1,
 					"planned_start_offset_days": "390",  # Mes 13
@@ -1317,7 +1335,7 @@ class TestEconomicCalendar(unittest.TestCase):
 					"scope_item": SC_MASTER,
 					"item_code": IT_ONE,
 					"estimated_hours": 4,
-					"activity_type": ACT,
+					"designation": DESIG,
 					"phase": PHASE,
 					"include_in_proposal": 1,
 					"planned_start_offset_days": "90",  # Mes 3
@@ -1636,7 +1654,7 @@ class TestEconomicCalendar(unittest.TestCase):
 					"scope_item": SC_MASTER,
 					"item_code": IT_LAB,
 					"estimated_hours": 5,
-					"activity_type": ACT,
+					"designation": DESIG,
 					"phase": PHASE,
 					"include_in_proposal": 1,
 					"planned_start_offset_days": "400",  # Mes 13
@@ -1806,7 +1824,7 @@ class TestEconomicCalendar(unittest.TestCase):
 					"code": "_APU-1",
 					"item_code": IT_ONE,
 					"estimated_hours": 5,
-					"activity_type": ACT,
+					"designation": DESIG,
 					"include_in_proposal": 1,
 					"planned_start_offset_days": "0",
 					"planned_duration_days": 0,
@@ -1816,7 +1834,7 @@ class TestEconomicCalendar(unittest.TestCase):
 					"code": "_APU-2",
 					"item_code": IT_ONE,
 					"estimated_hours": 3,
-					"activity_type": ACT,
+					"designation": DESIG,
 					"include_in_proposal": 1,
 					"planned_start_offset_days": "30",
 					"planned_duration_days": 0,

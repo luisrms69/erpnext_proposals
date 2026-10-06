@@ -157,7 +157,10 @@
    "fieldname": "activity_type",
    "fieldtype": "Link",
    "label": "Activity Type",
-   "options": "Activity Type"
+   "options": "Activity Type",
+   "hidden": 1,
+   "read_only": 1,
+   "description": "LEGACY — dimensión retirada del costeo. Se conserva solo por compatibilidad de snapshots históricos; no se puebla en documentos nuevos ni participa en cálculos."
   },
   {
    "fieldname": "designation",

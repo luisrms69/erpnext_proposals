@@ -199,8 +199,8 @@ Al avanzar el workflow también pueden aparecer advertencias que no bloquean el 
 
 | Advertencia | Qué significa |
 |---|---|
-| Actividades sin tipo de actividad | Algunas filas de alcance no tienen "Tipo de actividad" asignado. El cálculo de rentabilidad estará incompleto. |
-| Tipos de actividad sin costo por hora | Los tipos de actividad usados no tienen configurado el costo por hora en ERPNext. |
+| Actividades sin Perfil | Algunas filas de alcance no tienen "Perfil" (Designation) asignado. El cálculo de rentabilidad estará incompleto. |
+| Perfiles sin tarifa de costo | Los perfiles usados no tienen tarifa configurada en la Proposal Cost Matrix. |
 | Moneda diferente a moneda base | La cotización está en una moneda distinta a la configurada en la empresa. El cálculo de rentabilidad puede tener inconsistencias. |
 
 ---

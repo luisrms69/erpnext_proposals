@@ -156,7 +156,7 @@ def _labor_rate_source(row, is_frozen: bool) -> tuple:
 				"Una propuesta formal no puede resolver costos desde datos vivos."
 			).format(row.get("code") or row.get("scope_item") or row.get("title"))
 		)
-	rate, source = get_designation_cost(row.get("designation"), row.get("activity_type"))
+	rate, source = get_designation_cost(row.get("designation"))
 	return flt(rate), source
 
 

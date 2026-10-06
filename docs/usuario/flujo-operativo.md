@@ -22,7 +22,7 @@ La app **no** instala contenido comercial de ejemplo al instalarse. Las **Seccio
 1. Revisar las **Secciones de propuesta** y personalizar su contenido al tono y estilo del negocio
 2. Revisar los **Templates de propuesta** existentes o crear nuevos
 3. Crear el catálogo de **Alcances** con las actividades/servicios que la empresa ofrece
-4. Verificar que los **Activity Types** de ERPNext tengan configurado el costo por hora — esto es necesario para que el reporte de rentabilidad calcule correctamente
+4. Ejecutar **Recalcular Costos** para poblar la **Proposal Cost Matrix** (tarifa por Designation) — esto es necesario para que el reporte de rentabilidad calcule correctamente (`costo = horas × tarifa(Designation)`)
 
 Sin la configuración del catálogo de alcances, el módulo funciona pero la tabla de alcance en cada cotización quedará vacía y deberá llenarse manualmente.
 
@@ -123,8 +123,8 @@ Antes de procesar cualquier cambio de estado, el sistema verifica automáticamen
 Si alguna condición falla, el sistema muestra un error y bloquea el avance.
 
 El sistema también muestra **advertencias no bloqueantes** cuando:
-- Alguna actividad de alcance no tiene tipo de actividad asignado
-- Algún tipo de actividad no tiene costo por hora configurado
+- Alguna actividad de alcance no tiene Perfil (Designation) asignado
+- Algún Perfil no tiene tarifa de costo configurada en la Proposal Cost Matrix
 - La moneda de la cotización es distinta a la moneda base de la empresa
 
 Las advertencias no impiden avanzar, pero indican datos incompletos que afectarán el cálculo de rentabilidad.

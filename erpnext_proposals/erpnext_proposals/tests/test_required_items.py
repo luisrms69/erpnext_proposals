@@ -28,6 +28,7 @@ from erpnext_proposals.erpnext_proposals.utils.quotation import (
 TEMPLATE = "_Test RI Template"
 BPL = "_Test RI Buying PL"
 ACT = "_Test RI Activity"
+DESIG = "_Test RI Perfil"
 PHASE = "_RI_PHASE"
 
 # Items (todos genéricos).
@@ -86,10 +87,21 @@ class TestRequiredItems(unittest.TestCase):
 		cls._prev_bpl = frappe.db.get_single_value("Buying Settings", "buying_price_list")
 		frappe.db.set_single_value("Buying Settings", "buying_price_list", BPL)
 
-		# Activity Type con costing_rate (fuente de costo laboral vía fallback de get_designation_cost).
-		if not frappe.db.exists("Activity Type", ACT):
-			frappe.get_doc({"doctype": "Activity Type", "activity_type": ACT}).insert(ignore_permissions=True)
-		frappe.db.set_value("Activity Type", ACT, "costing_rate", 100)
+		# Costeo por Designation (ruta única): tarifa en Proposal Cost Matrix por Designation.
+		if not frappe.db.exists("Designation", DESIG):
+			frappe.get_doc({"doctype": "Designation", "designation_name": DESIG}).insert(
+				ignore_permissions=True
+			)
+		if not frappe.db.exists("Proposal Cost Matrix", {"designation": DESIG}):
+			frappe.get_doc(
+				{
+					"doctype": "Proposal Cost Matrix",
+					"designation": DESIG,
+					"avg_costing_rate": 100,
+					"status": "ok",
+					"notes": "_RI",
+				}
+			).insert(ignore_permissions=True)
 
 		# Proposal Phase (requerida para crear Project desde el scope).
 		if not frappe.db.exists("Proposal Phase", PHASE):
@@ -190,7 +202,7 @@ class TestRequiredItems(unittest.TestCase):
 				"enabled": 1,
 				"visible_in_proposal": 1,
 				"estimated_hours": hours,
-				"default_activity_type": ACT,
+				"default_designation": DESIG,
 				"phase": PHASE,
 				"erpnext_item": item,
 			}

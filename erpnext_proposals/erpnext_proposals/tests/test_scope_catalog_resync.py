@@ -42,7 +42,6 @@ CONTROLLED_FIELDS = (
 	"description",
 	"deliverable",
 	"phase",
-	"activity_type",
 	"designation",
 	"estimated_hours",
 )
@@ -277,7 +276,6 @@ class TestScopeCatalogResync(unittest.TestCase):
 			"phase": si.phase,
 			"estimated_hours": si.estimated_hours,
 			"default_designation": si.default_designation,
-			"default_activity_type": si.default_activity_type,
 			"sequence": si.sequence,
 		}
 		si.title = "A1 nuevo"
@@ -300,7 +298,6 @@ class TestScopeCatalogResync(unittest.TestCase):
 				"estimated_hours": 77,
 				"sequence": 42,
 				"designation": DESIG,  # mapeo default_designation → designation
-				"activity_type": ACT,  # mapeo default_activity_type → activity_type
 				"code": "_RESYNC_A1",  # code == name del Scope Item
 			}
 			for field, expected in checks.items():

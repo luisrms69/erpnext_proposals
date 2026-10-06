@@ -69,7 +69,6 @@ def get_profitability_data(quotation_name: str) -> dict:
 	labor_rows = []
 	total_labor_hours = 0.0
 	total_labor_cost = 0.0
-	missing_activity = 0
 	missing_rate = 0
 	missing_designation = 0
 	# "Formalizado" = propuesta FORMAL congelada (docstatus=1 CON proposal_template). Una Quotation
@@ -96,21 +95,14 @@ def get_profitability_data(quotation_name: str) -> dict:
 						"Una propuesta formal no puede resolver costos desde datos vivos."
 					).format(row.code or row.scope_item or row.title)
 				)
-			costing_rate, rate_source = get_designation_cost(row.designation, row.activity_type)
+			costing_rate, rate_source = get_designation_cost(row.designation)
 			notes = rate_source
 
 			if rate_source == "sin_datos":
 				missing_rate += 1
-				if not row.designation and not row.activity_type:
-					missing_activity += 1
-					missing_designation += 1
-					notes = "sin_designation_ni_activity"
-				elif not row.designation:
+				if not row.designation:
 					missing_designation += 1
 					notes = "sin_designation"
-				elif not row.activity_type:
-					missing_activity += 1
-					notes = "sin_activity_type"
 				else:
 					notes = "sin_costing_rate"
 			elif not row.designation:
@@ -125,7 +117,6 @@ def get_profitability_data(quotation_name: str) -> dict:
 			{
 				"phase": row.phase or "",
 				"title": row.title or row.code,
-				"activity_type": row.activity_type or "",
 				"designation": row.designation or "",
 				"hours": hours,
 				"costing_rate": costing_rate,
@@ -277,10 +268,6 @@ def get_profitability_data(quotation_name: str) -> dict:
 		warnings.append(
 			_("{0} tarea(s) sin Designation — costo por perfil no disponible.").format(missing_designation)
 		)
-	if missing_activity:
-		warnings.append(
-			_("{0} tarea(s) sin activity_type ni Designation — sin fuente de costo.").format(missing_activity)
-		)
 	if missing_rate:
 		warnings.append(
 			_("{0} tarea(s) sin costing_rate — costo laboral calculado parcialmente.").format(missing_rate)
@@ -303,11 +290,6 @@ def get_profitability_data(quotation_name: str) -> dict:
 			"label": _("Tareas sin Designation"),
 			"status": "ok" if missing_designation == 0 else "warning",
 			"detail": str(missing_designation),
-		},
-		{
-			"label": _("Tareas sin activity_type"),
-			"status": "ok" if missing_activity == 0 else "warning",
-			"detail": str(missing_activity),
 		},
 		{
 			"label": _("Tareas sin costing_rate"),
@@ -372,13 +354,12 @@ def _build_report_rows(d: dict) -> list:
 			if current_phase:
 				data.append(_phase_header(phase_label(current_phase)))
 		notes_map = {
-			"sin_activity_type": _("sin activity_type"),
+			"sin_designation": _("sin Designation"),
 			"sin_costing_rate": _("sin costing_rate"),
 		}
 		data.append(
 			{
 				"label": row["title"],
-				"activity_type": row["activity_type"],
 				"designation": row["designation"],
 				"estimated_hours": row["hours"] or None,
 				"costing_rate": row["costing_rate"] or None,
@@ -547,13 +528,6 @@ def _build_report_rows(d: dict) -> list:
 def _get_columns():
 	return [
 		{"label": _("Fase / Concepto"), "fieldname": "label", "fieldtype": "Data", "width": 260},
-		{
-			"label": _("Actividad"),
-			"fieldname": "activity_type",
-			"fieldtype": "Link",
-			"options": "Activity Type",
-			"width": 130,
-		},
 		{
 			"label": _("Perfil"),
 			"fieldname": "designation",

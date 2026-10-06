@@ -163,13 +163,10 @@ def _warn_non_blocking(doc):
 	# Filas costables = las mismas que costea el reporte (vendibles O internas de costo).
 	scope_rows = [r for r in doc.quotation_scope_items if r.include_in_proposal or r.is_internal_cost_task]
 
-	# Costo laboral incompleto = filas SIN tarifa resoluble. `Activity Type` NO es requisito: el motor
-	# (`get_designation_cost`) resuelve por tarifa específica (Designation + Activity Type), por tarifa
-	# GENERAL de la Designation (`is_general_rate=1`) o por Activity Type. Solo se marca incompleto cuando
-	# ninguna fuente resuelve una tarifa (`sin_datos` → 0). No se exige Activity Type.
-	missing_rate = sum(
-		1 for r in scope_rows if not flt(get_designation_cost(r.designation, r.activity_type)[0])
-	)
+	# Costo laboral incompleto = filas SIN tarifa resoluble. El costeo es `horas x tarifa(Designation)`:
+	# `get_designation_cost` resuelve únicamente por la tarifa de la Designation en Proposal Cost Matrix.
+	# Solo se marca incompleto cuando no hay tarifa para la Designation (`sin_datos` → 0).
+	missing_rate = sum(1 for r in scope_rows if not flt(get_designation_cost(r.designation)[0]))
 
 	company_currency = (
 		frappe.db.get_value("Company", doc.company, "default_currency") if doc.company else None

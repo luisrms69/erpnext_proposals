@@ -82,7 +82,7 @@ Condiciones que deben estar configuradas en el sistema para que ciertas funciona
 
 | Requisito | Qué falla si no está | Dónde configurar |
 |---|---|---|
-| Activity Types con costo por hora | Fallback del reporte de Rentabilidad si no hay datos en la matriz. | ERPNext → Activity Type → campo "Costing Rate" |
+| Proposal Cost Matrix poblada (tarifa por Designation) | El reporte de Rentabilidad no puede calcular el costo laboral (`sin_datos`). | Reporte "Costos estimados por Designation" → Recalcular Costos |
 | Employees con Designation asignada | La Proposal Cost Matrix no puede derivar costos. El reporte muestra la matriz vacía. | HR → Employee → campo "Designation" |
 | Activity Cost configurado por empleado | Sin esto la matriz usa fuentes de menor prioridad (Timesheets o Salary). | Projects → Activity Cost → New |
 | Ejecutar "Recalcular Costos" al menos una vez | La Proposal Cost Matrix queda vacía hasta el primer rebuild. | Workspace → Reportes → Costos estimados por Designation |

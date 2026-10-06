@@ -378,8 +378,6 @@ def _materialize_scope_into_project(quotation, project, exec_rows) -> dict:
 					desc_parts.append(row.description)
 				if row.deliverable:
 					desc_parts.append(f"<p><strong>Entregable:</strong></p>{row.deliverable}")
-				if row.activity_type:
-					desc_parts.append(f"<p><strong>Tipo de actividad:</strong> {row.activity_type}</p>")
 				if row.designation:
 					desc_parts.append(f"<p><strong>Perfil:</strong> {row.designation}</p>")
 

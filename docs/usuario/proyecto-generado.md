@@ -62,7 +62,7 @@ Por cada fila de alcance marcada como **"Incluir en propuesta"**, se crea una Ta
 | Campo de la Tarea | Origen |
 |---|---|
 | Asunto | "{Fase} — {Título de la actividad}" (si hay fase) o solo el título |
-| Descripción | Descripción de la actividad + Entregable + Tipo de actividad + Perfil (combinados) |
+| Descripción | Descripción de la actividad + Entregable + Perfil (combinados) |
 | Tiempo esperado | Horas estimadas de la actividad |
 | Estado | Open |
 

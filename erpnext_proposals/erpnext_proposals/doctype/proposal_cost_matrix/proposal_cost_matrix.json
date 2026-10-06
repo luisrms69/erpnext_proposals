@@ -8,8 +8,6 @@
  "engine": "InnoDB",
  "field_order": [
   "designation",
-  "activity_type",
-  "is_general_rate",
   "col_break_rates",
   "avg_costing_rate",
   "avg_billing_rate",
@@ -30,20 +28,6 @@
    "label": "Designation",
    "options": "Designation",
    "reqd": 1
-  },
-  {
-   "fieldname": "activity_type",
-   "fieldtype": "Link",
-   "in_list_view": 1,
-   "label": "Tipo de Actividad",
-   "options": "Activity Type"
-  },
-  {
-   "fieldname": "is_general_rate",
-   "fieldtype": "Check",
-   "in_list_view": 1,
-   "label": "Es Tasa General",
-   "description": "1 = tasa promedio para esta Designation sin distinción de Activity Type."
   },
   {
    "fieldname": "col_break_rates",
