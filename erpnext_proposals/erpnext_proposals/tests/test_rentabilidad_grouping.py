@@ -61,17 +61,21 @@ class TestRentabilidadGrouping(unittest.TestCase):
 		self.assertIn(phase_label("DISC"), labels)
 		self.assertIn(phase_label("IMPL"), labels)
 
-	def test_groups_by_item_when_a_phase_is_missing(self):
-		# Falta la fase en ambas filas → fallback: headers por Item (item_code), nunca headers de fase.
+	def test_groups_by_item_when_no_row_has_phase(self):
+		# NINGUNA fila tiene fase → fallback: headers por Item (item_code), nunca headers de fase.
 		rows = _build_report_rows(_d([_lr("", "IT-A", "a"), _lr("", "IT-B", "b")]))
 		labels = [r.get("label") for r in rows]
 		self.assertIn("IT-A", labels)
 		self.assertIn("IT-B", labels)
 
-	def test_mixed_missing_phase_groups_by_item(self):
-		# Si alguna fila carece de fase, TODO el bloque se agrupa por Item (nunca modo mixto fase+item).
+	def test_mixed_phase_keeps_phase_grouping(self):
+		# Mixto (≥1 fila con fase): se CONSERVA la agrupación por fase; una fila sin fase NO fuerza
+		# agrupación por Item (simplemente no recibe header de fase). Solo se agrupa por Item si NINGUNA
+		# fila tiene fase.
+		from erpnext_proposals.erpnext_proposals.utils.phase import phase_label
+
 		rows = _build_report_rows(_d([_lr("DISC", "IT-A", "a"), _lr("", "IT-B", "b")]))
 		labels = [r.get("label") for r in rows]
-		self.assertIn("IT-A", labels)
-		self.assertIn("IT-B", labels)
-		self.assertNotIn("DISC", labels, "modo mixto no permitido: agrupa por Item")
+		self.assertIn(phase_label("DISC"), labels, "con ≥1 fase se agrupa por fase")
+		self.assertNotIn("IT-A", labels, "no debe agrupar por Item en mixto")
+		self.assertNotIn("IT-B", labels)

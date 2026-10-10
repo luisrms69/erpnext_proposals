@@ -348,10 +348,11 @@ def _build_report_rows(d: dict) -> list:
 
 	# Labor section
 	data.append(_section(_("COSTO LABORAL (Horas estimadas)")))
-	# Agrupación: por fase cuando TODAS las filas tienen fase (comportamiento actual, sin cambios
-	# visuales); si FALTA alguna fase, se agrupa por Item (fallback). Nunca modo mixto.
+	# Agrupación: por fase cuando exista AL MENOS una fila con fase (las filas sin fase caen en "Sin
+	# fase"); se agrupa por Item SOLO cuando NINGUNA fila tiene fase. Conserva la presentación por fases
+	# en propuestas mixtas (no la oculta por una sola fila sin fase).
 	labor = d["labor_rows"]
-	group_by_item = bool(labor) and not all(r.get("phase") for r in labor)
+	group_by_item = bool(labor) and not any(r.get("phase") for r in labor)
 	if group_by_item:
 		_order: dict = {}
 		for r in labor:

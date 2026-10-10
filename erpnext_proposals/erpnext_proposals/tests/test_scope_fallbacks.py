@@ -244,7 +244,9 @@ class TestScopeFallbacks(unittest.TestCase):
 		self.assertIn(OWN_SCOPE, codes)
 		self.assertNotIn(COMMIT_SCOPE, codes)
 
-	def test_03_three_simple_items_three_commitments(self):
+	def test_03_three_simple_items_three_operative_tasks(self):
+		# El submit (dentro de _win_project) debe ir DENTRO del contexto allow_multiple_items=1: 3 ítems
+		# idénticos re-validan duplicados en submit y el context manager restaura el valor al salir.
 		with change_settings("Selling Settings", {"allow_multiple_items": 1}):
 			q = self._quotation(
 				[
@@ -252,8 +254,8 @@ class TestScopeFallbacks(unittest.TestCase):
 					for _ in range(3)
 				]
 			)
-		self.assertEqual(self._scope_rows(q), [], "sin commitment: 0 QSI")
-		proj = self._win_project(q)
+			self.assertEqual(self._scope_rows(q), [], "sin commitment: 0 QSI")
+			proj = self._win_project(q)
 		subs = self._subjects(proj)
 		# 3 ocurrencias vendidas sin Scope → 3 Task operativas "Entregar —" (una por padre-Item).
 		self.assertEqual(sum(1 for s in subs if s.startswith("Entregar — ")), 3, subs)
