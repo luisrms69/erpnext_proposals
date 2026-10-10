@@ -5,7 +5,7 @@ from frappe import _
 from frappe.utils import add_days, flt, getdate
 
 from erpnext_proposals.erpnext_proposals.utils.permissions import assert_can_manage_proposals
-from erpnext_proposals.erpnext_proposals.utils.phase import phase_label, phase_sequence
+from erpnext_proposals.erpnext_proposals.utils.phase import phase_sequence
 
 
 def _parse_dep_codes(raw) -> list:
@@ -34,25 +34,6 @@ def _offset_value(raw):
 		return int(s)
 	except ValueError:
 		return None
-
-
-def _copy_native_tags(src_dt: str, src_dn: str, dst_dt: str, dst_dn: str) -> int:
-	"""Copia los Tags NATIVOS de Frappe de un documento a otro con el mecanismo nativo (DocTags).
-
-	Genérico e idempotente: lee ``_user_tags`` del origen y agrega cada Tag al destino mediante
-	``DocTags.add`` (verifica pertenencia + ``unique``, así que un reintento no duplica) creando el
-	Tag master si falta. NO conoce nombres de Tags ni códigos de línea: copia exactamente lo que el
-	origen tenga. Devuelve cuántos Tags tenía el origen (aplicados al destino).
-	"""
-	from frappe.desk.doctype.tag.tag import DocTags
-
-	src_tags = [t for t in DocTags(src_dt).get_tags(src_dn).split(",") if t]
-	if not src_tags:
-		return 0
-	dst = DocTags(dst_dt)
-	for tag in src_tags:
-		dst.add(dst_dn, tag)
-	return len(src_tags)
 
 
 # Nombre del Project: `Project.project_name` es Data (varchar 140), único.
@@ -130,31 +111,24 @@ def _resolve_project_type(quotation) -> str | None:
 
 
 def _validate_scope_for_project(quotation) -> list:
-	"""Preflight compartido por la creación y por el addendum: valida Proposal Template + filas
-	ejecutables + fase. Se ejecuta ANTES de resolver/crear cualquier Project, para no dejar un Project
-	huérfano si un preflight falla. Devuelve las filas ejecutables (vendibles o internas de costo)."""
+	"""Preflight compartido por la creación y por el addendum: valida Proposal Template + que exista
+	programa que generar (≥1 Item vendido o ≥1 fila ejecutable). Se ejecuta ANTES de resolver/crear
+	cualquier Project, para no dejar un Project huérfano si un preflight falla. La fase dejó de ser
+	obligatoria (ya no agrupa ni genera Tasks padre). Devuelve las filas ejecutables (hijas de scope)."""
 	if not quotation.proposal_template:
 		frappe.throw(_("La Cotización no tiene Proposal Template asignado."))
-	# Filas ejecutables: vendibles O internas de costo (participan en costo y Tasks).
+	# Filas ejecutables: vendibles O internas de costo (participan en costo y Tasks hijas).
 	exec_rows = [
 		r for r in quotation.quotation_scope_items if r.include_in_proposal or r.is_internal_cost_task
 	]
-	if not exec_rows:
+	# Cada Item vendido genera su Task padre (con Task operativa si no tiene alcance), así que una
+	# propuesta con Items vendidos SÍ genera Proyecto aunque sea de solo licenciamiento.
+	if not exec_rows and not (quotation.get("items") or []):
 		frappe.throw(
 			_(
-				"No hay actividades ejecutables (visibles o internas de costo) en esta propuesta. "
-				"Una propuesta de solo licenciamiento no genera Proyecto."
+				"No hay Items vendidos ni actividades ejecutables en esta propuesta: no hay programa "
+				"que generar para el Proyecto."
 			)
-		)
-	# Toda fila ejecutable debe tener fase — bloqueo explícito (no se inventa fase ni Task suelta).
-	rows_sin_fase = [r for r in exec_rows if not r.phase]
-	if rows_sin_fase:
-		nombres = ", ".join((r.title or r.code or r.scope_item or "?") for r in rows_sin_fase[:5])
-		frappe.throw(
-			_(
-				"No se puede crear el Proyecto: {0} actividad(es) ejecutable(s) sin fase asignada ({1}). "
-				"Asigne una Proposal Phase a todas las actividades ejecutables antes de crear el Proyecto."
-			).format(len(rows_sin_fase), nombres)
 		)
 	return exec_rows
 
@@ -266,9 +240,10 @@ def _origin_display(row) -> tuple:
 	return (row.item_code, None, None)
 
 
-def _scope_task_subject(row, commitment_code: str | None, purchase_code: str | None) -> str:
-	"""Subject humano de la Task. Para los Scope fallback (compromiso/compra) usa la identidad de la
-	ocurrencia origen (nombre/qty/UOM); para el resto, el comportamiento actual (título — item_code)."""
+def _scope_task_subject(row, purchase_code: str | None) -> str:
+	"""Subject humano de la Task hija de scope. Para el Scope fallback de COMPRA usa la identidad de la
+	ocurrencia origen (nombre/qty/UOM); para el resto, título — item_code. (El subject "Entregar — <item>"
+	de la Task operativa de un Item vendido sin alcance se arma en la materialización, no aquí.)"""
 	sc = row.get("scope_item")
 	if sc and purchase_code and sc == purchase_code:
 		name, qty, uom = _origin_display(row)
@@ -276,76 +251,77 @@ def _scope_task_subject(row, commitment_code: str | None, purchase_code: str | N
 		if qty:
 			suffix = f" × {flt(qty):g}" + (f" {uom}" if uom else "")  # noqa: RUF001
 		return _("Comprar") + f" — {name}{suffix}"
-	if sc and commitment_code and sc == commitment_code:
-		name, _qty, _uom = _origin_display(row)
-		return _("Entregar") + f" — {name}"
 	if row.item_code:
 		return f"{row.title or row.code} — {row.item_code}"
 	return row.title or row.code
 
 
 def _materialize_scope_into_project(quotation, project, exec_rows) -> dict:
-	"""Materializa las filas ejecutables (`exec_rows`) como Tasks jerárquicas sobre un Project **ya
-	resuelto**. NO crea Project y NO hace `frappe.db.commit()` (composable: el caller decide la
-	transacción). Idempotente por `(project, source_quotation_scope_item)` para las hijas y por
-	`(project, proposal_phase)` para las Task-fase: reejecutar no duplica."""
-	from erpnext_proposals.erpnext_proposals.utils.quotation import _proposal_settings
+	"""Materializa el programa sobre un Project **ya resuelto**: una Task padre (`is_group=1`) por cada
+	**ocurrencia de Item contratada**, con sus Scope Items ejecutables como Tasks hijas; si una ocurrencia
+	**vendida** no tiene alcance ejecutable, una única **Task operativa** inicial (sin crear Scope Items
+	artificiales). NO crea Project y NO hace `frappe.db.commit()` (composable: el caller decide la
+	transacción). Idempotente por `(project, source_quotation_item_row, is_group=1)` para el padre,
+	`(project, source_quotation_item_row, is_group=0)` para la Task operativa, y
+	`(project, source_quotation_scope_item)` para las hijas de scope: reejecutar —o reaplicar la misma
+	addenda— no duplica. La fase ya NO agrupa ni es obligatoria."""
+	from erpnext_proposals.erpnext_proposals.utils.quotation import _proposal_settings, _source_rows
 
 	_settings = _proposal_settings(quotation.get("company"))
-	_commitment_code = _settings.get("default_commitment_scope_item") if _settings else None
 	_purchase_code = _settings.get("default_purchase_scope_item") if _settings else None
-	# ── Tasks jerárquicas: Task-fase (padre, is_group) → Task-hija (Scope Item) ──
 	counters = {
 		"parent_created": 0,
 		"parent_reused": 0,
 		"tasks_created": 0,
 		"tasks_skipped": 0,
-		"parent_tags_applied": 0,
 	}
-	phase_task_by_code: dict = {}
 
-	def _phase_parent_task(phase_code: str) -> str:
-		"""Task-fase: una por (Project, Proposal Phase). Idempotente.
+	# Ocurrencias (filas origen) del documento, con orden y metadatos para el padre-por-Item.
+	occ_rows = _source_rows(quotation)
+	occ_order = {src["source_row"]: i for i, src in enumerate(occ_rows)}
+	occ_meta = {src["source_row"]: src for src in occ_rows}
+	item_parent_by_row: dict = {}
 
-		Al CREARLA (no al reutilizarla) congela como **snapshot operativo** el `color` de la Proposal Phase en
-		el campo NATIVO `Task.color`: cambiar después el catálogo NO altera el Project ya generado. La ventana de
-		la fase (inicio/fin) NO se captura: se autocalcula como el rango real de sus Tasks hijas (ver
-		`_rollup_phase_dates`). Tras crear/resolver la Task padre, materializa sus Tags NATIVOS.
-		"""
-		if phase_code in phase_task_by_code:
-			return phase_task_by_code[phase_code]
+	def _item_parent_task(source_row: str) -> str:
+		"""Task padre por **ocurrencia de Item** (`is_group=1`). Idempotente por
+		`(project, source_quotation_item_row, is_group=1)` — inequívocamente distinta de la Task operativa
+		(`is_group=0`) aunque compartan `source_quotation_item_row`. PMO puede editar/ampliar sin romper la
+		identidad (el campo es read-only y no se toca)."""
+		if source_row in item_parent_by_row:
+			return item_parent_by_row[source_row]
 		existing = frappe.db.get_value(
-			"Task", {"project": project.name, "proposal_phase": phase_code, "is_group": 1}, "name"
+			"Task",
+			{"project": project.name, "source_quotation_item_row": source_row, "is_group": 1},
+			"name",
 		)
 		if existing:
 			counters["parent_reused"] += 1
 			name = existing
 		else:
-			color = frappe.db.get_value("Proposal Phase", phase_code, "color")
+			src = occ_meta.get(source_row) or {"item_code": None}
+			subject, _q, _u = _origin_display(frappe._dict(src))
 			parent = frappe.get_doc(
 				{
 					"doctype": "Task",
-					"subject": phase_label(phase_code),
+					"subject": subject or src.get("item_code") or source_row,
 					"project": project.name,
 					"is_group": 1,
 					"expected_time": 0,
 					"status": "Open",
-					"proposal_phase": phase_code,
 					"source_quotation": quotation.name,
-					# Snapshot operativo del color de la fase (campo nativo de Task). Solo al crear.
-					"color": color or None,
+					"source_quotation_item_row": source_row,
 				}
 			)
 			parent.insert(ignore_permissions=True)
 			counters["parent_created"] += 1
 			name = parent.name
-		# Tags nativos Proposal Phase -> Task padre (idempotente; también sincroniza en reintentos).
-		counters["parent_tags_applied"] += _copy_native_tags("Proposal Phase", phase_code, "Task", name)
-		phase_task_by_code[phase_code] = name
+		item_parent_by_row[source_row] = name
 		return name
 
-	# Orden: fases por Proposal Phase.sequence, luego secuencia del scope, luego idx.
-	exec_rows.sort(key=lambda r: (phase_sequence(r.phase), r.sequence or 0, r.idx))
+	# Orden: por ocurrencia (orden del documento), luego fase (sub-orden cuando exista), scope e idx.
+	exec_rows.sort(
+		key=lambda r: (occ_order.get(r.source_row, 1 << 30), phase_sequence(r.phase), r.sequence or 0, r.idx)
+	)
 
 	# Nodos contratados con su Task, para los pasos de dependencias y programación. Incluye Tasks
 	# reutilizadas de una corrida previa: un reintento completa deps/fechas faltantes sin duplicar.
@@ -354,9 +330,11 @@ def _materialize_scope_into_project(quotation, project, exec_rows) -> dict:
 	# materializaciones de cada scope_code, para el fallback único (sin last-wins ni regla cross-item).
 	task_by_row_scope: dict = {}
 	task_by_scope_all: dict = {}
+	rows_with_children: set = set()  # source_rows que materializaron ≥1 Task hija de scope
 
 	for row in exec_rows:
-		parent = _phase_parent_task(row.phase)
+		parent = _item_parent_task(row.source_row)
+		rows_with_children.add(row.source_row)
 		# Idempotencia de la hija: por referencia guardada o por trazabilidad.
 		if row.project_task and frappe.db.exists("Task", row.project_task):
 			task_name = row.project_task
@@ -372,7 +350,7 @@ def _materialize_scope_into_project(quotation, project, exec_rows) -> dict:
 				task_name = existing_child
 				counters["tasks_skipped"] += 1
 			else:
-				subject = _scope_task_subject(row, _commitment_code, _purchase_code)
+				subject = _scope_task_subject(row, _purchase_code)
 				desc_parts = []
 				if row.description:
 					desc_parts.append(row.description)
@@ -392,6 +370,8 @@ def _materialize_scope_into_project(quotation, project, exec_rows) -> dict:
 						"description": "".join(desc_parts),
 						"status": "Open",
 						"is_milestone": 1 if row.is_milestone else 0,
+						"source_quotation": quotation.name,
+						"source_quotation_item_row": row.source_row,
 						"source_quotation_scope_item": row.name,
 					}
 				)
@@ -418,20 +398,49 @@ def _materialize_scope_into_project(quotation, project, exec_rows) -> dict:
 			task_by_row_scope[(row.get("source_row"), row.scope_item)] = task_name
 			task_by_scope_all.setdefault(row.scope_item, []).append(task_name)
 
+	# ── Task operativa inicial: ocurrencia VENDIDA sin ninguna hija de scope ejecutable ──
+	# Una Task hija operativa bajo el padre-Item, SIN crear Scope Items artificiales. No aplica a Required
+	# (los insumos internos no generan padre). Idempotente por (project, source_quotation_item_row, is_group=0).
+	for src in occ_rows:
+		if src["source_type"] != "sold" or src["source_row"] in rows_with_children:
+			continue
+		parent = _item_parent_task(src["source_row"])
+		if frappe.db.get_value(
+			"Task",
+			{"project": project.name, "source_quotation_item_row": src["source_row"], "is_group": 0},
+			"name",
+		):
+			counters["tasks_skipped"] += 1
+			continue
+		item_name, _q, _u = _origin_display(frappe._dict(src))
+		frappe.get_doc(
+			{
+				"doctype": "Task",
+				"subject": _("Entregar") + f" — {item_name or src['item_code']}",
+				"project": project.name,
+				"parent_task": parent,
+				"is_group": 0,
+				"expected_time": 0,
+				"status": "Open",
+				"source_quotation": quotation.name,
+				"source_quotation_item_row": src["source_row"],
+			}
+		).insert(ignore_permissions=True)
+		counters["tasks_created"] += 1
+
 	# ── 2º paso idempotente: dependencias nativas (Task.depends_on / Task Depends On) ──
 	dep_edges = _resolve_native_dependencies(contracted, task_by_row_scope, task_by_scope_all, counters)
 
 	# ── Programación de fechas (offset o propagación por predecesoras) ──
 	undatable = _schedule_tasks(project, contracted, dep_edges)
 
-	# ── Rango de cada Task padre de fase (envelope de sus hijas) + rango del Project ──
-	_rollup_phase_dates(contracted, project)
+	# ── Rango de cada Task padre (envelope de sus hijas) + rango del Project ──
+	_rollup_parent_dates(contracted, project)
 
 	return {
 		"project": project.name,
 		"parent_tasks_created": counters["parent_created"],
 		"parent_tasks_reused": counters["parent_reused"],
-		"parent_tags_applied": counters["parent_tags_applied"],
 		"tasks_created": counters["tasks_created"],
 		"tasks_skipped": counters["tasks_skipped"],
 		"dependencies_created": counters.get("deps_created", 0),
@@ -539,13 +548,15 @@ def apply_addendum_to_project(quotation: str, project: str) -> dict:
 
 	sync_project_authorized_cost(project)
 
-	# Fase 2 — SOLO si hay scope ejecutable (misma semántica que el resto de la app: vendible O interna de
-	# costo). Sin filas ejecutables NO se valida scope/fase ni se materializan Tasks: la addenda queda
-	# aplicada con 0 Tasks (económica-only, solo Required, delta $0, contractual). No se inventan Tasks.
-	has_exec_scope = any(
+	# Fase 2 — SOLO si la addenda aporta TRABAJO NUEVO, con el MISMO criterio que la creación del root:
+	# ≥1 Item vendido (→ padre-Item + Task operativa si no trae Scope) o ≥1 fila ejecutable (→ Tasks de
+	# Scope). Una addenda **exclusivamente económica** (sin Items vendidos: solo Required / delta $0 /
+	# contractual) queda aplicada con 0 Tasks. Una licencia nueva NO es un ajuste económico. La addenda es
+	# DELTA (no re-enuncia el alcance de la raíz) → sin padres duplicados.
+	has_new_work = bool(quotation_doc.get("items")) or any(
 		r.include_in_proposal or r.is_internal_cost_task for r in quotation_doc.quotation_scope_items
 	)
-	if has_exec_scope:
+	if has_new_work:
 		exec_rows = _validate_scope_for_project(quotation_doc)
 		result = _materialize_scope_into_project(quotation_doc, project_doc, exec_rows)
 		result["scope_materialized"] = True
@@ -555,7 +566,6 @@ def apply_addendum_to_project(quotation: str, project: str) -> dict:
 		"project": project,
 		"parent_tasks_created": 0,
 		"parent_tasks_reused": 0,
-		"parent_tags_applied": 0,
 		"tasks_created": 0,
 		"tasks_skipped": 0,
 		"dependencies_created": 0,
@@ -733,8 +743,8 @@ def _schedule_tasks(project, contracted: list, dep_edges: dict) -> list:
 	return undatable
 
 
-def _rollup_phase_dates(contracted: list, project) -> None:
-	"""Rango de cada Task padre de fase = **envelope real de sus Tasks hijas** (inicio = `min(inicio de
+def _rollup_parent_dates(contracted: list, project) -> None:
+	"""Rango de cada Task padre (por Item) = **envelope real de sus Tasks hijas** (inicio = `min(inicio de
 	hijas fechadas)`, fin = `max(fin de hijas fechadas)`). NO usa una duración configurada ni un segundo
 	scheduler: la ventana se deriva únicamente de las fechas ya calculadas de las hijas. Una fase sin hijas
 	fechadas **no** recibe fechas (no se inventan).

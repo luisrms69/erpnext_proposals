@@ -57,32 +57,30 @@ enlace a la Cotización.
 
 ### Tareas creadas
 
-Por cada fila de alcance marcada como **"Incluir en propuesta"**, se crea una Tarea en el proyecto con:
+Cada **Ítem contratado** genera una **tarea de grupo** (padre) en el proyecto. Debajo de ella:
 
-| Campo de la Tarea | Origen |
+- cada fila de alcance del Ítem marcada como **"Incluir en propuesta"** (o interna de costo) se crea como **subtarea**;
+- si el Ítem **no tiene alcance propio** (p. ej. una licencia), se crea **una tarea operativa inicial** (`"Entregar — {ítem}"`) para que el PMO la amplíe después.
+
+| Campo de la subtarea | Origen |
 |---|---|
-| Asunto | "{Fase} — {Título de la actividad}" (si hay fase) o solo el título |
+| Asunto | "{Título de la actividad} — {ítem}"; "Entregar — {ítem}" (tarea operativa); "Comprar — {ítem} × {cant}" (obligación de compra) |
 | Descripción | Descripción de la actividad + Entregable + Perfil (combinados) |
-| Tiempo esperado | Horas estimadas de la actividad |
+| Tiempo esperado | Horas estimadas de la actividad (0 en la tarea operativa) |
 | Estado | Open |
 
-Las tareas se crean en el mismo orden que aparecen en la tabla de alcance (por fase → secuencia → posición).
+Las subtareas se agrupan por **Ítem contratado**, luego por secuencia y posición. La **fase** ya **no** agrupa tareas: es solo etiqueta y orden de presentación en el PDF/Rentabilidad.
 
-### Fase: color y rango de fechas
+### Tarea de grupo por Ítem y rango de fechas
 
-Cada **fase** se materializa como una **tarea de grupo** (padre) que contiene sus actividades. Al crear el
-proyecto:
-
-- **Color** — el color configurado en la Proposal Phase se copia al campo nativo *Color* de la tarea de grupo,
-  para identificarla visualmente. Las actividades hijas **no** heredan el color. Es un **snapshot**: cambiar
-  después el color en el catálogo **no** modifica los proyectos ya creados.
-- **Rango de fechas** — la fase **no** tiene una duración capturada; su inicio y fin se **calculan
-  automáticamente** como el rango real de sus actividades (inicio = la fecha de inicio más temprana de sus
-  tareas; fin = la fecha de fin más tardía). Una fase cuyas actividades no tengan fecha queda **sin fechas**
-  (no se inventan).
+Cada **Ítem contratado** se materializa como una **tarea de grupo** (padre) que contiene sus subtareas. Al
+crear el proyecto, su rango de fechas se **calcula automáticamente** como el rango real de sus subtareas
+(inicio = la fecha de inicio más temprana; fin = la fecha de fin más tardía). Un Ítem cuyas subtareas no
+tengan fecha queda **sin fechas** (no se inventan). La Proposal Phase ya **no** genera tareas de grupo ni
+congela color en el proyecto.
 
 El **proyecto** recibe además una **fecha de fin esperada** = la fecha de fin más tardía del plan, de modo que
-el rango del proyecto contenga todas las fases. La fecha de inicio del proyecto es su ancla (la fecha de la
+el rango del proyecto contenga todo el trabajo. La fecha de inicio del proyecto es su ancla (la fecha de la
 cotización).
 
 ---

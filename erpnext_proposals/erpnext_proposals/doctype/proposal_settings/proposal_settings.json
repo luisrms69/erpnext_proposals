@@ -10,7 +10,6 @@
   "required_item_rules",
   "procurement_section",
   "default_procurement_package_item",
-  "default_commitment_scope_item",
   "default_purchase_scope_item",
   "economic_section",
   "economic_behavior_rules",
@@ -61,13 +60,6 @@
    "fieldtype": "Link",
    "label": "Paquete de Gestion de Compras",
    "options": "Item"
-  },
-  {
-   "description": "Scope Item de COMPROMISO usado como fallback cuando una ocurrencia de Item vendido no resuelve ningún Scope propio. Se materializa por ocurrencia (una Task de compromiso por línea vendida sin desglose). Define aquí su Proposal Phase y horas (recomendado 0). Vacío = un Item vendido sin Scope no genera Task de compromiso.",
-   "fieldname": "default_commitment_scope_item",
-   "fieldtype": "Link",
-   "label": "Scope de compromiso (fallback)",
-   "options": "Scope Item"
   },
   {
    "description": "Scope Item de COMPRA usado por cada ocurrencia comprable aplicable (Item vendido o requerido con is_purchase_item=1, sin 'Omitir tarea de abastecimiento', distinto del paquete). Genera una Task individual de compra por obligación/ocurrencia. Define aquí su Proposal Phase; horas recomendadas 0 (Task de seguimiento, sin costo). Distinto del Paquete de Gestión de Compras (esfuerzo interno). Vacío = no se generan Tasks individuales de compra.",
@@ -177,7 +169,7 @@
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-09-05 13:00:00.000000",
+ "modified": "2026-10-06 12:00:00.000000",
  "modified_by": "Administrator",
  "module": "ERPNext Proposals",
  "name": "Proposal Settings",

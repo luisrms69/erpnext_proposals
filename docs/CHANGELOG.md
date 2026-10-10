@@ -2,6 +2,19 @@
 
 ## [No liberado]
 
+### Changed — Generación Project/Tasks por Item; Proposal Phase deja de ser obligatoria
+
+La materialización Quotation Ganada → Project pasa a **una Task padre (`is_group=1`) por Item vendido**,
+con los Scope Items como hijas o, si el Item no tiene alcance ejecutable, una **Task operativa inicial**
+(`"Entregar — <item>"`). **Proposal Phase deja de ser obligatoria y de generar Tasks padre** (sobrevive
+como etiqueta/orden de presentación). Se **retira `default_commitment_scope_item`** (DocType + lógica +
+prerrequisito): la Task operativa lo reemplaza; sin patch, sin SQL, sin pérdida de datos (columna huérfana
+NULL). Idempotencia por nuevo Custom Field `Task.source_quotation_item_row`. **Addendas**: mismo criterio
+(trabajo nuevo → Tasks; económica-only → 0 Tasks). **PDF y Rentabilidad** agrupan por fase cuando todas
+las filas tienen fase, por Item cuando falta alguna. **Compras y Control de Cambios sin cambios.** Ver
+[ADR-0025](adr/0025-generacion-project-tasks-por-item.md). Desbloquea ganar propuestas de solo
+licenciamiento. Se retira la lógica obsoleta de color/Tags de fase en Tasks padre.
+
 ### Changed — Activity Type retirado del modelo de costeo
 
 El costo laboral depende **únicamente de la Designation**: `labor = horas × tarifa(Designation)`. Activity

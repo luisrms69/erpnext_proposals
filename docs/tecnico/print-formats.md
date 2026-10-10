@@ -133,7 +133,7 @@ Orden de render:
 | 2 | Resumen Ejecutivo | Sección con `is_executive_summary = 1` |
 | 3 | Índice | Generado automáticamente |
 | 4 | Secciones narrativas | Secciones del template con **`sequence < 500`** |
-| 5 | **Plan de Trabajo** | **Scope Items** (`quotation_scope_items`), agrupados por fase |
+| 5 | **Plan de Trabajo** | **Scope Items** (`quotation_scope_items`), agrupados por fase cuando todas tienen fase; por Ítem cuando falta alguna (ADR-0025) |
 | 6 | **Entregables** | Scope Items que tienen `deliverable` |
 | 7 | **Inversión** | Líneas de la cotización (`doc.items`) |
 | 8 | Secciones legales / comerciales | Secciones del template con **`sequence >= 500`** |

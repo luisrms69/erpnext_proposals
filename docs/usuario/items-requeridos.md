@@ -82,10 +82,11 @@ otra Compañía).
   cualquier precarga, si lo borras no reaparece. *(Sustituye al antiguo «Scope Item de abastecimiento por
   defecto», que se agregaba por cada Item comprable.)*
 
-> **Programa mínimo en el Proyecto (compromiso y compras).** Al ganar (y al aplicar una addenda), toda la
-> ruta usa Scope Items → fases → Tasks. Además del alcance propio de cada Item:
-> - **Item vendido sin Scope propio** → una **Task de compromiso** por ocurrencia, usando el Scope de
->   compromiso configurado (*Scope de compromiso (fallback)* en Proposal Settings), con su Proposal Phase.
+> **Programa mínimo en el Proyecto (entrega y compras).** Al ganar (y al aplicar una addenda), cada **Ítem
+> vendido** genera una **tarea de grupo** (padre) en el Proyecto. Debajo:
+> - **Item vendido con Scope propio** → sus Scope Items como subtareas.
+> - **Item vendido sin Scope propio** (p. ej. una licencia) → una **tarea operativa inicial** (`"Entregar —
+>   {ítem}"`) para que el PMO la amplíe. (Ya **no** se usa un «Scope de compromiso» configurado.)
 > - **Cada obligación comprable** (Item vendido o requerido con `is_purchase_item`, sin «Omitir tarea de
 >   abastecimiento», distinto del paquete) → una **Task individual de compra por ocurrencia** (con su qty en
 >   el título), usando el *Scope de compra por obligación (fallback)* configurado, con su fase. Así cada

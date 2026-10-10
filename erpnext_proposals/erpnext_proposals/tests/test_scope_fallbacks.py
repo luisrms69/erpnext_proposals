@@ -1,10 +1,10 @@
 # Copyright (c) 2026, Consultoria en Negocios y Aplicaciones and contributors
 # For license information, please see license.txt
 
-"""Fallbacks de alcance (Iniciativa 3): un Item vendido SIN Scope propio genera una Task de **compromiso**
-por ocurrencia (``default_commitment_scope_item``), y cada ocurrencia **comprable aplicable** (vendida o
-requerida) genera una Task individual de **compra** (``default_purchase_scope_item``), todo por la ruta
-única Item→Scope→Phase→Quotation Scope Item→Task, con identidad ``(source_row, scope_item)``. Datos ficticios.
+"""Fallbacks de alcance: cada ocurrencia **comprable aplicable** (vendida o requerida) genera una Task
+individual de **compra** (``default_purchase_scope_item``) vía Quotation Scope Item, con identidad
+``(source_row, scope_item)``. Un Item vendido SIN Scope propio ya NO genera QSI de compromiso: su entrega
+es la Task operativa "Entregar — <item>" del padre-Item en el Project (modelo por Item). Datos ficticios.
 """
 
 import unittest
@@ -118,7 +118,7 @@ class TestScopeFallbacks(unittest.TestCase):
 		# Fallbacks: hrs 0 (recomendado). Compromiso visible; compra interna (no cliente).
 		cls._scope(COMMIT_SCOPE, None, hours=0, visible=1, internal=0)
 		cls._scope(PURCH_SCOPE, None, hours=0, visible=0, internal=1)
-		cls._set_settings(commitment=COMMIT_SCOPE, purchase=PURCH_SCOPE)
+		cls._set_settings(purchase=PURCH_SCOPE)
 		frappe.db.commit()  # nosemgrep — fixtures de test
 
 	@classmethod
@@ -175,12 +175,11 @@ class TestScopeFallbacks(unittest.TestCase):
 		).insert(ignore_permissions=True)
 
 	@classmethod
-	def _set_settings(cls, commitment=None, purchase=None):
+	def _set_settings(cls, purchase=None):
 		company = get_test_company()
 		name = frappe.db.get_value("Proposal Settings", {"company": company}, "name")
 		s = frappe.get_doc("Proposal Settings", name) if name else frappe.new_doc("Proposal Settings")
 		s.company = company
-		s.default_commitment_scope_item = commitment
 		s.default_purchase_scope_item = purchase
 		s.flags.ignore_permissions = True
 		s.save(ignore_permissions=True)
@@ -225,13 +224,17 @@ class TestScopeFallbacks(unittest.TestCase):
 		return frappe.get_all("Task", filters={"project": project, "is_group": 0}, pluck="subject")
 
 	# ── tests ───────────────────────────────────────────────────────────────
-	def test_01_sold_without_scope_gets_commitment(self):
+	def test_01_sold_without_scope_generates_operative_task(self):
+		# Sin commitment: un Item vendido sin Scope propio NO genera QSI; su entrega es la Task operativa
+		# "Entregar — <item>" del padre-Item en el Project.
 		q = self._quotation(
 			[{"item_code": IT_SIMPLE, "item_name": IT_SIMPLE, "qty": 1, "rate": 1000, "uom": "Nos"}]
 		)
-		rows = self._scope_rows(q)
-		self.assertEqual(len(rows), 1)
-		self.assertEqual(rows[0][2], COMMIT_SCOPE)
+		self.assertEqual(self._scope_rows(q), [], "sin commitment no se genera QSI de compromiso")
+		proj = self._win_project(q)
+		self.assertTrue(
+			any(s.startswith("Entregar — ") for s in self._subjects(proj)),
+		)
 
 	def test_02_sold_with_scope_no_commitment(self):
 		q = self._quotation(
@@ -241,7 +244,9 @@ class TestScopeFallbacks(unittest.TestCase):
 		self.assertIn(OWN_SCOPE, codes)
 		self.assertNotIn(COMMIT_SCOPE, codes)
 
-	def test_03_three_simple_items_three_commitments(self):
+	def test_03_three_simple_items_three_operative_tasks(self):
+		# El submit (dentro de _win_project) debe ir DENTRO del contexto allow_multiple_items=1: 3 ítems
+		# idénticos re-validan duplicados en submit y el context manager restaura el valor al salir.
 		with change_settings("Selling Settings", {"allow_multiple_items": 1}):
 			q = self._quotation(
 				[
@@ -249,15 +254,26 @@ class TestScopeFallbacks(unittest.TestCase):
 					for _ in range(3)
 				]
 			)
-		commit = [r for r in self._scope_rows(q) if r[2] == COMMIT_SCOPE]
-		self.assertEqual(len(commit), 3)
-		self.assertEqual(len({r[1] for r in commit}), 3)  # tres source_row distintas
+			self.assertEqual(self._scope_rows(q), [], "sin commitment: 0 QSI")
+			proj = self._win_project(q)
+		subs = self._subjects(proj)
+		# 3 ocurrencias vendidas sin Scope → 3 Task operativas "Entregar —" (una por padre-Item).
+		self.assertEqual(sum(1 for s in subs if s.startswith("Entregar — ")), 3, subs)
 
-	def test_04_purchasable_sold_gets_commitment_and_purchase(self):
+	def test_04_purchasable_sold_gets_purchase_no_operative(self):
+		# IT_HW comprable sin Scope propio: genera QSI de COMPRA → esa ocurrencia YA tiene hija de scope,
+		# así que NO se añade Task operativa (decisión 4: fallback aplicable suprime la operativa).
 		q = self._quotation([{"item_code": IT_HW, "item_name": IT_HW, "qty": 2, "rate": 1000, "uom": "Nos"}])
 		codes = [r[2] for r in self._scope_rows(q)]
-		self.assertIn(COMMIT_SCOPE, codes)  # sin scope propio → compromiso
 		self.assertIn(PURCH_SCOPE, codes)  # comprable → compra
+		self.assertNotIn(COMMIT_SCOPE, codes)  # ya no hay QSI de compromiso
+		proj = self._win_project(q)
+		subs = self._subjects(proj)
+		self.assertTrue(any(s.startswith("Comprar — ") for s in subs), subs)
+		self.assertFalse(
+			any(s.startswith("Entregar — ") for s in subs),
+			f"con QSI de compra no debe haber Task operativa: {subs}",
+		)
 
 	def test_05_required_purchasable_gets_purchase(self):
 		q = self._quotation(
@@ -271,9 +287,11 @@ class TestScopeFallbacks(unittest.TestCase):
 		q = self._quotation(
 			[{"item_code": IT_SKIP, "item_name": IT_SKIP, "qty": 1, "rate": 1000, "uom": "Nos"}]
 		)
-		codes = [r[2] for r in self._scope_rows(q)]
-		self.assertNotIn(PURCH_SCOPE, codes)  # skip → sin compra
-		self.assertIn(COMMIT_SCOPE, codes)  # pero sí compromiso (sin scope propio)
+		self.assertEqual(self._scope_rows(q), [], "skip → sin compra; sin commitment → 0 QSI")
+		proj = self._win_project(q)
+		self.assertTrue(
+			any(s.startswith("Entregar — ") for s in self._subjects(proj)),
+		)
 
 	def test_07_purchase_scope_zero_hours_no_cost(self):
 		q = self._quotation([{"item_code": IT_HW, "item_name": IT_HW, "qty": 2, "rate": 1000, "uom": "Nos"}])
@@ -282,11 +300,13 @@ class TestScopeFallbacks(unittest.TestCase):
 		self.assertEqual(ev["totals"]["external"], 0.0)  # sin buying price → sin costo externo
 
 	def test_08_project_tasks_and_subjects(self):
+		# IT_HW comprable sin Scope: su Task es "Comprar ... x2" (QSI de compra); NO hay Task operativa
+		# porque la ocurrencia ya tiene esa hija de scope (sin operativa adicional).
 		q = self._quotation([{"item_code": IT_HW, "item_name": IT_HW, "qty": 2, "rate": 1000, "uom": "Nos"}])
 		proj = self._win_project(q)
 		subs = self._subjects(proj)
-		self.assertTrue(any(s.startswith("Entregar — ") for s in subs), subs)
 		self.assertTrue(any(s.startswith("Comprar — ") and "× 2" in s for s in subs), subs)  # noqa: RUF001
+		self.assertFalse(any(s.startswith("Entregar — ") for s in subs), subs)
 
 	def test_09_idempotent_retry_no_duplicate(self):
 		q = self._quotation([{"item_code": IT_HW, "item_name": IT_HW, "qty": 2, "rate": 1000, "uom": "Nos"}])
@@ -297,11 +317,11 @@ class TestScopeFallbacks(unittest.TestCase):
 
 	def test_10_forward_only_no_settings_no_fallback(self):
 		# Sin fallbacks configurados, un Item sin scope no genera QSI (fail-closed lo detecta al crear Project).
-		self._set_settings(commitment=None, purchase=None)
+		self._set_settings(purchase=None)
 		try:
 			q = self._quotation(
 				[{"item_code": IT_SIMPLE, "item_name": IT_SIMPLE, "qty": 1, "rate": 1000, "uom": "Nos"}]
 			)
 			self.assertEqual(self._scope_rows(q), [])
 		finally:
-			self._set_settings(commitment=COMMIT_SCOPE, purchase=PURCH_SCOPE)
+			self._set_settings(purchase=PURCH_SCOPE)
