@@ -201,24 +201,24 @@ class TestProjectTaskIntegration(unittest.TestCase):
 				"subject",
 				"is_group",
 				"parent_task",
-				"proposal_phase",
+				"source_quotation_item_row",
 				"source_quotation_scope_item",
 			],
 		)
 		parents = [t for t in tasks if t.is_group]
 		children = [t for t in tasks if not t.is_group]
 
-		# 2 fases con filas ejecutables (DISC, IMPL) → 2 padres; GOLIVE solo tenía la excluida.
-		self.assertEqual(len(parents), 2, f"Esperados 2 Task padre por fase; tasks={tasks}")
-		self.assertEqual({p.proposal_phase for p in parents}, {"DISC", "IMPL"})
-		for p in parents:
-			self.assertTrue(p.is_group)
-			self.assertTrue(p.proposal_phase)
+		# Modelo por Item: UN solo padre (is_group) por la ocurrencia de ITEM_A; la fase ya no agrupa.
+		self.assertEqual(len(parents), 1, f"Esperado 1 Task padre por Item; tasks={tasks}")
+		parent = parents[0]
+		self.assertTrue(parent.is_group)
+		self.assertTrue(parent.source_quotation_item_row, "el padre traza la ocurrencia de Item")
+		self.assertIsNone(parent.parent_task)
 
-		# 4 hijas: A1,A2 (DISC) + A3, INT (IMPL). EXCL (0/0) NO genera Task.
+		# 4 hijas: A1,A2,A3,INT bajo el padre-Item. EXCL (0/0) NO genera Task.
 		self.assertEqual(len(children), 4, f"Esperadas 4 Task hijas; children={children}")
 		for c in children:
-			self.assertTrue(c.parent_task, "Task hija debe tener parent_task (fase)")
+			self.assertEqual(c.parent_task, parent.name, "la hija cuelga del padre-Item")
 			self.assertTrue(c.source_quotation_scope_item, "Task hija debe trazar la fila de scope")
 		# La interna genera Task; la excluida no.
 		scope_codes = {
@@ -239,10 +239,19 @@ class TestProjectTaskIntegration(unittest.TestCase):
 		self.assertEqual(n1, n2, "No debe duplicar Tasks al re-crear")
 		self.assertEqual(res2["tasks_created"], 0)
 
-	def test_block_when_executable_row_without_phase(self):
+	def test_executable_row_without_phase_is_allowed(self):
+		# La fase dejó de ser obligatoria: un scope ejecutable SIN fase ya NO bloquea; genera su Task
+		# hija bajo el padre-Item (la fase solo sobrevive como etiqueta/orden de presentación).
 		q = self._make_quotation([ITEM_B], ganada=True)  # _PTI_B_NOPHASE ejecutable sin fase
-		with self.assertRaises(ValidationError):
-			create_project_from_quotation(q.name)
+		res = create_project_from_quotation(q.name)
+		self.__class__._projects.append(res["project"])
+		self.assertGreaterEqual(res["tasks_created"], 1)
+		children = frappe.get_all(
+			"Task",
+			filters={"project": res["project"], "is_group": 0},
+			pluck="source_quotation_scope_item",
+		)
+		self.assertTrue(any(children), "la hija sin fase debe materializarse y trazar su scope")
 
 	# ── Costeo / visibilidad ──
 

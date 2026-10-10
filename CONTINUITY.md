@@ -1,55 +1,45 @@
 # CONTINUITY.md — erpnext_proposals
 
 **Fecha:** 2026-10-06
-**Rama activa:** `hotfix/sidebar-card-break` (base `upstream/version-16` = v0.34.0 → objetivo **v0.34.1**)
-**Tarea actual:** Hotfix — destrabar `bench migrate` en staging (fallo en `frappe.patches.v16_0.convert_sidebars`).
+**Rama activa:** `feat/project-item-parent` (base `upstream/version-16` = v0.34.1 → objetivo **v0.35.0**, MINOR)
+**Tarea actual:** Rediseño de generación Project/Tasks — **una Task padre por Item** (ADR-0025).
 
 ---
 
 ## Recuperación rápida
 
-Estoy trabajando en:
-Corregir el `Workspace Sidebar` de la app, que traía 4 ítems con `type="Card Break"` — valor inválido para
-`Workspace Sidebar Item` (options: `Link/Section Break/Spacer/Sidebar Item Group`). El nuevo patch de Frappe
-`convert_sidebars` (post_model_sync) reinserta esas filas en el nuevo `Sidebar Item` **validando** y aborta el
-`bench migrate` de staging con `Row #2: Type cannot be "Card Break"`.
-
-Cambio: las 4 filas (`Operacion`, `Configuracion de Propuestas`, `Reportes`, `Referencia`) pasan a
-`type="Section Break"` y se les quita `link_to`/`link_type` (irrelevantes en un Section Break); se conserva
-`label` y el resto. **No** se toca el Workspace normal (ahí `Card Break` es válido en `Workspace Link`).
-
-Objetivo inmediato:
-PR a `version-16` para desplegar el hotfix y destrabar staging (el merge lo hace el usuario).
-
-Criterio de avance:
-JSON válido; 0 `Card Break` en `workspace_sidebar/`; 4 `Card Break` intactos en el Workspace normal; diff
-acotado al sidebar; migrate limpio en `proposals.dev`.
+Rediseño de `Quotation Ganada → Project/Tasks`: la materialización agrupa por **Item contratado** (una
+Task `is_group=1` por ocurrencia de Item), con los Scope Items como hijas o una **Task operativa inicial**
+(`"Entregar — <item>"`) cuando el Item no tiene alcance ejecutable. **Proposal Phase** deja de ser
+obligatoria y de generar Tasks padre (queda como etiqueta/orden de presentación). Se retira
+`default_commitment_scope_item` (reemplazado por la Task operativa). Idempotencia por el nuevo Custom Field
+`Task.source_quotation_item_row` (padre `is_group=1` vs operativa `is_group=0`). Addendas con el mismo
+criterio (trabajo nuevo → Tasks; económica-only → 0). PDF/Rentabilidad: por fase si todas tienen fase, por
+Item si falta alguna. Compras y Control de Cambios sin cambios.
 
 ---
 
 ## Estado actual
 
+### Hecho (en dev)
+- Bloques 0,1,5 (núcleo + addendas), 4 (PDF/Rentabilidad) y 2 (retiro de `default_commitment_scope_item`).
+- **Suite completa: 823 OK (1 skip)**; ruff limpio.
+- `bench --site proposals.dev migrate` exitoso (actualización de sitio existente): nuevo Custom Field
+  aplicado, DocField commitment fuera de meta, columna huérfana intacta (sin SQL).
+- ADR-0025 + CHANGELOG + CONTINUITY actualizados.
+
 ### Pendiente inmediato
-1. Push + PR a `version-16`.
-2. Merge: **lo ejecuta el usuario** (`/ship merge`).
-3. Tras merge: `/sync-check` + `/ship release` (tag/Release v0.34.1) + limpieza de rama.
-4. **Desplegar en staging** la app actualizada **antes** de re-correr `bench migrate` (ver abajo).
-
-### Orden de ejecución verificado (upstream version-16)
-`convert_sidebars` está en `[post_model_sync]` → corre **después** de `sync_all()`, que re-importa este JSON
-a la tabla viva `Workspace Sidebar` (con `ignore_validate=True`). `convert_sidebars` lee esa tabla viva
-(`site_rows()` sobre `Workspace Sidebar`), no un snapshot. Por tanto: con la app corregida **desplegada antes**
-del migrate, el sync deja `Section Break` y el patch no vuelve a fallar — **sin** intervención en BD.
-
-### No repetir / atención
-- Verificación local limitada: la frappe del bench es 16.33.1 y **no** incluye `convert_sidebars`; el migrate
-  local valida JSON + sync, no el patch. Validación definitiva = staging (frappe más nueva).
-- Gap upstream (independiente): `convert_sidebars` no normaliza `Card Break` (sí maneja `Spacer`/`Sidebar Item
-  Group`). Candidato a reporte upstream; **no** se parchó core.
+1. `/ship pr` → bump `0.34.1 → 0.35.0`, push y PR a `version-16`.
+2. **CI** debe validar instalación limpia (`install-app` en sitio nuevo) + suite. **El merge lo hace el
+   usuario** tras verificar CI.
+3. Tras merge: `/sync-check` + `/ship release` (tag/Release v0.35.0) + limpieza de rama.
+4. **No desplegar** en staging ni producción todavía.
 
 ## Decisiones vigentes
-- Hotfix PATCH `0.34.1` (fix compatible, sin nueva funcionalidad).
-- Solución mínima: solo el JSON del sidebar; sin tocar core, BD, patches, hooks, otros sidebars ni PMO.
+- Modelo por Item aprobado (ADR-0025). Fase opcional. Task operativa para Item sin alcance.
+- Sin patch (quitar campo + añadir Custom Field no migra datos). Columna huérfana NULL, no se borra por SQL.
+- Instalación nueva se valida por CI (no se creó sitio local; sin credenciales MySQL).
 
-## Información faltante
-- Confirmar el commit exacto de frappe en staging (asumido con la arquitectura nueva de sidebars).
+## Información faltante / riesgos
+- Coexistencia temporal (aceptada) de proyectos históricos con padres-fase y nuevos con padres-Item; no se
+  migran históricos.

@@ -58,6 +58,7 @@ nav:
     - ADR-0022 Narrativa materializada en la Quotation: adr/0022-materializacion-secciones-quotation.md
     - ADR-0023 Depuración de fuentes de verdad (pack editorial): adr/0023-depuracion-fuentes-de-verdad-pack.md
     - ADR-0024 Costo externo multimoneda: adr/0024-costo-externo-multimoneda.md
+    - ADR-0025 Generación Project/Tasks por Item: adr/0025-generacion-project-tasks-por-item.md
 
 theme:
   name: material

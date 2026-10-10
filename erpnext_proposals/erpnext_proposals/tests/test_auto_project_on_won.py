@@ -264,33 +264,29 @@ class TestAutoProjectOnWon(unittest.TestCase):
 		self.assertEqual(frappe.db.get_value("Quotation", q, "proposal_project"), proj)
 		self.assertEqual(frappe.db.count("Project"), n_projects, "no duplica Project")
 
-	def test_4_preflight_failure_keeps_ganada_no_partial_project(self):
+	def test_4_sin_fase_builds_project(self):
+		# La fase dejó de ser obligatoria: un scope ejecutable SIN fase YA no bloquea; el job crea el Project
+		# (su hija cuelga del padre-Item, sin fase).
 		self._set_toggle(self.company, on=True)
 		q = self._quotation(self.company, self.cc, item=ITEM_NOPHASE)  # scope sin fase
 		frappe.db.set_value("Quotation", q, "workflow_state", "Ganada", update_modified=False)
-		with self.assertRaises(frappe.ValidationError):
-			auto_create_project_on_won(q)  # preflight bloquea (fila sin fase)
-		self.assertFalse(
-			frappe.db.get_value("Quotation", q, "proposal_project"), "no debe quedar Project parcial"
-		)
-		self.assertEqual(
-			frappe.db.get_value("Quotation", q, "workflow_state"), "Ganada", "la transición permanece"
-		)
+		auto_create_project_on_won(q)  # ya no bloquea por falta de fase
+		proj = frappe.db.get_value("Quotation", q, "proposal_project")
+		self.assertTrue(proj, "debe crear el Project (scope sin fase es construible)")
+		self.assertTrue(frappe.db.exists("Task", {"project": proj, "is_group": 0}))
 
-	def test_4b_transition_to_ganada_blocks_when_unbuildable(self):
-		# Regla: toda venta ganada debe tener Project + programa. Con el toggle ON y un programa NO
-		# construible (scope ejecutable sin fase), la TRANSICIÓN a Ganada debe fallar en vivo (fail-closed),
-		# no dejar la propuesta Ganada sin Project por el fail-soft del job.
+	def test_4b_transition_to_ganada_builds_sin_fase(self):
+		# Con el toggle ON, un programa con scope sin fase ahora SÍ se construye: la TRANSICIÓN a Ganada
+		# procede (fase opcional) en vez de bloquear. El fail-closed vivo se conserva para otras causas
+		# (p. ej. obligación de compra sin «Scope de compra» configurado), no por falta de fase.
 		self._set_toggle(self.company, on=True)
 		q = self._quotation(self.company, self.cc, item=ITEM_NOPHASE)
-		with self.assertRaises(frappe.ValidationError):
-			self._transition(q, "Ganada")
-		self.assertNotEqual(
+		self._transition(q, "Ganada")  # no debe lanzar
+		self.assertEqual(
 			frappe.db.get_value("Quotation", q, "workflow_state"),
 			"Ganada",
-			"la transición a Ganada debe bloquearse si el programa no puede construirse",
+			"la transición a Ganada procede con scope sin fase",
 		)
-		self.assertFalse(frappe.db.get_value("Quotation", q, "proposal_project"), "no debe quedar Project")
 
 	def test_5_normal_save_without_transition_does_not_enqueue(self):
 		# Borrador (no submitted): un re-guardado sin cambio de estado (old == new == Borrador) no es

@@ -522,10 +522,11 @@ def _append_scope_rows_for_row(doc, src: dict, existing: set) -> int:
 	la RUTA ÚNICA Item→Scope→Phase→QSI:
 
 	1. Alcance PROPIO del Item (``resolve_scope_items_for_item``: child N:N + legacy, habilitados).
-	2. Si una ocurrencia **vendida** no resolvió alcance propio → Scope de **compromiso**
-	   (``default_commitment_scope_item``).
-	3. Para cualquier ocurrencia **comprable aplicable** (vendida o requerida) → Scope de **compra**
-	   (``default_purchase_scope_item``), independiente del compromiso (una obligación de compra = su Task).
+	2. Para cualquier ocurrencia **comprable aplicable** (vendida o requerida) → Scope de **compra**
+	   (``default_purchase_scope_item``), una obligación de compra = su Task.
+
+	Una ocurrencia **vendida** sin alcance propio NO genera Scope de compromiso aquí: su entrega la
+	representa la Task operativa del padre-Item en la generación del Project (sin Scope Items artificiales).
 
 	Identidad por fila origen ``(source_row, scope_item)`` (no dedup por item_code); la fase vive SIEMPRE en
 	el Scope Item. ``existing`` se actualiza in situ. Forward-only: solo corre para ``source_row`` nuevas
@@ -548,9 +549,8 @@ def _append_scope_rows_for_row(doc, src: dict, existing: set) -> int:
 	if not settings:
 		return own_added
 	fb_added = 0
-	# Compromiso: SOLO ocurrencia vendida sin alcance propio (el Item se vende sin desglose).
-	if src["source_type"] == "sold" and own_added == 0:
-		fb_added += _append_fallback_scope(doc, src, settings.get("default_commitment_scope_item"), existing)
+	# El compromiso de entrega de un Item vendido sin alcance propio ya NO se materializa como Scope aquí:
+	# lo cubre la Task operativa del padre-Item al generar el Project (sin Scope Items artificiales).
 	# Compra: cualquier ocurrencia comprable aplicable (vendida o requerida), excluyendo el package.
 	if _is_applicable_purchasable_code(item_code, settings.get("default_procurement_package_item")):
 		fb_added += _append_fallback_scope(doc, src, settings.get("default_purchase_scope_item"), existing)
@@ -571,48 +571,33 @@ def _source_item_codes(doc) -> list:
 
 
 def assert_program_prerequisites(doc) -> None:
-	"""Fail-closed de la invariante «toda Ganada → Project + programa»: verifica que CADA ocurrencia que debe
-	generar Task tenga la configuración de fallback suficiente, **incluso si la propuesta ya tiene otro Scope
-	ejecutable** (evita que una obligación quede silenciosamente sin Task). Reutiliza la resolución de alcance
-	(`_applicable_scope_items`) y el predicado de comprable (`_is_applicable_purchasable_code`); NO materializa
-	nada. Bloquea si:
+	"""Fail-closed de la invariante «toda Ganada → Project + programa»: verifica que cada **obligación de
+	compra aplicable** tenga configurado su `default_purchase_scope_item` (regla de compras sin cambios), aun
+	si la propuesta ya tiene otro Scope ejecutable. Usa el predicado de comprable
+	(`_is_applicable_purchasable_code`); NO materializa nada. Bloquea si:
 
-	- una ocurrencia **vendida** sin alcance propio no tiene `default_commitment_scope_item` configurado;
 	- una ocurrencia **comprable aplicable** no tiene `default_purchase_scope_item` configurado.
 
-	Complementa a `_validate_scope_for_project` (template + ≥1 fila ejecutable + fase) y a `_resolve_project_type`."""
+	Un Item vendido **sin alcance propio YA no requiere «Scope de compromiso»**: genera su Task operativa en
+	la materialización. Complementa a `_validate_scope_for_project` (template + ≥1 fila ejecutable o Item
+	vendido) y a `_resolve_project_type`."""
 	settings = _proposal_settings(doc.get("company"))
-	commitment = settings.get("default_commitment_scope_item") if settings else None
 	purchase = settings.get("default_purchase_scope_item") if settings else None
 	package = settings.get("default_procurement_package_item") if settings else None
-	sin_compromiso: list = []
 	sin_compra: list = []
 	for src in _source_rows(doc):
-		if src["source_type"] == "sold" and not commitment and not _applicable_scope_items(src["item_code"]):
-			sin_compromiso.append(src["item_code"])
 		if not purchase and _is_applicable_purchasable_code(src["item_code"], package):
 			sin_compra.append(src["item_code"])
-	msgs = []
-	if sin_compromiso:
-		msgs.append(
-			_("Items vendidos sin alcance propio y sin «Scope de compromiso» configurado: {0}.").format(
-				", ".join(sorted(set(sin_compromiso)))
-			)
-		)
 	if sin_compra:
-		msgs.append(
-			_("Obligaciones de compra sin «Scope de compra por obligación» configurado: {0}.").format(
-				", ".join(sorted(set(sin_compra)))
-			)
-		)
-	if msgs:
 		frappe.throw(
 			_(
 				"No se puede completar la transición a «Ganada»: el programa mínimo del Proyecto no puede "
 				"construirse."
 			)
 			+ " "
-			+ " ".join(msgs)
+			+ _("Obligaciones de compra sin «Scope de compra por obligación» configurado: {0}.").format(
+				", ".join(sorted(set(sin_compra)))
+			)
 		)
 
 

@@ -116,6 +116,7 @@ def get_profitability_data(quotation_name: str) -> dict:
 		labor_rows.append(
 			{
 				"phase": row.phase or "",
+				"item_code": row.item_code or "",
 				"title": row.title or row.code,
 				"designation": row.designation or "",
 				"hours": hours,
@@ -347,12 +348,22 @@ def _build_report_rows(d: dict) -> list:
 
 	# Labor section
 	data.append(_section(_("COSTO LABORAL (Horas estimadas)")))
-	current_phase = None
-	for row in d["labor_rows"]:
-		if row["phase"] != current_phase:
-			current_phase = row["phase"]
-			if current_phase:
-				data.append(_phase_header(phase_label(current_phase)))
+	# Agrupación: por fase cuando TODAS las filas tienen fase (comportamiento actual, sin cambios
+	# visuales); si FALTA alguna fase, se agrupa por Item (fallback). Nunca modo mixto.
+	labor = d["labor_rows"]
+	group_by_item = bool(labor) and not all(r.get("phase") for r in labor)
+	if group_by_item:
+		_order: dict = {}
+		for r in labor:
+			_order.setdefault(r.get("item_code") or "", len(_order))
+		labor = sorted(labor, key=lambda r: (_order[r.get("item_code") or ""],))
+	current_group = None
+	for row in labor:
+		group_key = (row.get("item_code") or "") if group_by_item else row["phase"]
+		if group_key != current_group:
+			current_group = group_key
+			if current_group:
+				data.append(_phase_header(current_group if group_by_item else phase_label(current_group)))
 		notes_map = {
 			"sin_designation": _("sin Designation"),
 			"sin_costing_rate": _("sin costing_rate"),

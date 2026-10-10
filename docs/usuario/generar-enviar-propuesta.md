@@ -119,7 +119,7 @@ El PDF "Propuesta Comercial" incluye:
 
 1. **Portada** — Nombre de la empresa, título de la propuesta, folio de cotización, cliente, fecha, vigencia y moneda
 2. **Secciones narrativas** — Las secciones del template asignado (Objetivo, Metodología, Exclusiones, etc.) con su contenido
-3. **Plan de Trabajo** — Tabla de actividades del alcance, agrupadas por fase. Incluye perfil, tipo de actividad, horas estimadas, días estimados y totales por fase
+3. **Plan de Trabajo** — Tabla de actividades del alcance, agrupadas **por fase** cuando todas tienen fase, o **por Ítem** cuando alguna no la tiene. Incluye perfil, horas estimadas, días estimados y totales por grupo
 4. **Entregables** — Lista de entregables por actividad (cuando están definidos)
 5. **Inversión** — Tabla de ítems de la cotización con cantidades, precios unitarios y subtotales
 6. **Totales** — Subtotal, descuento, impuestos y total general en la moneda de la cotización

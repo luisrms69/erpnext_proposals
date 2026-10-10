@@ -48,6 +48,7 @@ fixtures = [
 					"proposal_phase",
 					"source_quotation",
 					"source_quotation_scope_item",
+					"source_quotation_item_row",
 					"proposal_details_section",
 					"proposal_template",
 					"proposal_title",

@@ -293,19 +293,27 @@ class TestProjectScheduling(unittest.TestCase):
 
 	# ── Roll-up de fase ──
 
-	def test_phase_parent_rollup(self):
+	def test_parent_rollup(self):
+		# El padre-Item toma como rango el envelope real de sus hijas fechadas; el Project termina en el fin
+		# más tardío del plan. La fase ya NO agrupa: un solo padre por ocurrencia de Item.
 		q = self._make_ganada([ITEM])
 		res = create_project_from_quotation(q.name)
 		self.__class__._projects.append(res["project"])
-		parent = frappe.db.get_value(
-			"Task", {"project": res["project"], "proposal_phase": "SCHEDP1", "is_group": 1}, "name"
+		parent = frappe.db.get_value("Task", {"project": res["project"], "is_group": 1}, "name")
+		self.assertTrue(parent, "debe existir el padre-Item (is_group=1)")
+		children = frappe.get_all(
+			"Task",
+			filters={"project": res["project"], "parent_task": parent, "is_group": 0},
+			fields=["exp_start_date", "exp_end_date"],
 		)
+		starts = [getdate(c.exp_start_date) for c in children if c.exp_start_date]
+		ends = [getdate(c.exp_end_date) for c in children if c.exp_end_date]
+		self.assertTrue(starts and ends, "debe haber hijas fechadas")
 		p = frappe.db.get_value("Task", parent, ["exp_start_date", "exp_end_date"], as_dict=True)
-		start = getdate(frappe.utils.today())
-		# Fase 1 hijas: S1(0..1), S2(2..4), S3(-5..-5), S7(5..6).
-		# Min inicio = S3 (start-5); max fin = S7 (start+6, cadena S1→S2→S7).
-		self.assertEqual(getdate(p.exp_start_date), add_days(start, -5))
-		self.assertEqual(getdate(p.exp_end_date), add_days(start, 6))
+		self.assertEqual(getdate(p.exp_start_date), min(starts), "inicio del padre = min de hijas")
+		self.assertEqual(getdate(p.exp_end_date), max(ends), "fin del padre = max de hijas")
+		proj_end = frappe.db.get_value("Project", res["project"], "expected_end_date")
+		self.assertEqual(getdate(proj_end), max(ends), "el fin del Project contiene todo el plan")
 
 	# ── Reintento tras ejecución parcial ──
 

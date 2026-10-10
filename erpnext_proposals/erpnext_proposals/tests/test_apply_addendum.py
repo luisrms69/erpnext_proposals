@@ -185,8 +185,19 @@ class TestApplyAddendum(unittest.TestCase):
 				"proposal_template": TEMPLATE,
 				"proposal_cost_center": cc,
 				"proposal_title": "ADD " + frappe.generate_hash(length=4),
-				"items": [{"item_code": item, "item_name": item, "qty": 1, "rate": rate, "uom": "Nos"}],
+				"items": (
+					[{"item_code": item, "item_name": item, "qty": 1, "rate": rate, "uom": "Nos"}]
+					if item
+					else []
+				),
 				"required_items": [{"item": c, "qty": 1, "uom": "Nos"} for c in (required or [])],
+				# Sin Items vendidos, calculate_taxes_and_totals hace early-return y deja los totales en None
+				# → set_total_in_words nativo falla con abs(None). Inicializarlos en 0 (mismos campos que
+				# create_addendum_quotation para la addenda-delta vacía) permite guardar/someter.
+				"grand_total": 0,
+				"base_grand_total": 0,
+				"rounded_total": 0,
+				"base_rounded_total": 0,
 			}
 		)
 		if addendum:
@@ -216,10 +227,11 @@ class TestApplyAddendum(unittest.TestCase):
 			company or self.company, cc or self.cc, customer, ganada=ganada, group=grp, addendum=True
 		)
 
-	def _addendum_noscope(self, root_doc, seq=1, rate=1000, required=None):
-		"""Addenda canónica SIN scope ejecutable (apply-split B2): construida sobre ``ITEM_NS`` (sin Scope
-		Items de catálogo) → 0 filas ejecutables. ``rate=0`` la vuelve un delta económico $0; ``required``
-		agrega Proposal Required Items (costo externo por el motor económico, sin generar Tasks)."""
+	def _addendum_noscope(self, root_doc, seq=1, rate=1000, required=None, item=ITEM_NS):
+		"""Addenda canónica SIN scope ejecutable (apply-split B2): por defecto sobre ``ITEM_NS`` (Item vendido
+		sin Scope Items de catálogo → 0 filas ejecutables). ``item=None`` la deja SIN Item vendido (addenda
+		**exclusivamente económica**: solo ``required`` / delta $0). ``required`` agrega Proposal Required
+		Items (costo externo por el motor económico)."""
 		grp = f"{root_doc.proposal_group}-ADD-{seq:02d}"
 		return self._quotation(
 			self.company,
@@ -228,7 +240,7 @@ class TestApplyAddendum(unittest.TestCase):
 			ganada=True,
 			group=grp,
 			addendum=True,
-			item=ITEM_NS,
+			item=item,
 			rate=rate,
 			required=required,
 		)
@@ -342,48 +354,63 @@ class TestApplyAddendum(unittest.TestCase):
 
 	# ── B2 apply-split: Fase 1 (SIEMPRE asociar + sync) / Fase 2 (SOLO si hay scope ejecutable) ────────
 
-	def test_no_exec_scope_associates_syncs_zero_tasks(self):
-		"""#2 Addenda SIN scope ejecutable: se asocia, sincroniza economía y crea 0 Tasks (Fase 2 omitida),
-		sin fallar por validación de scope/fase."""
+	def test_new_license_sold_no_scope_gets_operative(self):
+		"""#2 Addenda con **Item vendido nuevo SIN Scope** (p. ej. una licencia): MISMO criterio que la
+		creación del root → Task padre (`is_group=1`) + Task operativa (`is_group=0`). No es ajuste económico."""
 		a, proj = self._base_project()
-		before = self._tasks(proj)
-		b = self._addendum_noscope(a, seq=1)
+		b = self._addendum_noscope(a, seq=1)  # sold ITEM_NS, sin scope
 		res = apply_addendum_to_project(b.name, proj)
 		self.assertEqual(res["project"], proj)
-		self.assertEqual(res["tasks_created"], 0)
-		self.assertFalse(res["scope_materialized"])
+		self.assertTrue(res["scope_materialized"])
+		self.assertEqual(res["parent_tasks_created"], 1, "1 padre-Item")
+		self.assertEqual(res["tasks_created"], 1, "1 Task operativa")
 		self.assertEqual(frappe.db.get_value("Quotation", b.name, "proposal_project"), proj)
-		self.assertEqual(self._tasks(proj), before, "no debe crear Tasks")
+		# Estructura: padre is_group=1 + operativa is_group=0 colgando de ese padre, subject "Entregar — ".
+		parent = frappe.db.get_value(
+			"Task", {"project": proj, "source_quotation": b.name, "is_group": 1}, "name"
+		)
+		self.assertTrue(parent, "debe existir la Task padre is_group=1")
+		op = frappe.get_all(
+			"Task",
+			filters={"project": proj, "source_quotation": b.name, "is_group": 0},
+			fields=["subject", "parent_task"],
+		)
+		self.assertEqual(len(op), 1)
+		self.assertEqual(op[0].parent_task, parent)
+		self.assertTrue(op[0].subject.startswith("Entregar — "), op[0].subject)
 
-	def test_only_required_items_applies_zero_tasks(self):
-		"""#3 Addenda solo con Required Items (costo externo por el motor económico): se aplica, 0 Tasks."""
+	def test_economic_only_no_sold_item_zero_tasks(self):
+		"""#3 Addenda **exclusivamente económica** (SIN Items vendidos: solo Required / costo externo): se
+		aplica, sincroniza economía y crea **0 Tasks**. Una licencia nueva NO es esto."""
 		a, proj = self._base_project()
 		before = self._tasks(proj)
-		b = self._addendum_noscope(a, seq=2, rate=0, required=[ITEM_NS])
+		b = self._addendum_noscope(a, seq=2, rate=0, required=[ITEM_NS], item=None)
 		res = apply_addendum_to_project(b.name, proj)
 		self.assertEqual(res["tasks_created"], 0)
 		self.assertFalse(res["scope_materialized"])
 		self.assertEqual(frappe.db.get_value("Quotation", b.name, "proposal_project"), proj)
-		self.assertEqual(self._tasks(proj), before)
+		self.assertEqual(self._tasks(proj), before, "una addenda sin trabajo nuevo no crea Tasks")
 
 	def test_net_total_zero_addenda_applies(self):
-		"""#4 Addenda económica con net_total == 0: puede aplicarse; 0 Tasks; economía se recomputa."""
+		"""#4 Addenda con net_total == 0 pero **Item vendido nuevo** (licencia a $0): se aplica, recomputa
+		economía y genera padre + Task operativa (el valor $0 no la vuelve ajuste económico)."""
 		a, proj = self._base_project()
-		b = self._addendum_noscope(a, seq=3, rate=0)
+		b = self._addendum_noscope(a, seq=3, rate=0)  # sold ITEM_NS rate 0
 		self.assertEqual(flt(frappe.db.get_value("Quotation", b.name, "net_total")), 0.0)
 		res = apply_addendum_to_project(b.name, proj)
-		self.assertEqual(res["tasks_created"], 0)
+		self.assertEqual(res["tasks_created"], 1, "licencia nueva a $0 → 1 Task operativa")
 		self.assertEqual(frappe.db.get_value("Quotation", b.name, "proposal_project"), proj)
 
 	def test_contractual_delta_zero_authorized_unchanged(self):
-		"""#5 Addenda puramente contractual / delta $0: queda aplicada aunque el autorizado no cambie."""
+		"""#5 Addenda con Item vendido nuevo y delta $0: genera padre + Task operativa, y el costo autorizado
+		no cambia (rate 0, sin costo)."""
 		a, proj = self._base_project()
 		before = flt(frappe.db.get_value("Project", proj, "estimated_costing"))
-		b = self._addendum_noscope(a, seq=4, rate=0)  # sin costo ni revenue → delta $0
+		b = self._addendum_noscope(a, seq=4, rate=0)  # sold ITEM_NS, delta $0
 		res = apply_addendum_to_project(b.name, proj)
 		after = flt(frappe.db.get_value("Project", proj, "estimated_costing"))
 		self.assertEqual(after, before, "un delta $0 no cambia el costo autorizado")
-		self.assertEqual(res["tasks_created"], 0)
+		self.assertEqual(res["tasks_created"], 1, "Item vendido nuevo → 1 Task operativa")
 		self.assertEqual(frappe.db.get_value("Quotation", b.name, "proposal_project"), proj)
 
 	def test_no_scope_reapplication_idempotent(self):
