@@ -1,34 +1,26 @@
 frappe.ui.form.on("Quotation", "onload", function (frm) {
 	// Feedback confiable de la creación ASÍNCRONA del Project al pasar a «Ganada» (detalle de staging
-	// v0.36.0): el job post-commit emite `erpnext_proposals_project_created` dirigido al usuario. El
-	// listener se registra UNA sola vez por sesión de página (guard a nivel `window`) para NO acumular
-	// handlers al navegar entre cotizaciones; dentro usa `cur_frm` para actuar solo si la cotización
-	// abierta es exactamente la del evento. Muestra el aviso (nombre + enlace) y recarga para poblar
-	// `proposal_project` y mostrar el botón «Ver Proyecto». Reabrir una cotización YA ganada NO dispara
-	// aviso (el evento solo se emite al crearse realmente); su estado persistente lo da el indicador.
-	if (!window.__ep_project_created_bound) {
-		window.__ep_project_created_bound = true;
-		frappe.realtime.on("erpnext_proposals_project_created", (data) => {
-			if (
-				!data ||
-				!window.cur_frm ||
-				cur_frm.doctype !== "Quotation" ||
-				cur_frm.doc.name !== data.quotation
-			)
-				return;
-			const label = data.project_name || data.project;
-			frappe.show_alert(
-				{
-					message: __("Proyecto creado: {0}", [
-						`<a href="/app/project/${data.project}">${label}</a>`,
-					]),
-					indicator: "green",
-				},
-				10
-			);
-			cur_frm.reload_doc();
-		});
-	}
+	// v0.36.0): el job post-commit emite `erpnext_proposals_project_created` dirigido al usuario. Para NO
+	// acumular handlers al navegar entre cotizaciones, se desregistra el anterior (`off`) y se registra uno
+	// nuevo ligado por closure a ESTE `frm` (sin el global deprecado). Muestra el aviso (nombre + enlace)
+	// y recarga para poblar `proposal_project` y mostrar el botón «Ver Proyecto». Reabrir una cotización YA
+	// ganada NO dispara aviso (el evento solo se emite al crearse realmente); el estado persistente lo da
+	// el indicador del form.
+	frappe.realtime.off("erpnext_proposals_project_created");
+	frappe.realtime.on("erpnext_proposals_project_created", (data) => {
+		if (!data || data.quotation !== frm.doc.name) return;
+		const label = data.project_name || data.project;
+		frappe.show_alert(
+			{
+				message: __("Proyecto creado: {0}", [
+					`<a href="/app/project/${data.project}">${label}</a>`,
+				]),
+				indicator: "green",
+			},
+			10
+		);
+		frm.reload_doc();
+	});
 
 	// Patch ERPNext's QuotationController to suppress native buttons on proposals.
 	// ERPNext adds these buttons inside its own controller.refresh(), which runs before
