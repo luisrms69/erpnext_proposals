@@ -133,10 +133,7 @@ def on_quotation_validate(doc, method=None):
 	# Fase 1 bis: precargar Items requeridos configurados por los Items vendidos nuevos, ANTES de generar
 	# el alcance, para que sus Scope Items entren en la misma pasada.
 	_autoload_required_items(doc)
-	# Issue #55: precargar el paquete de Gestión de Compras (una vez) si hay comprables aplicables nuevos,
-	# ANTES de generar el alcance para que sus Scope Items entren en la misma pasada.
-	_autoload_procurement_package(doc)
-	# Issue #55 (fix): las filas de `required_items` agregadas por los autoloads en ESTE mismo `validate`
+	# Las filas de `required_items` agregadas por `_autoload_required_items` en ESTE mismo `validate`
 	# aún no tienen `name` (Frappe nombra los children en `set_name_in_children`, que corre ANTES de
 	# `validate`). Sin name, `_generate_scope_items` grabaría `source_row=NULL` y rompería la identidad por
 	# ocurrencia `(source_row, scope_item)`. Asignar el name nativo AHORA, antes de materializar.
@@ -335,8 +332,8 @@ def _economic_behavior_for_item(item_code: str, company: str | None) -> tuple:
 
 def _applicable_scope_items(item_code: str) -> list:
 	"""Scope Items que aplican a un item_code: los de la relación N:M (FUENTE ÚNICA). Compartido por la
-	generación y el resync para que ambos vean el MISMO conjunto. (El abastecimiento ya NO se inyecta por
-	ocurrencia: pasó a ser el paquete de Gestión de Compras — ver `_autoload_procurement_package`, issue #55.)"""
+	generación y el resync para que ambos vean el MISMO conjunto. El abastecimiento/compra ya NO se modela
+	en la propuesta (se gestiona en Buying nativo de ERPNext; ADR-0026)."""
 	from erpnext_proposals.erpnext_proposals.utils.scope_item_links import resolve_scope_items_for_item
 
 	return resolve_scope_items_for_item(item_code, enabled_only=True)
@@ -364,54 +361,12 @@ def _autoload_required_items(doc) -> None:
 			present_required.add(req)
 
 
-def _applicable_purchasables(doc, package_item: str | None) -> set:
-	"""Items COMPRABLES aplicables presentes (vendidos + requeridos): `is_purchase_item=1` y sin
-	`proposal_skip_procurement`, excluyendo el propio paquete de compras. Base del disparo del paquete."""
-	codes = {i.item_code for i in (doc.get("items") or []) if i.item_code}
-	codes |= {r.item for r in (doc.get("required_items") or []) if r.item}
-	codes.discard(package_item)
-	out = set()
-	for code in codes:
-		it = frappe.db.get_value(
-			"Item", code, ["is_purchase_item", "proposal_skip_procurement"], as_dict=True
-		)
-		if it and it.is_purchase_item and not it.get("proposal_skip_procurement"):
-			out.add(code)
-	return out
-
-
-def _autoload_procurement_package(doc) -> None:
-	"""Precarga el paquete **Gestión de Compras** (`default_procurement_package_item`) UNA sola vez cuando
-	aparece un Item comprable aplicable **nuevo** (issue #55, commit 3). Sustituye la inyección por-ocurrencia
-	del antiguo `default_procurement_scope_item`: el abastecimiento se modela como un paquete (Required Item)
-	agregado una vez, no un Scope Item repetido por cada línea comprable.
-
-	Disparo por **diff** (mismo patrón que `_autoload_required_items`): agrega el paquete solo si el conjunto
-	de comprables aplicables **creció** respecto a `get_doc_before_save`; así un guardado normal no lo repone y
-	**no** se reinyecta si el usuario lo borró deliberadamente (soberanía). **No** auto-remove. `is_purchase_item`
-	sigue siendo la señal nativa; se consideran comprables vendidos **y** requeridos."""
-	settings = _proposal_settings(doc.get("company"))
-	if not settings:
-		return
-	package = settings.get("default_procurement_package_item")
-	if not package:
-		return
-	present_required = {r.item for r in (doc.get("required_items") or []) if r.item}
-	if package in present_required:
-		return  # ya presente → no duplicar
-	before = doc.get_doc_before_save()
-	now = _applicable_purchasables(doc, package)
-	prev = _applicable_purchasables(before, package) if before else set()
-	if now - prev:  # apareció un comprable aplicable nuevo → precargar el paquete una vez
-		doc.append("required_items", {"item": package, "qty": 1, "auto_generated": 1})
-
-
 def _assign_pending_required_item_names(doc) -> None:
 	"""Asigna el ``name`` nativo (``set_new_name``) a las filas de ``required_items`` que aún no lo tienen.
 
 	Frappe nombra los child rows en ``set_name_in_children``, que corre ANTES de ``validate``; las filas que
-	los autoloads (``_autoload_required_items`` / ``_autoload_procurement_package``) agregan DURANTE ``validate``
-	llegan sin ``name`` y no se re-nombran después, así que persisten al ``db_insert`` con el name asignado aquí.
+	el autoload ``_autoload_required_items`` agrega DURANTE ``validate`` llegan sin ``name`` y no se re-nombran
+	después, así que persisten al ``db_insert`` con el name asignado aquí.
 	Sin este paso, ``_source_rows`` leería ``ri.name = None`` y ``_generate_scope_items`` materializaría
 	``source_row=NULL``, rompiendo la identidad por ocurrencia ``(source_row, scope_item)`` (resync/poda). Usa el
 	mecanismo nativo de Frappe; no inventa IDs paralelos ni cambia la identidad a ``item_code``."""
@@ -494,39 +449,13 @@ def _append_one_scope(doc, si, src: dict, existing: set, dep_codes: dict) -> int
 	return 1
 
 
-def _is_applicable_purchasable_code(item_code: str | None, package: str | None) -> bool:
-	"""Item comprable aplicable para una ocurrencia: ``is_purchase_item=1``, sin ``proposal_skip_procurement``
-	y distinto del paquete de Gestión de Compras. Mismo criterio que ``_applicable_purchasables``, por Item."""
-	if not item_code or item_code == package:
-		return False
-	it = frappe.db.get_value(
-		"Item", item_code, ["is_purchase_item", "proposal_skip_procurement"], as_dict=True
-	)
-	return bool(it and it.is_purchase_item and not it.get("proposal_skip_procurement"))
-
-
-def _append_fallback_scope(doc, src: dict, scope_code: str | None, existing: set) -> int:
-	"""Materializa un Scope fallback CONFIGURADO (resuelto por código, no por N:M) para la ocurrencia ``src``,
-	por el MISMO pipeline e identidad. La fase la aporta el propio Scope fallback. Si no está configurado o el
-	Scope no existe → 0 (no inyecta; el gate de creación de Project es fail-closed)."""
-	if not scope_code or (src["source_row"], scope_code) in existing:
-		return 0
-	si = frappe.db.get_value("Scope Item", scope_code, list(_SCOPE_GEN_FIELDS), as_dict=True)
-	if not si:
-		return 0
-	return _append_one_scope(doc, si, src, existing, _dependency_codes_map([scope_code]))
-
-
 def _append_scope_rows_for_row(doc, src: dict, existing: set) -> int:
-	"""Materializa los Scope Items de UNA fila origen ``src`` (``{source_type, source_row, item_code}``) por
-	la RUTA ÚNICA Item→Scope→Phase→QSI:
+	"""Materializa el **alcance propio** del Item de UNA fila origen ``src`` (``{source_type, source_row,
+	item_code}``) por la relación N:M (``resolve_scope_items_for_item``: child + legacy, habilitados).
 
-	1. Alcance PROPIO del Item (``resolve_scope_items_for_item``: child N:N + legacy, habilitados).
-	2. Para cualquier ocurrencia **comprable aplicable** (vendida o requerida) → Scope de **compra**
-	   (``default_purchase_scope_item``), una obligación de compra = su Task.
-
-	Una ocurrencia **vendida** sin alcance propio NO genera Scope de compromiso aquí: su entrega la
-	representa la Task operativa del padre-Item en la generación del Project (sin Scope Items artificiales).
+	Un Item (vendido o requerido) **sin alcance propio** NO genera Scope aquí: para un Item **vendido**, su
+	seguimiento/cierre lo representa la **Task operativa** del padre-Item al generar el Project (ADR-0025).
+	El abastecimiento/compra ya **no** se modela en la propuesta (se gestiona en Buying nativo de ERPNext).
 
 	Identidad por fila origen ``(source_row, scope_item)`` (no dedup por item_code); la fase vive SIEMPRE en
 	el Scope Item. ``existing`` se actualiza in situ. Forward-only: solo corre para ``source_row`` nuevas
@@ -545,16 +474,10 @@ def _append_scope_rows_for_row(doc, src: dict, existing: set) -> int:
 		for si in scope_items:
 			own_added += _append_one_scope(doc, si, src, existing, dep_codes)
 
-	settings = _proposal_settings(doc.get("company"))
-	if not settings:
-		return own_added
-	fb_added = 0
-	# El compromiso de entrega de un Item vendido sin alcance propio ya NO se materializa como Scope aquí:
-	# lo cubre la Task operativa del padre-Item al generar el Project (sin Scope Items artificiales).
-	# Compra: cualquier ocurrencia comprable aplicable (vendida o requerida), excluyendo el package.
-	if _is_applicable_purchasable_code(item_code, settings.get("default_procurement_package_item")):
-		fb_added += _append_fallback_scope(doc, src, settings.get("default_purchase_scope_item"), existing)
-	return own_added + fb_added
+	# El alcance es SOLO el propio del Item (relación N:M). Un Item vendido sin alcance propio NO genera
+	# Scope aquí: su seguimiento/cierre lo representa la Task operativa del padre-Item al generar el Project
+	# (ADR-0025). El abastecimiento/compra ya NO se modela en la propuesta (se gestiona en Buying nativo).
+	return own_added
 
 
 def _source_item_codes(doc) -> list:
@@ -568,37 +491,6 @@ def _source_item_codes(doc) -> list:
 			codes.append(src["item_code"])
 			seen.add(src["item_code"])
 	return codes
-
-
-def assert_program_prerequisites(doc) -> None:
-	"""Fail-closed de la invariante «toda Ganada → Project + programa»: verifica que cada **obligación de
-	compra aplicable** tenga configurado su `default_purchase_scope_item` (regla de compras sin cambios), aun
-	si la propuesta ya tiene otro Scope ejecutable. Usa el predicado de comprable
-	(`_is_applicable_purchasable_code`); NO materializa nada. Bloquea si:
-
-	- una ocurrencia **comprable aplicable** no tiene `default_purchase_scope_item` configurado.
-
-	Un Item vendido **sin alcance propio YA no requiere «Scope de compromiso»**: genera su Task operativa en
-	la materialización. Complementa a `_validate_scope_for_project` (template + ≥1 fila ejecutable o Item
-	vendido) y a `_resolve_project_type`."""
-	settings = _proposal_settings(doc.get("company"))
-	purchase = settings.get("default_purchase_scope_item") if settings else None
-	package = settings.get("default_procurement_package_item") if settings else None
-	sin_compra: list = []
-	for src in _source_rows(doc):
-		if not purchase and _is_applicable_purchasable_code(src["item_code"], package):
-			sin_compra.append(src["item_code"])
-	if sin_compra:
-		frappe.throw(
-			_(
-				"No se puede completar la transición a «Ganada»: el programa mínimo del Proyecto no puede "
-				"construirse."
-			)
-			+ " "
-			+ _("Obligaciones de compra sin «Scope de compra por obligación» configurado: {0}.").format(
-				", ".join(sorted(set(sin_compra)))
-			)
-		)
 
 
 def _generate_scope_items(doc):

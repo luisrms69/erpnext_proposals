@@ -2,7 +2,7 @@ import json
 
 import frappe
 from frappe import _
-from frappe.utils import add_days, flt, getdate
+from frappe.utils import add_days, getdate
 
 from erpnext_proposals.erpnext_proposals.utils.permissions import assert_can_manage_proposals
 from erpnext_proposals.erpnext_proposals.utils.phase import phase_sequence
@@ -240,17 +240,9 @@ def _origin_display(row) -> tuple:
 	return (row.item_code, None, None)
 
 
-def _scope_task_subject(row, purchase_code: str | None) -> str:
-	"""Subject humano de la Task hija de scope. Para el Scope fallback de COMPRA usa la identidad de la
-	ocurrencia origen (nombre/qty/UOM); para el resto, título — item_code. (El subject "Entregar — <item>"
-	de la Task operativa de un Item vendido sin alcance se arma en la materialización, no aquí.)"""
-	sc = row.get("scope_item")
-	if sc and purchase_code and sc == purchase_code:
-		name, qty, uom = _origin_display(row)
-		suffix = ""
-		if qty:
-			suffix = f" × {flt(qty):g}" + (f" {uom}" if uom else "")  # noqa: RUF001
-		return _("Comprar") + f" — {name}{suffix}"
+def _scope_task_subject(row) -> str:
+	"""Subject humano de la Task hija de scope: ``título — item_code`` (o solo el título). El subject
+	"Entregar — <item>" de la Task operativa de un Item vendido sin alcance se arma en la materialización."""
 	if row.item_code:
 		return f"{row.title or row.code} — {row.item_code}"
 	return row.title or row.code
@@ -265,10 +257,8 @@ def _materialize_scope_into_project(quotation, project, exec_rows) -> dict:
 	`(project, source_quotation_item_row, is_group=0)` para la Task operativa, y
 	`(project, source_quotation_scope_item)` para las hijas de scope: reejecutar —o reaplicar la misma
 	addenda— no duplica. La fase ya NO agrupa ni es obligatoria."""
-	from erpnext_proposals.erpnext_proposals.utils.quotation import _proposal_settings, _source_rows
+	from erpnext_proposals.erpnext_proposals.utils.quotation import _source_rows
 
-	_settings = _proposal_settings(quotation.get("company"))
-	_purchase_code = _settings.get("default_purchase_scope_item") if _settings else None
 	counters = {
 		"parent_created": 0,
 		"parent_reused": 0,
@@ -350,7 +340,7 @@ def _materialize_scope_into_project(quotation, project, exec_rows) -> dict:
 				task_name = existing_child
 				counters["tasks_skipped"] += 1
 			else:
-				subject = _scope_task_subject(row, _purchase_code)
+				subject = _scope_task_subject(row)
 				desc_parts = []
 				if row.description:
 					desc_parts.append(row.description)

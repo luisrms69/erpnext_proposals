@@ -1,10 +1,11 @@
 # Copyright (c) 2026, Consultoria en Negocios y Aplicaciones and contributors
 # For license information, please see license.txt
 
-"""Fallbacks de alcance: cada ocurrencia **comprable aplicable** (vendida o requerida) genera una Task
-individual de **compra** (``default_purchase_scope_item``) vía Quotation Scope Item, con identidad
-``(source_row, scope_item)``. Un Item vendido SIN Scope propio ya NO genera QSI de compromiso: su entrega
-es la Task operativa "Entregar — <item>" del padre-Item en el Project (modelo por Item). Datos ficticios.
+"""Alcance por Item SIN fallbacks de abastecimiento (ADR-0026). El alcance de una ocurrencia es SOLO su
+Scope propio (relación N:M). Un Item vendido SIN Scope propio —comprable o no— NO genera Quotation Scope
+Item: su seguimiento/cierre es la Task operativa "Entregar — <item>" del padre-Item al crear el Project
+(modelo por Item, ADR-0025). Ya NO existe Scope Item de compra por obligación ni paquete de Gestión de
+Compras: la compra se gestiona en Buying nativo de ERPNext. Datos ficticios.
 """
 
 import unittest
@@ -30,14 +31,11 @@ PHASE = "_FB_PHASE"
 ACT = "_FB Activity"
 
 IT_SVC_SCOPED = "_FB Svc Scoped"  # vendido NO comprable, CON scope propio
-IT_SIMPLE = "_FB Simple"  # vendido NO comprable, SIN scope → compromiso
-IT_HW = "_FB Hardware"  # vendido comprable SIN scope → compromiso + compra
-IT_REQ_BUY = "_FB ReqBuy"  # requerido comprable → compra
-IT_SKIP = "_FB Skip"  # vendido comprable con skip → sin compra
+IT_SIMPLE = "_FB Simple"  # vendido NO comprable, SIN scope → Task operativa
+IT_HW = "_FB Hardware"  # vendido COMPRABLE SIN scope → Task operativa (sin compra automática)
+IT_REQ_BUY = "_FB ReqBuy"  # requerido comprable SIN scope → sin QSI, sin Task
 
 OWN_SCOPE = "_FB_OWN"  # scope propio de IT_SVC_SCOPED
-COMMIT_SCOPE = "_FB_COMMIT"  # fallback compromiso
-PURCH_SCOPE = "_FB_PURCH"  # fallback compra
 
 
 class TestScopeFallbacks(unittest.TestCase):
@@ -87,7 +85,7 @@ class TestScopeFallbacks(unittest.TestCase):
 				{"doctype": "Proposal Template", "template_name": TEMPLATE, "description": "t"}
 			).insert(ignore_permissions=True)
 
-		def _item(code, sales, purchase, skip=0):
+		def _item(code, sales, purchase):
 			if not frappe.db.exists("Item", code):
 				frappe.get_doc(
 					{
@@ -101,24 +99,17 @@ class TestScopeFallbacks(unittest.TestCase):
 						"is_purchase_item": purchase,
 					}
 				).insert(ignore_permissions=True)
-			if skip:
-				frappe.db.set_value("Item", code, "proposal_skip_procurement", 1)
 
-		for c, s, p, sk in [
-			(IT_SVC_SCOPED, 1, 0, 0),
-			(IT_SIMPLE, 1, 0, 0),
-			(IT_HW, 1, 1, 0),
-			(IT_REQ_BUY, 0, 1, 0),
-			(IT_SKIP, 1, 1, 1),
+		for c, s, p in [
+			(IT_SVC_SCOPED, 1, 0),
+			(IT_SIMPLE, 1, 0),
+			(IT_HW, 1, 1),
+			(IT_REQ_BUY, 0, 1),
 		]:
-			_item(c, s, p, sk)
+			_item(c, s, p)
 
 		# Scope propio de IT_SVC_SCOPED (asociación legacy erpnext_item).
 		cls._scope(OWN_SCOPE, IT_SVC_SCOPED, hours=5, visible=1, internal=0)
-		# Fallbacks: hrs 0 (recomendado). Compromiso visible; compra interna (no cliente).
-		cls._scope(COMMIT_SCOPE, None, hours=0, visible=1, internal=0)
-		cls._scope(PURCH_SCOPE, None, hours=0, visible=0, internal=1)
-		cls._set_settings(purchase=PURCH_SCOPE)
 		frappe.db.commit()  # nosemgrep — fixtures de test
 
 	@classmethod
@@ -146,9 +137,6 @@ class TestScopeFallbacks(unittest.TestCase):
 					pass
 		for code in frappe.get_all("Scope Item", filters={"code": ["like", "_FB_%"]}, pluck="name"):
 			frappe.delete_doc("Scope Item", code, force=True, ignore_permissions=True)
-		name = frappe.db.get_value("Proposal Settings", {"company": get_test_company()}, "name")
-		if name:
-			frappe.delete_doc("Proposal Settings", name, force=True, ignore_permissions=True)
 		cleanup_fiscal_year(getattr(cls, "_fy", None))
 		frappe.db.commit()  # nosemgrep — limpieza de fixtures de test
 		super().tearDownClass()
@@ -173,16 +161,6 @@ class TestScopeFallbacks(unittest.TestCase):
 				"erpnext_item": item,
 			}
 		).insert(ignore_permissions=True)
-
-	@classmethod
-	def _set_settings(cls, purchase=None):
-		company = get_test_company()
-		name = frappe.db.get_value("Proposal Settings", {"company": company}, "name")
-		s = frappe.get_doc("Proposal Settings", name) if name else frappe.new_doc("Proposal Settings")
-		s.company = company
-		s.default_purchase_scope_item = purchase
-		s.flags.ignore_permissions = True
-		s.save(ignore_permissions=True)
 
 	def _quotation(self, item_rows, required=None):
 		doc = frappe.get_doc(
@@ -225,24 +203,23 @@ class TestScopeFallbacks(unittest.TestCase):
 
 	# ── tests ───────────────────────────────────────────────────────────────
 	def test_01_sold_without_scope_generates_operative_task(self):
-		# Sin commitment: un Item vendido sin Scope propio NO genera QSI; su entrega es la Task operativa
-		# "Entregar — <item>" del padre-Item en el Project.
+		# Un Item vendido sin Scope propio NO genera QSI; su entrega es la Task operativa "Entregar — <item>"
+		# del padre-Item en el Project.
 		q = self._quotation(
 			[{"item_code": IT_SIMPLE, "item_name": IT_SIMPLE, "qty": 1, "rate": 1000, "uom": "Nos"}]
 		)
-		self.assertEqual(self._scope_rows(q), [], "sin commitment no se genera QSI de compromiso")
+		self.assertEqual(self._scope_rows(q), [], "sin scope propio no se genera QSI")
 		proj = self._win_project(q)
 		self.assertTrue(
 			any(s.startswith("Entregar — ") for s in self._subjects(proj)),
 		)
 
-	def test_02_sold_with_scope_no_commitment(self):
+	def test_02_sold_with_scope_only_own(self):
 		q = self._quotation(
 			[{"item_code": IT_SVC_SCOPED, "item_name": IT_SVC_SCOPED, "qty": 1, "rate": 1000, "uom": "Nos"}]
 		)
 		codes = [r[2] for r in self._scope_rows(q)]
-		self.assertIn(OWN_SCOPE, codes)
-		self.assertNotIn(COMMIT_SCOPE, codes)
+		self.assertEqual(codes, [OWN_SCOPE], "solo el scope propio N:M")
 
 	def test_03_three_simple_items_three_operative_tasks(self):
 		# El submit (dentro de _win_project) debe ir DENTRO del contexto allow_multiple_items=1: 3 ítems
@@ -254,74 +231,55 @@ class TestScopeFallbacks(unittest.TestCase):
 					for _ in range(3)
 				]
 			)
-			self.assertEqual(self._scope_rows(q), [], "sin commitment: 0 QSI")
+			self.assertEqual(self._scope_rows(q), [], "sin scope propio: 0 QSI")
 			proj = self._win_project(q)
 		subs = self._subjects(proj)
 		# 3 ocurrencias vendidas sin Scope → 3 Task operativas "Entregar —" (una por padre-Item).
 		self.assertEqual(sum(1 for s in subs if s.startswith("Entregar — ")), 3, subs)
 
-	def test_04_purchasable_sold_gets_purchase_no_operative(self):
-		# IT_HW comprable sin Scope propio: genera QSI de COMPRA → esa ocurrencia YA tiene hija de scope,
-		# así que NO se añade Task operativa (decisión 4: fallback aplicable suprime la operativa).
+	def test_04_purchasable_sold_generates_operative_not_purchase(self):
+		# Criterio de aceptación v0.36.0 (licencia Microsoft): un Item COMPRABLE vendido sin Scope propio
+		# genera SOLO su Task operativa "Entregar — <item>", NO una Task de compra. No hay QSI de compra.
 		q = self._quotation([{"item_code": IT_HW, "item_name": IT_HW, "qty": 2, "rate": 1000, "uom": "Nos"}])
-		codes = [r[2] for r in self._scope_rows(q)]
-		self.assertIn(PURCH_SCOPE, codes)  # comprable → compra
-		self.assertNotIn(COMMIT_SCOPE, codes)  # ya no hay QSI de compromiso
+		self.assertEqual(
+			self._scope_rows(q), [], "comprable sin scope propio: 0 QSI (sin fallback de compra)"
+		)
 		proj = self._win_project(q)
 		subs = self._subjects(proj)
-		self.assertTrue(any(s.startswith("Comprar — ") for s in subs), subs)
-		self.assertFalse(
-			any(s.startswith("Entregar — ") for s in subs),
-			f"con QSI de compra no debe haber Task operativa: {subs}",
-		)
+		self.assertTrue(any(s.startswith("Entregar — ") for s in subs), subs)
+		self.assertFalse(any(s.startswith("Comprar") for s in subs), f"no debe haber Task de compra: {subs}")
 
-	def test_05_required_purchasable_gets_purchase(self):
+	def test_05_required_purchasable_no_scope_no_task(self):
+		# Un Item requerido comprable SIN Scope propio no genera QSI ni Task (los insumos requeridos no crean
+		# padre ni Task operativa; solo materializan su propio Scope si lo tienen).
 		q = self._quotation(
 			[{"item_code": IT_SVC_SCOPED, "item_name": IT_SVC_SCOPED, "qty": 1, "rate": 1000, "uom": "Nos"}],
 			required=[IT_REQ_BUY],
 		)
-		req = [r for r in self._scope_rows(q) if r[0] == "required" and r[2] == PURCH_SCOPE]
-		self.assertEqual(len(req), 1)
-
-	def test_06_skip_has_no_purchase(self):
-		q = self._quotation(
-			[{"item_code": IT_SKIP, "item_name": IT_SKIP, "qty": 1, "rate": 1000, "uom": "Nos"}]
-		)
-		self.assertEqual(self._scope_rows(q), [], "skip → sin compra; sin commitment → 0 QSI")
-		proj = self._win_project(q)
-		self.assertTrue(
-			any(s.startswith("Entregar — ") for s in self._subjects(proj)),
-		)
-
-	def test_07_purchase_scope_zero_hours_no_cost(self):
-		q = self._quotation([{"item_code": IT_HW, "item_name": IT_HW, "qty": 2, "rate": 1000, "uom": "Nos"}])
-		ev = get_economic_evaluation(q.name)
-		self.assertEqual(ev["totals"]["labor"], 0.0)  # fallbacks hrs 0 → sin costo laboral
-		self.assertEqual(ev["totals"]["external"], 0.0)  # sin buying price → sin costo externo
-
-	def test_08_project_tasks_and_subjects(self):
-		# IT_HW comprable sin Scope: su Task es "Comprar ... x2" (QSI de compra); NO hay Task operativa
-		# porque la ocurrencia ya tiene esa hija de scope (sin operativa adicional).
-		q = self._quotation([{"item_code": IT_HW, "item_name": IT_HW, "qty": 2, "rate": 1000, "uom": "Nos"}])
+		req = [r for r in self._scope_rows(q) if r[0] == "required"]
+		self.assertEqual(req, [], "requerido sin scope propio: sin QSI")
 		proj = self._win_project(q)
 		subs = self._subjects(proj)
-		self.assertTrue(any(s.startswith("Comprar — ") and "× 2" in s for s in subs), subs)  # noqa: RUF001
-		self.assertFalse(any(s.startswith("Entregar — ") for s in subs), subs)
+		self.assertFalse(any(s.startswith("Comprar") for s in subs), subs)
 
-	def test_09_idempotent_retry_no_duplicate(self):
+	def test_06_purchasable_zero_labor_external(self):
+		# Un comprable sin Scope propio ni precio de compra no aporta costo: labor 0 (sin horas de scope) y
+		# external 0 (sin buying price). La compra se gestiona en Buying nativo, fuera de la propuesta.
+		q = self._quotation([{"item_code": IT_HW, "item_name": IT_HW, "qty": 2, "rate": 1000, "uom": "Nos"}])
+		ev = get_economic_evaluation(q.name)
+		self.assertEqual(ev["totals"]["labor"], 0.0)
+		self.assertEqual(ev["totals"]["external"], 0.0)
+
+	def test_07_idempotent_retry_no_duplicate(self):
 		q = self._quotation([{"item_code": IT_HW, "item_name": IT_HW, "qty": 2, "rate": 1000, "uom": "Nos"}])
 		proj = self._win_project(q)
 		n1 = len(self._subjects(proj))
 		create_project_from_quotation(q.name)  # reintento
 		self.assertEqual(len(self._subjects(proj)), n1)
 
-	def test_10_forward_only_no_settings_no_fallback(self):
-		# Sin fallbacks configurados, un Item sin scope no genera QSI (fail-closed lo detecta al crear Project).
-		self._set_settings(purchase=None)
-		try:
-			q = self._quotation(
-				[{"item_code": IT_SIMPLE, "item_name": IT_SIMPLE, "qty": 1, "rate": 1000, "uom": "Nos"}]
-			)
-			self.assertEqual(self._scope_rows(q), [])
-		finally:
-			self._set_settings(purchase=PURCH_SCOPE)
+	def test_08_purchasable_no_config_still_generates(self):
+		# Sin ninguna configuración de abastecimiento (ya no existe): un Item comprable vendido sin Scope
+		# llega a Ganada y genera su programa (Task operativa), sin bloqueo `sin_compra` (eliminado).
+		q = self._quotation([{"item_code": IT_HW, "item_name": IT_HW, "qty": 1, "rate": 1000, "uom": "Nos"}])
+		proj = self._win_project(q)
+		self.assertTrue(any(s.startswith("Entregar — ") for s in self._subjects(proj)))

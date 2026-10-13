@@ -32,6 +32,7 @@ from erpnext_proposals.erpnext_proposals.utils.project import auto_create_projec
 TEMPLATE = "_AW Template"
 ITEM_OK = "_AW Item OK"  # scope con fase → Project válido
 ITEM_NOPHASE = "_AW Item NoPhase"  # scope sin fase → preflight bloquea
+ITEM_BUY = "_AW Item Buy"  # comprable (is_purchase_item=1) SIN scope → Task operativa, sin bloqueo sin_compra
 CO_B = "_AW Co B"
 CO_B_ABBR = "_AWB"
 CUST = "_AW Cust"
@@ -78,6 +79,22 @@ class TestAutoProjectOnWon(unittest.TestCase):
 				).insert(ignore_permissions=True)
 			# No comprable: este módulo prueba la creación de Project, no abastecimiento (fuerza aunque exista).
 			frappe.db.set_value("Item", code, "is_purchase_item", 0)
+		# Item COMPRABLE sin Scope propio (licencia/hardware): valida que llega a Ganada sin configurar nada
+		# de abastecimiento (ADR-0026: el bloqueo `sin_compra` fue eliminado).
+		if not frappe.db.exists("Item", ITEM_BUY):
+			frappe.get_doc(
+				{
+					"doctype": "Item",
+					"item_code": ITEM_BUY,
+					"item_name": ITEM_BUY,
+					"item_group": ig,
+					"stock_uom": "Nos",
+					"is_stock_item": 0,
+					"is_sales_item": 1,
+					"is_purchase_item": 1,
+				}
+			).insert(ignore_permissions=True)
+		frappe.db.set_value("Item", ITEM_BUY, "is_purchase_item", 1)
 		if not frappe.db.exists("Proposal Template", TEMPLATE):
 			frappe.get_doc(
 				{"doctype": "Proposal Template", "template_name": TEMPLATE, "description": "t"}
@@ -276,9 +293,9 @@ class TestAutoProjectOnWon(unittest.TestCase):
 		self.assertTrue(frappe.db.exists("Task", {"project": proj, "is_group": 0}))
 
 	def test_4b_transition_to_ganada_builds_sin_fase(self):
-		# Con el toggle ON, un programa con scope sin fase ahora SÍ se construye: la TRANSICIÓN a Ganada
-		# procede (fase opcional) en vez de bloquear. El fail-closed vivo se conserva para otras causas
-		# (p. ej. obligación de compra sin «Scope de compra» configurado), no por falta de fase.
+		# Un programa con scope sin fase SÍ se construye: la TRANSICIÓN a Ganada procede (fase opcional) en
+		# vez de bloquear. El fail-closed vivo se conserva para template ausente o Project Type ambiguo; el
+		# abastecimiento ya NO impone prerrequisito (ADR-0026).
 		self._set_toggle(self.company, on=True)
 		q = self._quotation(self.company, self.cc, item=ITEM_NOPHASE)
 		self._transition(q, "Ganada")  # no debe lanzar
@@ -287,6 +304,25 @@ class TestAutoProjectOnWon(unittest.TestCase):
 			"Ganada",
 			"la transición a Ganada procede con scope sin fase",
 		)
+
+	def test_4c_purchasable_without_config_reaches_ganada_and_builds(self):
+		# Regresión ADR-0026 (criterio SAL-QTN-2026-00024): un Item COMPRABLE sin Scope propio y SIN ninguna
+		# configuración de abastecimiento llega a «Ganada» sin bloqueo `sin_compra` (eliminado) y construye su
+		# Project con la Task operativa «Entregar — <item>» (no una Task de compra).
+		q = self._quotation(self.company, self.cc, item=ITEM_BUY)
+		self._transition(q, "Ganada")  # no debe lanzar (antes: bloqueo sin_compra)
+		self.assertEqual(
+			frappe.db.get_value("Quotation", q, "workflow_state"),
+			"Ganada",
+			"un comprable sin config llega a Ganada (sin_compra eliminado)",
+		)
+		frappe.db.set_value("Quotation", q, "workflow_state", "Ganada", update_modified=False)
+		auto_create_project_on_won(q)
+		proj = self._track_project(q)
+		self.assertTrue(proj, "debe crear el Project")
+		subs = frappe.get_all("Task", filters={"project": proj, "is_group": 0}, pluck="subject")
+		self.assertTrue(any(s.startswith("Entregar — ") for s in subs), subs)
+		self.assertFalse(any(s.startswith("Comprar") for s in subs), subs)
 
 	def test_5_normal_save_without_transition_does_not_enqueue(self):
 		# Borrador (no submitted): un re-guardado sin cambio de estado (old == new == Borrador) no es

@@ -8,9 +8,6 @@
   "company",
   "autoload_section",
   "required_item_rules",
-  "procurement_section",
-  "default_procurement_package_item",
-  "default_purchase_scope_item",
   "economic_section",
   "economic_behavior_rules",
   "economic_col_break",
@@ -28,7 +25,7 @@
  ],
  "fields": [
   {
-   "description": "Compañía a la que aplica esta configuración. La resolución es estricta por Company: una Quotation usa únicamente el Proposal Settings de su propia Company; si no existe, no hay precarga ni abastecimiento automático (sin fallback global).",
+   "description": "Compañía a la que aplica esta configuración. La resolución es estricta por Company: una Quotation usa únicamente el Proposal Settings de su propia Company; si no existe, no hay precarga de Items requeridos (sin fallback global).",
    "fieldname": "company",
    "fieldtype": "Link",
    "in_list_view": 1,
@@ -48,25 +45,6 @@
    "fieldtype": "Table",
    "label": "Reglas Item / Item Group → Items requeridos",
    "options": "Proposal Required Item Rule"
-  },
-  {
-   "fieldname": "procurement_section",
-   "fieldtype": "Section Break",
-   "label": "Abastecimiento"
-  },
-  {
-   "description": "Item-paquete de Gestión de Compras. Si se define, y la propuesta contiene al menos un Item COMPRABLE (is_purchase_item=1, vendido o requerido) sin 'Omitir tarea de abastecimiento', el paquete se agrega UNA sola vez a Items requeridos (sus Scope Items entran al alcance). Sustituye al antiguo Scope Item de abastecimiento por-ocurrencia. Vacio = no se genera abastecimiento automatico.",
-   "fieldname": "default_procurement_package_item",
-   "fieldtype": "Link",
-   "label": "Paquete de Gestion de Compras",
-   "options": "Item"
-  },
-  {
-   "description": "Scope Item de COMPRA usado por cada ocurrencia comprable aplicable (Item vendido o requerido con is_purchase_item=1, sin 'Omitir tarea de abastecimiento', distinto del paquete). Genera una Task individual de compra por obligación/ocurrencia. Define aquí su Proposal Phase; horas recomendadas 0 (Task de seguimiento, sin costo). Distinto del Paquete de Gestión de Compras (esfuerzo interno). Vacío = no se generan Tasks individuales de compra.",
-   "fieldname": "default_purchase_scope_item",
-   "fieldtype": "Link",
-   "label": "Scope de compra por obligación (fallback)",
-   "options": "Scope Item"
   },
   {
    "fieldname": "economic_section",
@@ -169,7 +147,7 @@
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-10-06 12:00:00.000000",
+ "modified": "2026-10-11 12:00:00.000000",
  "modified_by": "Administrator",
  "module": "ERPNext Proposals",
  "name": "Proposal Settings",

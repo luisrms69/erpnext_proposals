@@ -74,30 +74,23 @@ otra Compañía).
 - **Reglas de Items requeridos** — mapeo *Item o Item Group vendido → Item requerido*. Al agregar un Item
   vendido nuevo, sus Items requeridos configurados se agregan solos a la tabla **Items requeridos**. Una
   regla específica de **Item** tiene prioridad sobre la de su **Item Group** (no se combinan).
-- **Paquete de Gestión de Compras** — un **Item-paquete** por defecto (campo *Paquete de Gestión de Compras*
-  en Proposal Settings). Si la propuesta contiene **al menos un** Item comprable (vendido o requerido), el
-  paquete se agrega **una sola vez** a *Items requeridos* y sus Scope Items entran al alcance —representa la
-  gestión de compra del proyecto, no una tarea repetida por cada línea comprable. Se puede excluir un Item
-  concreto marcando en el Item **«Omitir tarea de abastecimiento»** (`proposal_skip_procurement`). Como
-  cualquier precarga, si lo borras no reaparece. *(Sustituye al antiguo «Scope Item de abastecimiento por
-  defecto», que se agregaba por cada Item comprable.)*
 
-> **Programa mínimo en el Proyecto (entrega y compras).** Al ganar (y al aplicar una addenda), cada **Ítem
-> vendido** genera una **tarea de grupo** (padre) en el Proyecto. Debajo:
+> **La compra no se modela en la propuesta.** ERPNext Proposals **no** genera tareas de abastecimiento ni
+> paquetes de compra: el ciclo de compra (Material Request / Orden de Compra / factura) se gestiona con el
+> **flujo nativo de Buying de ERPNext**. La propuesta solo refleja el **costo de compra** de los Items
+> comprables en la Rentabilidad Estimada (ver abajo), no un proceso de compras paralelo.
+
+> **Programa mínimo en el Proyecto.** Al ganar (y al aplicar una addenda), cada **Ítem vendido** genera una
+> **tarea de grupo** (padre) en el Proyecto. Debajo:
 > - **Item vendido con Scope propio** → sus Scope Items como subtareas.
 > - **Item vendido sin Scope propio** (p. ej. una licencia) → una **tarea operativa inicial** (`"Entregar —
->   {ítem}"`) para que el PMO la amplíe. (Ya **no** se usa un «Scope de compromiso» configurado.)
-> - **Cada obligación comprable** (Item vendido o requerido con `is_purchase_item`, sin «Omitir tarea de
->   abastecimiento», distinto del paquete) → una **Task individual de compra por ocurrencia** (con su qty en
->   el título), usando el *Scope de compra por obligación (fallback)* configurado, con su fase. Así cada
->   compra puede tener responsable/estado/fechas propios.
+>   {ítem}"`) para que el PMO la amplíe. Aplica igual a Items **comprables**: una licencia o un equipo sin
+>   Scope propio genera su tarea de entrega, **no** una tarea de compra automática.
+> - **Item requerido** → solo materializa su Scope propio (si lo tiene); no crea tarea de grupo ni tarea
+>   operativa (es un insumo interno).
 >
-> El **Paquete de Gestión de Compras** se conserva como el **esfuerzo interno** de gestionar compras (horas/
-> costo); es distinto de las Tasks individuales de compra. Estas Tasks son **operativas y sin costo**
-> (recomendado `estimated_hours=0` en el Scope de compra); **no** crean Material Request / Orden de Compra /
-> factura (la compra se ejecuta después con el flujo nativo de ERPNext). Todo es **forward-only**: solo
-> aplica a ocurrencias nuevas del documento que origina el evento; no reconstruye propuestas/Proyectos
-> históricos ni el root al aplicar una addenda.
+> Todo es **forward-only**: solo aplica a ocurrencias nuevas del documento que origina el evento; no
+> reconstruye propuestas/Proyectos históricos ni el root al aplicar una addenda.
 
 La precarga es **solo un punto de partida**: una vez agregadas, las filas son de la propuesta. Puedes
 borrarlas, agregar otras o hacer excepciones; **lo que borras no reaparece** al guardar. Sin Proposal
