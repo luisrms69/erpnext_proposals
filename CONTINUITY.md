@@ -1,57 +1,49 @@
 # CONTINUITY.md — erpnext_proposals
 
-**Fecha:** 2026-10-11
-**Rama activa:** `feat/simplify-procurement` (base `upstream/version-16` = v0.35.0 → objetivo **v0.36.0**, MINOR)
-**Tarea actual:** Eliminar el abastecimiento modelado en la propuesta (ADR-0026) — la compra va a Buying nativo.
+**Fecha:** 2026-10-13
+**Rama activa:** `fix/project-handoff-feedback` (base `upstream/version-16` = v0.36.0 → objetivo **v0.36.1**, PATCH)
+**Tarea actual:** Correcciones de UX/handoff del Project detectadas en staging tras v0.36.0 (ADR-0026).
 
 ---
 
 ## Recuperación rápida
 
-Se eliminan los tres mecanismos de compra superpuestos en la propuesta: **paquete de Gestión de Compras**
-(`default_procurement_package_item`, #55) + su autoload, **Scope de compra por obligación**
-(`default_purchase_scope_item`, #79) + la Task «Comprar — …» por ocurrencia, y el **bloqueo `sin_compra`**
-(`assert_program_prerequisites`). También se retira el Custom Field `Item.proposal_skip_procurement`. El
-alcance de cada ocurrencia pasa a ser **solo su Scope propio** (N:M): un Item comprable vendido sin Scope
-genera su **Task operativa «Entregar»** (ADR-0025), no una Task de compra. Desbloquea ganar propuestas de
-puro licenciamiento (SAL-QTN-2026-00024) sin configurar nada. El **costo de compra** en Rentabilidad
-Estimada (pricing nativo por `is_purchase_item`) no cambia. Ver ADR-0026.
+Cuatro detalles observados en staging al ganar una propuesta de puro licenciamiento (0 Scope Items) y
+generar su Project (PROJ-0091 / SAL-QTN-2026-00024). Correcciones (sin colores — decisión aparte — y sin
+cambiar la fecha del Project):
 
----
+1. **Aviso de creación (async):** el job post-commit emite `publish_realtime("erpnext_proposals_project_created")`
+   dirigido al usuario, solo tras crear realmente el Project; el form lo escucha (binding único por `window`,
+   filtrado por `cur_frm`) y muestra aviso con nombre + enlace.
+2. **Navegación (regresión v0.36.0):** botón «Ver Proyecto» ya no gateado por `quotation_scope_items > 0`;
+   visible siempre que exista `proposal_project` (funciona con 0 QSI).
+3. **Nombre del Project:** `create_project_from_quotation` retorna `project_name`; aviso/botón/indicador
+   muestran el nombre, no solo `PROJ-####`.
+4. **Fecha de inicio de Tasks operativas:** la Task «Entregar» hereda `Project.expected_start_date` (sin fin;
+   idempotente, no sobrescribe). PMO v0.23.0 ya reporta la ausencia de fin; no se duplica.
 
 ## Estado actual
 
 ### Hecho (en dev)
-- Código: `utils/quotation.py` (retiro de `_autoload_procurement_package`, `_applicable_purchasables`,
-  `_is_applicable_purchasable_code`, `_append_fallback_scope`, `assert_program_prerequisites` y la rama de
-  compra de `_append_scope_rows_for_row`), `utils/project.py` (`_scope_task_subject` sin rama «Comprar»;
-  sin `_purchase_code`/`_settings`), `utils/workflow_validations.py` (sin el prerrequisito `sin_compra`).
-- Fixtures/DocType: `proposal_settings.json` sin `default_procurement_package_item`/`default_purchase_scope_item`
-  ni `procurement_section`; `custom_field.json` + `hooks.py` sin `proposal_skip_procurement`.
-- Tests reescritos: `test_scope_fallbacks.py` (modelo sin fallbacks), `test_required_items_autoload.py`
-  (solo autoload de Required Items), `test_required_items.py` (test_21 vía scope propio del Required Item).
-  Regresión añadida en `test_auto_project_on_won.py` (`test_4c`): comprable sin config → Ganada + Task
-  «Entregar», sin bloqueo `sin_compra` (criterio SAL-QTN-2026-00024 a nivel transición).
-- **Suite completa: 812 OK (1 skip)** sobre `test-erpnext_proposals.localhost` migrado; ruff limpio.
-- ADR-0026 + CHANGELOG + mkdocs nav + bump `0.35.0 → 0.36.0`; `mkdocs build --strict` OK.
-- Docs de usuario/técnicas actualizadas (items-requeridos, proyecto-generado, arquitectura, doctypes).
+- `utils/project.py`: retorno con `project_name`; `publish_realtime` en el job async; Task operativa con
+  `exp_start_date` = ancla del Project.
+- `public/js/quotation.js`: listener realtime único + `show_project_link` (botón «Ver Proyecto: {nombre}» +
+  indicador) con 0 QSI; `_projectStates` conservado (contrato JS↔Python); `msgprint` con nombre.
+- Tests nuevos: `test_scope_fallbacks.test_09/test_10`, `test_auto_project_on_won.test_4d`.
+- **Suite completa: 815 OK (1 skip)**; comprobaciones JS (prettier --check, node --check) + contrato JS verdes.
+- Bump `0.36.0 → 0.36.1`; CHANGELOG + CONTINUITY.
 
 ### Pendiente inmediato
-1. **Revisión del diff por el usuario** (no autorizado push/PR/merge/release/deploy todavía).
-2. `/ship pr` → push y PR a `version-16` con el bump `0.36.0` ya incluido.
-3. **CI** valida instalación limpia (`install-app` en sitio nuevo) + suite. **El merge lo hace el usuario.**
-4. Tras merge: `/sync-check` + `/ship release` (tag/Release v0.36.0) + limpieza de rama.
-5. **No desplegar** en staging ni producción todavía.
+1. `/ship pr` → push + PR a `version-16` con el bump 0.36.1 incluido (autorizado).
+2. **CI** valida. **El merge lo hace el usuario** tras CI verde.
+3. Tras merge: `/sync-check` + `/ship release` (tag/Release v0.36.1) — **sujeto a autorización posterior**.
+4. **No desplegar** sin autorización.
 
 ## Decisiones vigentes
-- Abastecimiento fuera de la propuesta (ADR-0026). Se conservan: Task padre/operativa por Item (ADR-0025),
-  Scope Items reales, paquetes de alcance N:M (ADR-0016), Required Items + autoload, inferencia de Project
-  Type, costo externo nativo (ADR-0017/0024).
-- Sin patch, sin SQL: campos retirados dejan columnas huérfanas inertes; `proposal_skip_procurement`
-  persiste en BD de sites existentes (fixtures no borran). Forward-only; históricos intactos.
-- Instalación limpia se valida por CI.
+- Colores de Tasks padre: **pendiente, decisión separada** (fuera de este PR).
+- Fecha del Project: origen intacto (ancla = fecha de la Cotización); solo las Tasks operativas heredan inicio.
+- PMO no se modifica: su mecanismo de fechas incompletas (Project Control → Estado) es suficiente.
 
 ## Información faltante / riesgos
-- Precaución verificada antes de implementar: en los sitios de desarrollo no hay Tasks de compra
-  generadas dependientes de estos mecanismos que se vean afectadas por el cambio (forward-only).
-- Coexistencia (aceptada) de propuestas históricas que usaron compra con el nuevo modelo; no se migran.
+- El comportamiento realtime se validó por código + test (monkeypatch del evento); la recepción en vivo en
+  el navegador es verificación manual de QA.

@@ -197,6 +197,8 @@ def create_project_from_quotation(quotation_name: str):
 
 	sync_project_authorized_cost(project.name)
 	frappe.db.commit()  # nosemgrep
+	# Nombre descriptivo del Project (no solo el id PROJ-####) para feedback/navegación en la UI.
+	res["project_name"] = project.get("project_name") or project.name
 	return res
 
 
@@ -221,7 +223,21 @@ def auto_create_project_on_won(quotation_name: str) -> None:
 		return
 	if doc.get("proposal_project") and frappe.db.exists("Project", doc.proposal_project):
 		return
-	create_project_from_quotation(quotation_name)
+	res = create_project_from_quotation(quotation_name)
+	# Feedback confiable (proceso async): al crearse realmente el Project, notificar al usuario que disparó
+	# la transición (capturado en `frappe.session.user` al encolar). El cliente escucha este evento y muestra
+	# un aviso con enlace + nombre del Project. Si el usuario no está escuchando, el indicador del form (al
+	# recargar, con `proposal_project` ya poblado) cubre el caso. publish_realtime no escribe en BD.
+	frappe.publish_realtime(
+		"erpnext_proposals_project_created",
+		{
+			"quotation": quotation_name,
+			"project": res.get("project"),
+			"project_name": res.get("project_name"),
+			"tasks_created": res.get("tasks_created"),
+		},
+		user=frappe.session.user,
+	)
 
 
 def _origin_display(row) -> tuple:
@@ -403,6 +419,9 @@ def _materialize_scope_into_project(quotation, project, exec_rows) -> dict:
 			counters["tasks_skipped"] += 1
 			continue
 		item_name, _q, _u = _origin_display(frappe._dict(src))
+		# La Task operativa hereda SOLO la fecha de inicio = ancla del Project (`expected_start_date`), para
+		# que entre al cronograma con un punto de partida; NO se le asigna fin (el PMO lo define al planear).
+		# Idempotente: el guard de arriba evita re-crearla, así que nunca sobrescribe una fecha ya puesta.
 		frappe.get_doc(
 			{
 				"doctype": "Task",
@@ -411,6 +430,7 @@ def _materialize_scope_into_project(quotation, project, exec_rows) -> dict:
 				"parent_task": parent,
 				"is_group": 0,
 				"expected_time": 0,
+				"exp_start_date": project.get("expected_start_date") or None,
 				"status": "Open",
 				"source_quotation": quotation.name,
 				"source_quotation_item_row": src["source_row"],

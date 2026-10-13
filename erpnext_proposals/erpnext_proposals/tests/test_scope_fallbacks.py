@@ -283,3 +283,43 @@ class TestScopeFallbacks(unittest.TestCase):
 		q = self._quotation([{"item_code": IT_HW, "item_name": IT_HW, "qty": 1, "rate": 1000, "uom": "Nos"}])
 		proj = self._win_project(q)
 		self.assertTrue(any(s.startswith("Entregar — ") for s in self._subjects(proj)))
+
+	def test_09_operative_task_inherits_project_start_no_end(self):
+		# Punto 6: la Task operativa hereda Project.expected_start_date como fecha de INICIO y NO recibe
+		# fecha de fin (el PMO la define al planear). La fecha del Project no cambia de origen (ancla).
+		q = self._quotation(
+			[{"item_code": IT_SIMPLE, "item_name": IT_SIMPLE, "qty": 1, "rate": 1000, "uom": "Nos"}]
+		)
+		proj = self._win_project(q)
+		pstart = frappe.db.get_value("Project", proj, "expected_start_date")
+		self.assertTrue(pstart, "el Project tiene fecha de inicio (ancla)")
+		rows = frappe.get_all(
+			"Task",
+			filters={"project": proj, "is_group": 0},
+			fields=["subject", "exp_start_date", "exp_end_date"],
+		)
+		entregar = [t for t in rows if t.subject.startswith("Entregar — ")]
+		self.assertTrue(entregar, "hay Task operativa «Entregar»")
+		for t in entregar:
+			self.assertEqual(
+				frappe.utils.getdate(t.exp_start_date),
+				frappe.utils.getdate(pstart),
+				"inicio de la operativa == ancla del Project",
+			)
+			self.assertIsNone(t.exp_end_date, "la operativa NO tiene fecha de fin")
+
+	def test_10_create_returns_project_name(self):
+		# Punto 3: el retorno de create_project_from_quotation incluye el nombre descriptivo del Project.
+		q = self._quotation(
+			[{"item_code": IT_SIMPLE, "item_name": IT_SIMPLE, "qty": 1, "rate": 1000, "uom": "Nos"}]
+		)
+		q.reload()
+		q.flags.ignore_mandatory = True
+		q.flags.ignore_links = True
+		q.submit()
+		frappe.db.set_value("Quotation", q.name, "workflow_state", "Ganada", update_modified=False)
+		res = create_project_from_quotation(q.name)
+		self.__class__._p.append(res["project"])
+		self.assertIn("project_name", res)
+		self.assertTrue(res["project_name"])
+		self.assertEqual(res["project_name"], frappe.db.get_value("Project", res["project"], "project_name"))

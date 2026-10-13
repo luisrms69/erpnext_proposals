@@ -324,6 +324,31 @@ class TestAutoProjectOnWon(unittest.TestCase):
 		self.assertTrue(any(s.startswith("Entregar — ") for s in subs), subs)
 		self.assertFalse(any(s.startswith("Comprar") for s in subs), subs)
 
+	def test_4d_publishes_realtime_on_create(self):
+		# Punto 1 (feedback async): el job post-commit emite `erpnext_proposals_project_created` al usuario
+		# con el project y su NOMBRE descriptivo, para que el cliente muestre el aviso con enlace.
+		q = self._quotation(self.company, self.cc, item=ITEM_BUY)
+		frappe.db.set_value("Quotation", q, "workflow_state", "Ganada", update_modified=False)
+		captured = []
+
+		def _spy(*a, **k):
+			event = a[0] if a else k.get("event")
+			msg = a[1] if len(a) > 1 else k.get("message")
+			captured.append((event, msg))
+
+		orig = frappe.publish_realtime
+		frappe.publish_realtime = _spy
+		try:
+			auto_create_project_on_won(q)
+		finally:
+			frappe.publish_realtime = orig
+		self._track_project(q)
+		evs = [m for (e, m) in captured if e == "erpnext_proposals_project_created"]
+		self.assertTrue(evs, "debe emitir el evento de creación del Project")
+		self.assertEqual(evs[0]["quotation"], q)
+		self.assertTrue(evs[0].get("project"))
+		self.assertTrue(evs[0].get("project_name"), "el evento incluye el nombre descriptivo")
+
 	def test_5_normal_save_without_transition_does_not_enqueue(self):
 		# Borrador (no submitted): un re-guardado sin cambio de estado (old == new == Borrador) no es
 		# transición → no encola. (Un Borrador evita el guard de inmutabilidad de propuestas submitted.)

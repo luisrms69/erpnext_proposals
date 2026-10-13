@@ -1,7 +1,30 @@
-// Patch ERPNext's QuotationController to suppress native buttons on proposals.
-// ERPNext adds these buttons inside its own controller.refresh(), which runs before
-// frappe.ui.form.on handlers. Patching here ensures removal after they are added.
 frappe.ui.form.on("Quotation", "onload", function (frm) {
+	// Feedback confiable de la creación ASÍNCRONA del Project al pasar a «Ganada» (detalle de staging
+	// v0.36.0): el job post-commit emite `erpnext_proposals_project_created` dirigido al usuario. Para NO
+	// acumular handlers al navegar entre cotizaciones, se desregistra el anterior (`off`) y se registra uno
+	// nuevo ligado por closure a ESTE `frm` (sin el global deprecado). Muestra el aviso (nombre + enlace)
+	// y recarga para poblar `proposal_project` y mostrar el botón «Ver Proyecto». Reabrir una cotización YA
+	// ganada NO dispara aviso (el evento solo se emite al crearse realmente); el estado persistente lo da
+	// el indicador del form.
+	frappe.realtime.off("erpnext_proposals_project_created");
+	frappe.realtime.on("erpnext_proposals_project_created", (data) => {
+		if (!data || data.quotation !== frm.doc.name) return;
+		const label = data.project_name || data.project;
+		frappe.show_alert(
+			{
+				message: __("Proyecto creado: {0}", [
+					`<a href="/app/project/${data.project}">${label}</a>`,
+				]),
+				indicator: "green",
+			},
+			10
+		);
+		frm.reload_doc();
+	});
+
+	// Patch ERPNext's QuotationController to suppress native buttons on proposals.
+	// ERPNext adds these buttons inside its own controller.refresh(), which runs before
+	// frappe.ui.form.on handlers. Patching here ensures removal after they are added.
 	const ctrl = frm.cscript;
 	if (!ctrl || ctrl.__proposal_patch_applied) return;
 	const _origRefresh = ctrl.refresh.bind(ctrl);
@@ -67,6 +90,25 @@ function refresh_optional_sections(frm) {
 			}
 		},
 	});
+}
+
+// Acceso directo al Project generado (navegación, no re-crear). Muestra el NOMBRE descriptivo del
+// Project (no solo el id PROJ-####) tanto en el botón como en un indicador del tablero del form. Se
+// resuelve el nombre con una sola lectura; si falla, cae al id. Funciona con 0 Scope Items.
+function show_project_link(frm) {
+	if (frm.doc.docstatus !== 1 || !frm.doc.proposal_project) return;
+	const go = (name) => {
+		frm.add_custom_button(
+			__("Ver Proyecto: {0}", [name]),
+			() => frappe.set_route("Form", "Project", frm.doc.proposal_project),
+			__("Propuesta")
+		);
+		frm.dashboard.add_indicator(__("Proyecto: {0}", [name]), "green");
+	};
+	frappe.db
+		.get_value("Project", frm.doc.proposal_project, "project_name")
+		.then((r) => go((r.message && r.message.project_name) || frm.doc.proposal_project))
+		.catch(() => go(frm.doc.proposal_project));
 }
 
 // ── Vista previa de la propuesta (pestaña "Vista previa") ──────────────────────
@@ -537,48 +579,50 @@ frappe.ui.form.on("Quotation", {
 			);
 		}
 
-		// Button: Create Project — submitted + Ganada (client accepted)
+		// Estados en los que la propuesta ya fue aceptada por el cliente y procede crear Project. ÚNICA
+		// fuente en el JS; debe coincidir con el guard de Python (`assert_can_create_project`) — lo verifica
+		// test_js_project_states_match_python_guard.
 		const _projectStates = ["Ganada"];
-		if (
+		// Navegación: si el Project ya existe (p. ej. creado automáticamente al pasar a «Ganada»),
+		// mostrar SIEMPRE un acceso directo al Project — independientemente de que haya Scope Items
+		// (una propuesta de puro licenciamiento válida tiene 0 QSI; ver ADR-0026). Muestra el NOMBRE
+		// descriptivo del Project, no solo el id PROJ-####.
+		if (frm.doc.docstatus === 1 && frm.doc.proposal_project) {
+			show_project_link(frm);
+		} else if (
+			// Crear: Ganada + template, con algún programa que generar (≥1 Item vendido o ≥1 QSI
+			// ejecutable). Sin QSI pero con Items vendidos sigue siendo válido (ADR-0025/0026).
 			frm.doc.docstatus === 1 &&
 			_projectStates.includes(frm.doc.workflow_state) &&
 			frm.doc.proposal_template &&
-			frm.doc.quotation_scope_items &&
-			frm.doc.quotation_scope_items.length > 0
+			((frm.doc.quotation_scope_items && frm.doc.quotation_scope_items.length > 0) ||
+				(frm.doc.items && frm.doc.items.length > 0))
 		) {
-			const label = frm.doc.proposal_project
-				? __("Ver / Actualizar Proyecto")
-				: __("Crear Proyecto desde Propuesta");
-
 			frm.add_custom_button(
-				label,
+				__("Crear Proyecto desde Propuesta"),
 				() => {
-					frappe.confirm(
-						__("¿Crear Proyecto y Tasks desde los Scope Items de esta propuesta?"),
-						() => {
-							frappe.call({
-								method: "erpnext_proposals.erpnext_proposals.utils.project.create_project_from_quotation",
-								args: { quotation_name: frm.doc.name },
-								callback(r) {
-									if (r.message) {
-										const { project, tasks_created, tasks_skipped } =
-											r.message;
-										frappe.msgprint(
-											__(
-												"Proyecto: {0}<br>Tasks nuevas: {1} | Omitidas: {2}",
-												[
-													`<a href="/app/project/${project}">${project}</a>`,
-													tasks_created,
-													tasks_skipped,
-												]
-											)
-										);
-										frm.reload_doc();
-									}
-								},
-							});
-						}
-					);
+					frappe.confirm(__("¿Crear Proyecto y Tasks desde esta propuesta?"), () => {
+						frappe.call({
+							method: "erpnext_proposals.erpnext_proposals.utils.project.create_project_from_quotation",
+							args: { quotation_name: frm.doc.name },
+							callback(r) {
+								if (r.message) {
+									const { project, project_name, tasks_created, tasks_skipped } =
+										r.message;
+									frappe.msgprint(
+										__("Proyecto: {0}<br>Tasks nuevas: {1} | Omitidas: {2}", [
+											`<a href="/app/project/${project}">${
+												project_name || project
+											}</a>`,
+											tasks_created,
+											tasks_skipped,
+										])
+									);
+									frm.reload_doc();
+								}
+							},
+						});
+					});
 				},
 				__("Propuesta")
 			);
