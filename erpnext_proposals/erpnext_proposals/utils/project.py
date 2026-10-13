@@ -445,7 +445,9 @@ def _materialize_scope_into_project(quotation, project, exec_rows) -> dict:
 	undatable = _schedule_tasks(project, contracted, dep_edges)
 
 	# ── Rango de cada Task padre (envelope de sus hijas) + rango del Project ──
-	_rollup_parent_dates(contracted, project)
+	# Se pasan TODOS los padres-Item materializados (de scope Y de Task operativa). El rollup lee las hijas
+	# persistidas en BD, así incluye las operativas «Entregar» (que no están en `contracted`) y es robusto.
+	_rollup_parent_dates(set(item_parent_by_row.values()), project)
 
 	return {
 		"project": project.name,
@@ -753,35 +755,40 @@ def _schedule_tasks(project, contracted: list, dep_edges: dict) -> list:
 	return undatable
 
 
-def _rollup_parent_dates(contracted: list, project) -> None:
-	"""Rango de cada Task padre (por Item) = **envelope real de sus Tasks hijas** (inicio = `min(inicio de
-	hijas fechadas)`, fin = `max(fin de hijas fechadas)`). NO usa una duración configurada ni un segundo
-	scheduler: la ventana se deriva únicamente de las fechas ya calculadas de las hijas. Una fase sin hijas
-	fechadas **no** recibe fechas (no se inventan).
+def _rollup_parent_dates(parent_task_names, project) -> None:
+	"""Rango de cada Task padre-Item = **envelope real de sus Tasks hijas persistidas** (`is_group=0`):
+	inicio = `min(exp_start_date de hijas con inicio)`, fin = `max(exp_end_date de hijas con fin)`.
 
-	Además fija el **fin del Project** (`expected_end_date`) como el fin más tardío del plan, de modo que el
-	rango del Project contenga todas las fases/Tasks generadas. El inicio del Project se mantiene como su
-	ancla (`expected_start_date` = fecha de la Cotización), que es la base de los offsets y ≤ el inicio de
-	cualquier hija con offset ≥ 0.
+	**Inicio y fin son INDEPENDIENTES:** un padre cuyas hijas tienen inicio pero **ninguna** tiene fin recibe
+	**solo inicio** (no se inventa fin); si alguna tiene fin, el padre refleja el más tardío. Un padre sin
+	ninguna hija fechada no recibe fechas.
+
+	Lee las fechas **persistidas en BD** (no solo las calculadas en esta corrida), de modo que incluye las
+	Task operativas «Entregar» —que NO están en `contracted`— y es **idempotente/robusto** ante hijas
+	creadas en corridas previas o con fechas editadas manualmente (el envelope refleja esos valores reales).
+	Solo escribe los campos que calcula (nunca borra una fecha existente del padre).
+
+	Además fija el **fin del Project** (`expected_end_date`) como el fin más tardío del plan. El inicio del
+	Project se mantiene como su ancla (`expected_start_date` = fecha de la Cotización); **no se toca aquí**.
 	"""
-	by_parent: dict = {}
 	all_ends: list = []
-	for node in contracted:
-		if node.get("_end"):
-			all_ends.append(node["_end"])
-		if node.get("parent"):
-			by_parent.setdefault(node["parent"], []).append(node)
-	for parent, children in by_parent.items():
-		starts = [c["_start"] for c in children if c.get("_start")]
-		ends = [c["_end"] for c in children if c.get("_end")]
-		if starts and ends:
-			frappe.db.set_value(
-				"Task",
-				parent,
-				{"exp_start_date": min(starts), "exp_end_date": max(ends)},
-				update_modified=False,
-			)
-	# Fin del Project = fin más tardío del plan (contiene todas las fases). Solo si hay fechas.
+	for parent in parent_task_names:
+		children = frappe.get_all(
+			"Task",
+			filters={"parent_task": parent, "is_group": 0},
+			fields=["exp_start_date", "exp_end_date"],
+		)
+		starts = [getdate(c.exp_start_date) for c in children if c.exp_start_date]
+		ends = [getdate(c.exp_end_date) for c in children if c.exp_end_date]
+		updates: dict = {}
+		if starts:
+			updates["exp_start_date"] = min(starts)
+		if ends:
+			updates["exp_end_date"] = max(ends)
+		if updates:
+			frappe.db.set_value("Task", parent, updates, update_modified=False)
+		all_ends.extend(ends)
+	# Fin del Project = fin más tardío del plan (contiene todas las fases). Solo si hay fechas de fin.
 	if all_ends:
 		frappe.db.set_value(
 			"Project", project.name, {"expected_end_date": max(all_ends)}, update_modified=False
