@@ -141,7 +141,6 @@ Fuente: `erpnext_proposals/erpnext_proposals/doctype/proposal_settings/proposal_
 |---|---|---|---|---|
 | `company` | Compañía | Link | ✅ | Company |
 | `required_item_rules` | Reglas Item / Item Group → Items requeridos | Table |  | Proposal Required Item Rule |
-| `default_procurement_scope_item` | Scope Item de abastecimiento por defecto | Link |  | Scope Item |
 | `economic_behavior_rules` | Comportamiento económico por Item / Item Group | Table |  | Proposal Economic Behavior Rule |
 | `default_contract_term_months` | Plazo contractual por defecto (meses) | Int |  |  |
 

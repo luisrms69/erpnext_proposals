@@ -59,6 +59,7 @@ nav:
     - ADR-0023 Depuración de fuentes de verdad (pack editorial): adr/0023-depuracion-fuentes-de-verdad-pack.md
     - ADR-0024 Costo externo multimoneda: adr/0024-costo-externo-multimoneda.md
     - ADR-0025 Generación Project/Tasks por Item: adr/0025-generacion-project-tasks-por-item.md
+    - ADR-0026 Eliminación del abastecimiento en la propuesta: adr/0026-eliminacion-abastecimiento-en-propuesta.md
 
 theme:
   name: material

@@ -64,7 +64,7 @@ Cada **Ítem contratado** genera una **tarea de grupo** (padre) en el proyecto. 
 
 | Campo de la subtarea | Origen |
 |---|---|
-| Asunto | "{Título de la actividad} — {ítem}"; "Entregar — {ítem}" (tarea operativa); "Comprar — {ítem} × {cant}" (obligación de compra) |
+| Asunto | "{Título de la actividad} — {ítem}"; "Entregar — {ítem}" (tarea operativa cuando el Ítem no tiene alcance propio) |
 | Descripción | Descripción de la actividad + Entregable + Perfil (combinados) |
 | Tiempo esperado | Horas estimadas de la actividad (0 en la tarea operativa) |
 | Estado | Open |

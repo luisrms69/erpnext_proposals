@@ -85,17 +85,16 @@ def _ensure_project_on_won(doc) -> None:
 	if not doc.get("company"):
 		return
 	# Prerrequisitos del programa (fail-closed, ANTES del commit de la transición): template + ≥1 fila
-	# ejecutable + fase (`_validate_scope_for_project`), Project Type no ambiguo (`_resolve_project_type`) y
-	# configuración de fallbacks suficiente por ocurrencia (`assert_program_prerequisites`).
+	# ejecutable o Item vendido (`_validate_scope_for_project`) y Project Type no ambiguo
+	# (`_resolve_project_type`). El abastecimiento/compra ya NO impone prerrequisito (ADR-0026): un Item
+	# comprable sin alcance genera su Task operativa, no requiere Scope de compra configurado.
 	from erpnext_proposals.erpnext_proposals.utils.project import (
 		_resolve_project_type,
 		_validate_scope_for_project,
 	)
-	from erpnext_proposals.erpnext_proposals.utils.quotation import assert_program_prerequisites
 
 	_validate_scope_for_project(doc)
 	_resolve_project_type(doc)
-	assert_program_prerequisites(doc)
 	# Creación INCONDICIONAL del Project (post-commit, idempotente; no revierte la transición ya validada).
 	# El job corre como el usuario que dispara la transición (`frappe.enqueue` captura `frappe.session.user`).
 	frappe.enqueue(

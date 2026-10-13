@@ -2,6 +2,22 @@
 
 ## [No liberado]
 
+### Removed — El abastecimiento deja de modelarse en la propuesta (se gestiona en Buying nativo) (v0.36.0)
+
+Se eliminan los **tres mecanismos de compra** superpuestos sobre `Proposal Settings`: el **paquete de
+Gestión de Compras** (`default_procurement_package_item`, #55) con su autoload, el **Scope de compra por
+obligación** (`default_purchase_scope_item`, #79) con su generación de Task «Comprar — …» por ocurrencia, y
+el **bloqueo `sin_compra`** (`assert_program_prerequisites`) de la transición a «Ganada». También se retira
+el Custom Field `Item.proposal_skip_procurement` («Omitir tarea de abastecimiento»), ya sin lógica. El
+alcance de cada ocurrencia pasa a ser **solo su Scope propio** (N:M): un Item comprable vendido sin Scope se
+comporta igual que cualquier Item sin alcance → su **Task operativa «Entregar — <item>»** (ADR-0025), no una
+Task de compra. **Desbloquea ganar propuestas de puro licenciamiento** (caso SAL-QTN-2026-00024) sin
+configurar nada. La compra se ejecuta con el **flujo nativo de Buying de ERPNext**; el **costo de compra** en
+la Rentabilidad Estimada (pricing nativo por `is_purchase_item`, ADR-0017/0024) **no cambia**. Forward-only:
+`bench migrate` estándar, sin patch, sin SQL, sin pérdida de datos (columnas/campo retirados quedan huérfanos
+e inertes); propuestas/Proyectos históricos intactos. Ver
+[ADR-0026](adr/0026-eliminacion-abastecimiento-en-propuesta.md).
+
 ### Changed — Generación Project/Tasks por Item; Proposal Phase deja de ser obligatoria
 
 La materialización Quotation Ganada → Project pasa a **una Task padre (`is_group=1`) por Item vendido**,

@@ -98,7 +98,6 @@ fixtures = [
 					"proposal_frozen_cost_source_currency",
 					"proposal_frozen_cost_exchange_rate",
 					"proposal_cost_locked",
-					"proposal_skip_procurement",
 					"proposal_project_type",
 					"proposal_contract_term_months",
 					"proposal_economic_behavior",
