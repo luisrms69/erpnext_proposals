@@ -1,49 +1,41 @@
 # CONTINUITY.md — erpnext_proposals
 
 **Fecha:** 2026-10-13
-**Rama activa:** `fix/project-handoff-feedback` (base `upstream/version-16` = v0.36.0 → objetivo **v0.36.1**, PATCH)
-**Tarea actual:** Correcciones de UX/handoff del Project detectadas en staging tras v0.36.0 (ADR-0026).
+**Rama activa:** `fix/parent-task-date-rollup` (base `upstream/version-16` = v0.36.1 → objetivo **v0.36.2**, PATCH)
+**Tarea actual:** Fix de propagación de fechas a la Task padre-Item (defecto de staging PROJ-0091 tras v0.36.1).
 
 ---
 
 ## Recuperación rápida
 
-Cuatro detalles observados en staging al ganar una propuesta de puro licenciamiento (0 Scope Items) y
-generar su Project (PROJ-0091 / SAL-QTN-2026-00024). Correcciones (sin colores — decisión aparte — y sin
-cambiar la fecha del Project):
-
-1. **Aviso de creación (async):** el job post-commit emite `publish_realtime("erpnext_proposals_project_created")`
-   dirigido al usuario, solo tras crear realmente el Project; el form lo escucha (binding único por `window`,
-   filtrado por `cur_frm`) y muestra aviso con nombre + enlace.
-2. **Navegación (regresión v0.36.0):** botón «Ver Proyecto» ya no gateado por `quotation_scope_items > 0`;
-   visible siempre que exista `proposal_project` (funciona con 0 QSI).
-3. **Nombre del Project:** `create_project_from_quotation` retorna `project_name`; aviso/botón/indicador
-   muestran el nombre, no solo `PROJ-####`.
-4. **Fecha de inicio de Tasks operativas:** la Task «Entregar» hereda `Project.expected_start_date` (sin fin;
-   idempotente, no sobrescribe). PMO v0.23.0 ya reporta la ausencia de fin; no se duplica.
+La Task padre de un Item vendido sin Scope Items quedaba sin fecha de inicio pese a que su Task operativa
+«Entregar» sí la tenía. Causa: las operativas no entraban a `_rollup_parent_dates` (no están en
+`contracted`) y el rollup acoplaba inicio y fin. Fix en `project.py`: el rollup recibe todos los padres
+materializados y lee las hijas persistidas en BD, fijando inicio y fin de forma independiente (hereda el
+inicio aunque no haya fin; no inventa fin). No cambia la fecha del Project.
 
 ## Estado actual
 
 ### Hecho (en dev)
-- `utils/project.py`: retorno con `project_name`; `publish_realtime` en el job async; Task operativa con
-  `exp_start_date` = ancla del Project.
-- `public/js/quotation.js`: listener realtime único + `show_project_link` (botón «Ver Proyecto: {nombre}» +
-  indicador) con 0 QSI; `_projectStates` conservado (contrato JS↔Python); `msgprint` con nombre.
-- Tests nuevos: `test_scope_fallbacks.test_09/test_10`, `test_auto_project_on_won.test_4d`.
-- **Suite completa: 815 OK (1 skip)**; comprobaciones JS (prettier --check, node --check) + contrato JS verdes.
-- Bump `0.36.0 → 0.36.1`; CHANGELOG + CONTINUITY.
+- `utils/project.py`: `_rollup_parent_dates(parent_task_names, project)` reescrito (lee hijas en BD,
+  inicio/fin independientes, idempotente, respeta ediciones manuales de hojas); caller pasa
+  `set(item_parent_by_row.values())`.
+- Nuevo módulo de integración `tests/test_project_date_hierarchy.py` (8 casos: sin scope, multi, scope
+  programado, scope sin programación, mezcla, idempotencia con edición manual, addenda, mismo Item ×3) —
+  verifica `exp_start_date`/`exp_end_date` del **padre** y de la **hoja** en BD.
+- **Suite completa: 823 OK (1 skip)**; ruff limpio.
+- Bump `0.36.1 → 0.36.2`; CHANGELOG + CONTINUITY.
 
 ### Pendiente inmediato
-1. `/ship pr` → push + PR a `version-16` con el bump 0.36.1 incluido (autorizado).
+1. `/ship pr` → push + PR a `version-16` con el bump 0.36.2 (autorizado).
 2. **CI** valida. **El merge lo hace el usuario** tras CI verde.
-3. Tras merge: `/sync-check` + `/ship release` (tag/Release v0.36.1) — **sujeto a autorización posterior**.
-4. **No desplegar** sin autorización.
+3. Tras merge: `/sync-check` + `/ship release` (tag/Release v0.36.2) + limpieza de rama.
 
 ## Decisiones vigentes
-- Colores de Tasks padre: **pendiente, decisión separada** (fuera de este PR).
-- Fecha del Project: origen intacto (ancla = fecha de la Cotización); solo las Tasks operativas heredan inicio.
-- PMO no se modifica: su mecanismo de fechas incompletas (Project Control → Estado) es suficiente.
+- La fecha del padre-Item es un envelope **derivado** de sus hijas (se recalcula en cada corrida); las
+  hojas (operativa/scope) preservan sus valores (la operativa se crea una vez; el scope viene de offsets).
+- Colores de Tasks padre: siguen pendientes (decisión separada, fuera de alcance).
+- No se migran proyectos históricos: el fix aplica al generar/reaplicar (idempotente).
 
 ## Información faltante / riesgos
-- El comportamiento realtime se validó por código + test (monkeypatch del evento); la recepción en vivo en
-  el navegador es verificación manual de QA.
+- PROJ-0091 en staging se corrige al regenerarse (idempotente); sin corrección masiva.

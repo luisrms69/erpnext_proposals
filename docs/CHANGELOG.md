@@ -2,6 +2,22 @@
 
 ## [No liberado]
 
+### Fixed — Propagación de fechas a la Task padre-Item en el handoff (v0.36.2)
+
+La Task padre (`is_group=1`) de un Item vendido **sin Scope Items** quedaba **sin fecha de inicio** aunque
+su Task operativa «Entregar» sí la tenía (defecto observado en staging, PROJ-0091). Causa: las Task
+operativas no se incluían en `_rollup_parent_dates` (no están en `contracted`), y el rollup acoplaba
+inicio y fin (`if starts and ends`), de modo que un padre sin ninguna hija con fin no recibía siquiera el
+inicio.
+
+`_rollup_parent_dates` se reescribe para: (1) recibir **todos** los padres-Item materializados (de scope
+**y** de operativa); (2) leer las **hijas persistidas en BD** (`is_group=0`), por lo que incluye las
+operativas y es **idempotente** ante corridas previas o fechas editadas manualmente; (3) fijar **inicio y
+fin de forma independiente** — el padre hereda el inicio más temprano de sus hijas aunque ninguna tenga
+fin; refleja el fin más tardío solo cuando exista (no se inventa). No se toca `Project.expected_start_date`
+(ancla). Forward-only; sin patch, sin migración de datos; no modifica proyectos históricos. Cobertura nueva:
+`test_project_date_hierarchy` (8 casos de integración que verifican padre **y** hoja en BD). Suite 823 OK.
+
 ### Fixed — Handoff Quotation→Project: feedback, navegación y fecha de inicio de Tasks operativas (v0.36.1)
 
 Corrige los detalles detectados en staging al generar el Project desde una propuesta de puro
