@@ -2,6 +2,27 @@
 
 ## [No liberado]
 
+### Fixed — Handoff Quotation→Project: feedback, navegación y fecha de inicio de Tasks operativas (v0.36.1)
+
+Corrige los detalles detectados en staging al generar el Project desde una propuesta de puro
+licenciamiento (0 Scope Items) tras ADR-0026:
+
+- **Aviso de creación (async):** el job post-commit `auto_create_project_on_won` emite
+  `publish_realtime("erpnext_proposals_project_created", …, user=…)` **solo** tras crear realmente el
+  Project; el form lo escucha (binding único por sesión, filtrado por `cur_frm`, sin acumular handlers) y
+  muestra un aviso con el nombre del Project + enlace.
+- **Navegación (regresión v0.36.0):** el botón «Ver Proyecto» ya **no** se gatea por `quotation_scope_items > 0`;
+  se muestra siempre que exista `proposal_project`, incluso con 0 Scope Items. «Crear Proyecto» aplica con
+  Ganada + template + (≥1 QSI ejecutable **o** ≥1 Item vendido).
+- **Nombre descriptivo:** `create_project_from_quotation` retorna `project_name`; el aviso, el botón y un
+  indicador del form muestran el nombre del Project, no solo el id `PROJ-####`.
+- **Fecha de inicio de Tasks operativas:** la Task «Entregar» hereda `Project.expected_start_date` como
+  inicio (sin fecha de fin; el PMO la define al planear). Idempotente: nunca sobrescribe una fecha existente.
+  La fecha del Project no cambia de origen. PMO v0.23.0 ya reporta la ausencia de fin en Project Control →
+  Estado («Falta fecha de fin.»); no se duplica el aviso.
+
+Forward-only; sin cambios de esquema/fixtures. Suite 815 OK.
+
 ### Removed — El abastecimiento deja de modelarse en la propuesta (se gestiona en Buying nativo) (v0.36.0)
 
 Se eliminan los **tres mecanismos de compra** superpuestos sobre `Proposal Settings`: el **paquete de
