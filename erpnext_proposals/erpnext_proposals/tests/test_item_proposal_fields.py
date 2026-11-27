@@ -153,7 +153,7 @@ class TestItemProposalFields(unittest.TestCase):
 				"item_name": "N",
 				"description": "<p>d</p>",
 				"qty": 1,
-				"uom": "Nos",
+				"uom": "_Test UOM",
 				"rate": 10,
 				"price_list_rate": 10,
 				"discount_percentage": 0,
@@ -224,7 +224,7 @@ class TestItemProposalFields(unittest.TestCase):
 
 		code = "_ITEMPROP-LOADER"
 		grp = get_test_item_group()
-		uom = "Nos" if frappe.db.exists("UOM", "Nos") else frappe.db.get_value("UOM", {}, "name")
+		uom = frappe.db.get_value("UOM", {"enabled": 1}, "name")
 		fd, path = tempfile.mkstemp(suffix=".json")
 		os.close(fd)
 

@@ -48,7 +48,7 @@ class TestCatalogClearFields(unittest.TestCase):
 			return
 		if not frappe.db.exists("Item", ITEM):
 			grp = get_test_item_group()
-			uom = "Nos" if frappe.db.exists("UOM", "Nos") else frappe.db.get_value("UOM", {}, "name")
+			uom = frappe.db.get_value("UOM", {"enabled": 1}, "name")
 			frappe.get_doc(
 				{
 					"doctype": "Item",
