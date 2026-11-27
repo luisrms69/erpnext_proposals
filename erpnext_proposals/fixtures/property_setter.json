@@ -1,0 +1,32 @@
+[
+ {
+  "doctype": "Property Setter",
+  "doctype_or_field": "DocField",
+  "doc_type": "Sales Order Item",
+  "field_name": "cost_center",
+  "property": "reqd",
+  "property_type": "Check",
+  "value": "1",
+  "name": "Sales Order Item-cost_center-reqd"
+ },
+ {
+  "doctype": "Property Setter",
+  "doctype_or_field": "DocField",
+  "doc_type": "Purchase Order Item",
+  "field_name": "cost_center",
+  "property": "reqd",
+  "property_type": "Check",
+  "value": "1",
+  "name": "Purchase Order Item-cost_center-reqd"
+ },
+ {
+  "doctype": "Property Setter",
+  "doctype_or_field": "DocField",
+  "doc_type": "Purchase Invoice Item",
+  "field_name": "cost_center",
+  "property": "reqd",
+  "property_type": "Check",
+  "value": "1",
+  "name": "Purchase Invoice Item-cost_center-reqd"
+ }
+]

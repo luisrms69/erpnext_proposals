@@ -138,6 +138,22 @@ fixtures = [
 			]
 		],
 	},
+	{
+		# Guard de centro de costos: cost_center obligatorio en renglones de SO/PO/PI (Sales Invoice Item
+		# ya es reqd nativo). Evita renglones sin CC cuando no hay default de Company/Item/Project.
+		"doctype": "Property Setter",
+		"filters": [
+			[
+				"name",
+				"in",
+				[
+					"Sales Order Item-cost_center-reqd",
+					"Purchase Order Item-cost_center-reqd",
+					"Purchase Invoice Item-cost_center-reqd",
+				],
+			]
+		],
+	},
 ]
 
 # Each item in the list will be shown as an app in the apps page
