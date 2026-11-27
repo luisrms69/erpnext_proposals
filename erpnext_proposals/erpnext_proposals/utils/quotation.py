@@ -2,7 +2,7 @@ import json
 
 import frappe
 from frappe import _
-from frappe.utils import flt
+from frappe.utils import cint, flt
 
 # Excepciones de json.loads (ValueError incluye JSONDecodeError; TypeError si el valor no es str/bytes).
 # Constante nombrada para evitar la tupla literal en el `except`, cuya forma con/sin paréntesis es
@@ -315,6 +315,24 @@ def _economic_behavior_for_item(item_code: str, company: str | None) -> tuple:
 	implícito). Resolución **estricta por Company**, sin fallback global. Solo clasifica: el importe siempre
 	sale de la propuesta (precio de la línea / costo externo), aquí NO hay precio."""
 	default = (ONE_TIME, None, None)
+	# Precedencia (producto-nativo primero): 1) atributos genéricos del propio Item (el adaptador de
+	# cualquier proveedor —p. ej. Microsoft— los puebla; NO son campos exclusivos de un proveedor);
+	# 2) regla por Company (Item → Item Group); 3) default one_time.
+	itf = (
+		frappe.db.get_value(
+			"Item",
+			item_code,
+			["proposal_economic_behavior", "proposal_billing_interval", "proposal_billing_interval_count"],
+			as_dict=True,
+		)
+		or {}
+	)
+	if itf.get("proposal_economic_behavior"):
+		return (
+			itf["proposal_economic_behavior"],
+			itf.get("proposal_billing_interval") or None,
+			itf.get("proposal_billing_interval_count") or None,
+		)
 	settings = _proposal_settings(company)
 	if not settings:
 		return default
@@ -328,6 +346,32 @@ def _economic_behavior_for_item(item_code: str, company: str | None) -> tuple:
 			if r.source_type == "Item Group" and r.source == group:
 				return (r.economic_behavior or ONE_TIME, r.interval, r.interval_count)
 	return default
+
+
+def _commitment_for_item(item_code: str, company: str | None) -> int | None:
+	"""Compromiso contractual (meses) POR DEFECTO de un Item (duración del compromiso de la línea; NO el
+	plazo por-documento ni renovaciones). Precedencia paralela a ``_economic_behavior_for_item``:
+	1) ``Item.proposal_commitment_months`` (producto-nativo; adaptadores lo pueblan); 2) regla por Company
+	(Item → Item Group, campo ``commitment_months``); 3) ``None`` (no resoluble). Genérico, sin lógica de
+	proveedor. Devuelve meses > 0 o ``None``."""
+	v = frappe.db.get_value("Item", item_code, "proposal_commitment_months")
+	if v and cint(v) > 0:
+		return cint(v)
+	settings = _proposal_settings(company)
+	if settings:
+		rules = settings.get("economic_behavior_rules") or []
+		group = frappe.db.get_value("Item", item_code, "item_group")
+		for r in rules:
+			if r.source_type == "Item" and r.source == item_code and cint(r.get("commitment_months")) > 0:
+				return cint(r.commitment_months)
+		for r in rules:
+			if (
+				r.source_type == "Item Group"
+				and r.source == group
+				and cint(r.get("commitment_months")) > 0
+			):
+				return cint(r.commitment_months)
+	return None
 
 
 def _applicable_scope_items(item_code: str) -> list:
@@ -1041,6 +1085,7 @@ def _materialize_economic_behavior(doc, force: bool = False) -> None:
 		row.proposal_economic_behavior = behavior
 		row.proposal_billing_interval = interval or ""
 		row.proposal_billing_interval_count = int(count or 0)
+		row.proposal_commitment_months = cint(_commitment_for_item(row.item_code, company) or 0)
 	for row in doc.get("required_items") or []:
 		if not force and row.get("economic_behavior"):
 			continue
@@ -1048,6 +1093,7 @@ def _materialize_economic_behavior(doc, force: bool = False) -> None:
 		row.economic_behavior = behavior
 		row.billing_interval = interval or ""
 		row.billing_interval_count = int(count or 0)
+		row.commitment_months = cint(_commitment_for_item(row.item, company) or 0)
 
 
 def assert_economic_snapshot_complete(doc) -> None:
