@@ -60,9 +60,10 @@ def _on_workflow_transition(doc, old_state: str, new_state: str):
 	# efectos secundarios antes de persistir la transición ni revertir `Ganada` si el Project falla.
 	if new_state == "Ganada":
 		# Invariante: toda Quotation que llega a «Ganada» DEBE crear su Project y programa (fail-closed).
-		# La notificación es independiente (su propio toggle/job); un fallo de una no encadena la otra.
+		# La notificación a PMO NO se encola aquí: se encadena al FINAL de `auto_create_project_on_won`
+		# (tras crear y vincular el Project), para garantizar el orden Project→correo sin duplicar ni crear
+		# un mecanismo nuevo. Ver `_maybe_enqueue_won_notification`, reutilizado desde ese job.
 		_ensure_project_on_won(doc)
-		_maybe_enqueue_won_notification(doc)
 		return
 
 	# Aprobada → Enviada al Cliente: optionally add future logic here
@@ -108,11 +109,12 @@ def _ensure_project_on_won(doc) -> None:
 
 def _maybe_enqueue_won_notification(doc) -> None:
 	"""Issue #39, Fase 1 (2ª acción): si la Company tiene ``send_won_notification_email`` activo y un correo
-	destino configurado, encola el envío **después del commit** — nunca en ``validate``. Independiente de la
-	creación del Project. Idempotencia por gating de transición (esta rama solo corre en la transición real a
-	``Ganada``) + dedup nativo (``job_id`` + ``deduplicate=True``): evita correos duplicados por reintentos
-	técnicos sin DocType/estado/log propio. Si el toggle está ON pero falta el correo (config inválida), no
-	envía. El job corre como el usuario que dispara la transición (``frappe.enqueue`` captura la sesión)."""
+	destino configurado, encola el envío del correo de propuesta ganada. **Se invoca al FINAL de
+	``auto_create_project_on_won``** (tras crear y vincular el Project), no en la transición: así el correo
+	siempre ve el Project ya creado. ``enqueue_after_commit=True`` lo dispara tras el commit final del job.
+	Idempotencia/anti-duplicado: el job que lo invoca retorna temprano si el Project ya existía + dedup nativo
+	(``job_id`` + ``deduplicate=True``), sin DocType/estado/log propio. Si el toggle está ON pero falta el
+	correo (config inválida), no encola. El job corre como el usuario capturado por ``frappe.enqueue``."""
 	company = doc.get("company")
 	if not company:
 		return

@@ -205,6 +205,23 @@ def _effective_behavior(row, item_code, is_frozen: bool, company, frozen_fields)
 	return _economic_behavior_for_item(item_code, company)
 
 
+def _effective_commitment(row, item_code, is_frozen: bool, company, field, doc_term: int = 0) -> int:
+	"""Compromiso contractual (meses) efectivo de una línea, con **precedencia**: 1) MATERIALIZADO en la fila;
+	2) (Draft) vivo por Item/regla (``_commitment_for_item``); 3) **PLAZO POR-DOCUMENTO**
+	(``proposal_contract_term_months``). El compromiso por-línea solo **OVERRIDE** al plazo del documento
+	cuando está definido; si no, se conserva el comportamiento histórico (plazo del documento). Un recurrente
+	sin NINGUNO de los tres → 0 → el gate de recurrencia lo convierte en error claro (nunca NRC silencioso)."""
+	if row.get(field):
+		return cint(row.get(field))
+	if not is_frozen:
+		from erpnext_proposals.erpnext_proposals.utils.quotation import _commitment_for_item
+
+		live = cint(_commitment_for_item(item_code, company) or 0)
+		if live:
+			return live
+	return cint(doc_term or 0)
+
+
 # Presentación: terminología del cliente (el motor sigue usando one_time/recurring/infrastructure).
 GROUP_LABELS = {"one_time": "NRC", "recurring": "MRC", "infrastructure": "CAPEX"}
 _ITEMS_FROZEN_FIELDS = (
@@ -213,6 +230,8 @@ _ITEMS_FROZEN_FIELDS = (
 	"proposal_billing_interval_count",
 )
 _REQUIRED_FROZEN_FIELDS = ("economic_behavior", "billing_interval", "billing_interval_count")
+_ITEMS_COMMITMENT_FIELD = "proposal_commitment_months"
+_REQUIRED_COMMITMENT_FIELD = "commitment_months"
 
 
 def group_label(behavior: str) -> str:
@@ -297,6 +316,14 @@ def _scope_effort(doc, is_frozen: bool, scope_scale: float = 1.0):
 	return effort_rows, labor_by_item, labor_by_month, hours_by_month
 
 
+def get_economic_evaluation_presented(quotation_name: str) -> dict:
+	"""Igual que ``get_economic_evaluation`` pero expresado en la MONEDA DE LA COTIZACIÓN (presentación).
+	SOLO para display (Print Format / reporte de rentabilidad): el núcleo y el contrato económico del
+	Project siguen consumiendo ``get_economic_evaluation`` en moneda base (ADR-0024). Idempotente/no-op si
+	la cotización ya está en moneda base."""
+	return present_in_quote_currency(get_economic_evaluation(quotation_name))
+
+
 def get_economic_calendar(quotation_name: str) -> dict:
 	"""Calendario económico por periodos — **proyección** del modelo único ``get_economic_evaluation``.
 
@@ -304,7 +331,9 @@ def get_economic_calendar(quotation_name: str) -> dict:
 	Print Format). Devuelve ``{currency, term_months, horizon, is_frozen, periods:[{period,revenue,external,
 	labor,total_cost,margin}], totals}`` — el calendario financiero puro, sin desglose de componentes.
 	"""
-	ev = get_economic_evaluation(quotation_name)
+	# Capa de DISPLAY: presentar en moneda de la cotización (opt-in; el núcleo y el contrato del Project
+	# siguen en base). Idempotente y no-op si la cotización ya está en moneda base.
+	ev = present_in_quote_currency(get_economic_evaluation(quotation_name))
 	periods = [
 		{
 			"period": p["period"],
@@ -476,7 +505,42 @@ def _evaluate_doc(doc, *, term: int, scope_scale: float = 1.0, base_term: int | 
 
 	effort_rows, labor_by_item, labor_by_month, hours_by_month = _scope_effort(doc, is_frozen, scope_scale)
 	max_labor_month = max(labor_by_month) if labor_by_month else 0
-	horizon = max(term, max_labor_month + 1, 1)
+
+	def _scenario_commitment(commitment: int) -> int:
+		"""Compromiso del escenario: en evaluación base (``term == base_term``) = compromiso de la línea; en
+		sensibilidad de duración se reescala proporcionalmente, preservando la semántica previa term/base_term
+		sin 'vender/comprar' meses extra (el total contractual se ancla vía ``rec_scale``)."""
+		if not commitment:
+			return 0
+		if term == base_term or not base_term:
+			return cint(commitment)
+		return max(1, round(cint(commitment) * term / base_term))
+
+	# Pre-pass: compromiso por LÍNEA de los recurrentes → el horizonte cubre el compromiso más largo
+	# (contratos mixtos 12/24/36+). NRC/CAPEX no aportan horizonte (ocurren solo en Mes 0).
+	_scenario_commitments = []
+	for _r in doc.get("items") or []:
+		_b = _effective_behavior(_r, _r.item_code, is_frozen, company, _ITEMS_FROZEN_FIELDS)[0]
+		if _b == "recurring":
+			_scenario_commitments.append(
+				_scenario_commitment(
+					_effective_commitment(
+						_r, _r.item_code, is_frozen, company, _ITEMS_COMMITMENT_FIELD, base_term
+					)
+				)
+			)
+	for _r in doc.get("required_items") or []:
+		_b = _effective_behavior(_r, _r.item, is_frozen, company, _REQUIRED_FROZEN_FIELDS)[0]
+		if _b == "recurring":
+			_scenario_commitments.append(
+				_scenario_commitment(
+					_effective_commitment(
+						_r, _r.item, is_frozen, company, _REQUIRED_COMMITMENT_FIELD, base_term
+					)
+				)
+			)
+	max_commitment = max(_scenario_commitments) if _scenario_commitments else 0
+	horizon = max(term, max_labor_month + 1, max_commitment, 1)
 
 	periods = [
 		{
@@ -496,11 +560,24 @@ def _evaluate_doc(doc, *, term: int, scope_scale: float = 1.0, base_term: int | 
 	}
 
 	def _add_line(
-		item_code, label, qty, origin, behavior, interval, count, revenue_amt, ext_rate, ext_source
+		item_code,
+		label,
+		qty,
+		origin,
+		behavior,
+		interval,
+		count,
+		commitment,
+		revenue_amt,
+		ext_rate,
+		ext_source,
 	):
 		grp = group_label(behavior)
 		step = _step_months(interval, count)
-		occ = [p for p in _occurrence_periods(behavior, step, term) if p < horizon]
+		# Compromiso POR LÍNEA (no el plazo por-documento): acota las ocurrencias del recurrente a su TCV
+		# contratado; renovaciones quedan fuera. one_time/infrastructure ocurren solo en Mes 0.
+		sc = _scenario_commitment(commitment)
+		occ = [p for p in _occurrence_periods(behavior, step, sc) if p < horizon]
 		ext_amt = flt(ext_rate) * flt(qty or 0)
 		# Sensibilidad de duración: para RECURRENTES el TOTAL contractual (ingreso MRC y costo externo
 		# recurrente) se ancla al plazo BASE y se REDISTRIBUYE sobre las ocurrencias del escenario — no se
@@ -510,8 +587,8 @@ def _evaluate_doc(doc, *, term: int, scope_scale: float = 1.0, base_term: int | 
 		# ocurren una sola vez en ambos → nunca se reescalan.
 		rec_scale = 1.0
 		if behavior == "recurring" and term != base_term and occ:
-			base_occ = len(_occurrence_periods(behavior, step, base_term))
-			rec_scale = base_occ / len(occ)
+			base_occ = len(_occurrence_periods(behavior, step, cint(commitment)))
+			rec_scale = base_occ / len(occ) if occ else 1.0
 		eff_rev = flt(revenue_amt) * rec_scale
 		eff_ext = ext_amt * rec_scale
 		for p in occ:
@@ -614,9 +691,12 @@ def _evaluate_doc(doc, *, term: int, scope_scale: float = 1.0, base_term: int | 
 		behavior, interval, count = _effective_behavior(
 			row, row.item_code, is_frozen, company, _ITEMS_FROZEN_FIELDS
 		)
+		commitment = _effective_commitment(
+			row, row.item_code, is_frozen, company, _ITEMS_COMMITMENT_FIELD, base_term
+		)
 		label = row.get("item_name") or row.item_code
 		if behavior == "recurring":
-			_assert_recurring_valid(interval, count, term, label, company)
+			_assert_recurring_valid(interval, count, commitment, label, company)
 		revenue = (
 			flt(row.get("net_amount") or row.get("amount") or (flt(row.get("rate")) * flt(row.get("qty"))))
 			* to_base
@@ -639,6 +719,7 @@ def _evaluate_doc(doc, *, term: int, scope_scale: float = 1.0, base_term: int | 
 			behavior,
 			interval,
 			count,
+			commitment,
 			revenue,
 			ext_rate,
 			ext_source,
@@ -648,9 +729,12 @@ def _evaluate_doc(doc, *, term: int, scope_scale: float = 1.0, base_term: int | 
 		behavior, interval, count = _effective_behavior(
 			row, row.item, is_frozen, company, _REQUIRED_FROZEN_FIELDS
 		)
+		commitment = _effective_commitment(
+			row, row.item, is_frozen, company, _REQUIRED_COMMITMENT_FIELD, base_term
+		)
 		label = (row.get("item") or "") + " (requerido)"
 		if behavior == "recurring":
-			_assert_recurring_valid(interval, count, term, label, company)
+			_assert_recurring_valid(interval, count, commitment, label, company)
 		ext_rate, ext_source = _external_rate_source(
 			row.item,
 			row.get("uom"),
@@ -669,6 +753,7 @@ def _evaluate_doc(doc, *, term: int, scope_scale: float = 1.0, base_term: int | 
 			behavior,
 			interval,
 			count,
+			commitment,
 			0.0,
 			ext_rate,
 			ext_source,
@@ -802,6 +887,97 @@ def _evaluate_doc(doc, *, term: int, scope_scale: float = 1.0, base_term: int | 
 		"warnings": warnings,
 	}
 	_assert_reconciled(model)
+	# Metadata de moneda ADITIVA (no convierte): el núcleo SIEMPRE devuelve importes en moneda BASE
+	# (ADR-0024), porque `project_economics` lo consume como contrato económico del Project. La presentación
+	# en moneda de la cotización es OPT-IN vía `present_in_quote_currency()` en la capa de display.
+	model["base_currency"] = base_currency
+	model["rate_to_base"] = to_base
+	model["quote_currency"] = doc_currency
+	return model
+
+
+# Importes a expresar en la moneda de la cotización (presentación). Los ratios (``*_pct``), horas y
+# conteos NO se convierten.
+_PRESENT_MONEY_KEYS = (
+	"revenue",
+	"external",
+	"labor",
+	"total_cost",
+	"margin",
+	"financial_cost",
+	"total_cost_with_financing",
+	"margin_after_financing",
+	"integrated_cost",
+	"revenue_per_period",
+	"external_per_period",
+	"external_unit_cost",
+	"unit_price",
+	"sold_margin",
+	"unassigned_external",
+	"unassigned_labor",
+	"unassigned_cost",
+	"cost",
+)
+
+
+def present_in_quote_currency(model: dict) -> dict:
+	"""OPT-IN de DISPLAY: devuelve el modelo con los importes expresados en la MONEDA DE LA COTIZACIÓN,
+	conservando intacto el cálculo interno en moneda base (ADR-0024). Úsese SOLO en la capa de presentación
+	(reporte/Print Format de rentabilidad); NUNCA en el contrato económico del Project (`project_economics`
+	consume el núcleo en base). Idempotente: si ya está presentado no re-convierte. NO recalcula: divide los
+	importes ya conciliados por el tipo de cambio nativo. Porcentajes, horas y conteos no se tocan."""
+	base_currency = model.get("base_currency")
+	quote_currency = model.get("quote_currency")
+	to_base = model.get("rate_to_base")
+	# Sin conversión: no hay moneda de cotización, es igual a la base, o no hay tipo de cambio (≠1).
+	if not quote_currency or quote_currency == base_currency or not to_base or flt(to_base) == 1.0:
+		return model
+	# Idempotente: ya presentado en moneda de cotización.
+	if model.get("currency") == quote_currency:
+		return model
+	f = 1.0 / flt(to_base)
+
+	def conv(d, keys):
+		for k in keys:
+			if isinstance(d.get(k), (int, float)):
+				d[k] = flt(d[k]) * f
+
+	conv(model["totals"], _PRESENT_MONEY_KEYS)
+	conv(model.get("effort_totals") or {}, ("cost",))
+	conv(model.get("apu") or {}, _PRESENT_MONEY_KEYS)
+	for p in model["periods"]:
+		conv(p, _PRESENT_MONEY_KEYS)
+		for c in (
+			(p.get("revenue_components") or [])
+			+ (p.get("external_components") or [])
+			+ (p.get("labor_components") or [])
+		):
+			conv(c, ("amount",))
+	for g in model["groups"].values():
+		conv(g, _PRESENT_MONEY_KEYS)
+		for line in g.get("lines") or []:
+			conv(line, _PRESENT_MONEY_KEYS)
+			for e in line.get("effort") or []:
+				conv(e, ("rate", "cost"))
+			for e in line.get("effort_by_profile") or []:
+				conv(e, ("cost",))
+	if model.get("financing"):
+		conv(
+			model["financing"], ("financial_cost_total", "interest_total", "fees_total", "principal", "base")
+		)
+	# Trazabilidad temporal y segmentos del calendario: también en moneda de cotización (antes quedaban en
+	# base → mezcla MXN/USD). Son re-expresiones de importes ya calculados; no recalculan nada.
+	for r in model.get("temporal") or []:
+		conv(r, ("amount",))
+	for seg in model.get("calendar_segments") or []:
+		conv(seg, _PRESENT_MONEY_KEYS)
+		for c in (
+			(seg.get("revenue_components") or [])
+			+ (seg.get("external_components") or [])
+			+ (seg.get("labor_components") or [])
+		):
+			conv(c, ("amount",))
+	model["currency"] = quote_currency
 	return model
 
 

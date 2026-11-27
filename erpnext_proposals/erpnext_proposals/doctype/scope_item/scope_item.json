@@ -13,6 +13,7 @@
   "section_effort",
   "estimated_hours",
   "default_designation",
+  "default_assignee",
   "section_items",
   "erpnext_items",
   "erpnext_item",
@@ -77,6 +78,13 @@
    "label": "Default Designation",
    "options": "Designation",
    "description": "Puesto que ejecuta esta actividad. Determina la tarifa de costo (matriz de costos por Designation). Valor por defecto; la propuesta trabaja sobre su copia."
+  },
+  {
+   "fieldname": "default_assignee",
+   "fieldtype": "Link",
+   "label": "Responsable de ejecución",
+   "options": "User",
+   "description": "Opcional. Usuario responsable de ejecutar esta actividad. Al crear el Proyecto, la Task hija generada desde este Scope Item se asigna automáticamente a este usuario mediante la asignación nativa de Frappe (ToDo / _assign). Si se deja vacío, la Task se crea sin asignar. No aplica a las Tasks padre ni a las Tasks operativas 'Entregar'."
   },
   {
    "fieldname": "section_items",

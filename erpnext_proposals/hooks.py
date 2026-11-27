@@ -19,6 +19,7 @@ jinja = {
 	"methods": [
 		"erpnext_proposals.erpnext_proposals.report.profitability_estimate.profitability_estimate.get_profitability_data",
 		"erpnext_proposals.erpnext_proposals.utils.economic_calendar.get_economic_evaluation",
+		"erpnext_proposals.erpnext_proposals.utils.economic_calendar.get_economic_evaluation_presented",
 		"erpnext_proposals.erpnext_proposals.utils.economic_calendar.get_duration_sensitivity",
 		"erpnext_proposals.erpnext_proposals.utils.printing.render_section_content",
 		"erpnext_proposals.erpnext_proposals.utils.printing.keep_headings_with_next",
@@ -114,6 +115,7 @@ fixtures = [
 					"proposal_preview_tab",
 					"proposal_preview_html",
 					"proposal_sow_print_format",
+					"proposal_commitment_months",
 				],
 			],
 		],
@@ -133,6 +135,22 @@ fixtures = [
 				"workflow_state_name",
 				"in",
 				["Borrador", "En Revision", "Aprobada", "Rechazada", "Enviada al Cliente", "Ganada"],
+			]
+		],
+	},
+	{
+		# Guard de centro de costos: cost_center obligatorio en renglones de SO/PO/PI (Sales Invoice Item
+		# ya es reqd nativo). Evita renglones sin CC cuando no hay default de Company/Item/Project.
+		"doctype": "Property Setter",
+		"filters": [
+			[
+				"name",
+				"in",
+				[
+					"Sales Order Item-cost_center-reqd",
+					"Purchase Order Item-cost_center-reqd",
+					"Purchase Invoice Item-cost_center-reqd",
+				],
 			]
 		],
 	},

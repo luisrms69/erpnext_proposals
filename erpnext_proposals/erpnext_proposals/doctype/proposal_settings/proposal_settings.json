@@ -8,6 +8,8 @@
   "company",
   "autoload_section",
   "required_item_rules",
+  "operative_assignee_section",
+  "operative_assignee_rules",
   "economic_section",
   "economic_behavior_rules",
   "economic_col_break",
@@ -45,6 +47,18 @@
    "fieldtype": "Table",
    "label": "Reglas Item / Item Group → Items requeridos",
    "options": "Proposal Required Item Rule"
+  },
+  {
+   "fieldname": "operative_assignee_section",
+   "fieldtype": "Section Break",
+   "label": "Responsable de tareas operativas «Entregar»"
+  },
+  {
+   "description": "Reglas Item Group → Responsable para asignar automáticamente la Task operativa «Entregar» de los productos de ese grupo, al crear el Project al ganar. Usa la asignación nativa (ToDo / _assign). Genérico: aplica a cualquier Item Group, no solo licencias. Sin regla para un grupo → la operativa queda sin asignar (comportamiento por defecto). No afecta las tareas de alcance (Scope Items) ni las tareas padre.",
+   "fieldname": "operative_assignee_rules",
+   "fieldtype": "Table",
+   "label": "Reglas Item Group → Responsable operativo",
+   "options": "Proposal Operative Assignee Rule"
   },
   {
    "fieldname": "economic_section",

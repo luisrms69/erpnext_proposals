@@ -84,7 +84,7 @@ class TestCatalogLoader(unittest.TestCase):
 		code, ausente = "_DEMO-EDIT-ITEM", "_DEMO-EDIT-AUSENTE"
 		fields = ("proposal_methodology", "proposal_expected_result", "proposal_scope_limit")
 		grp = get_test_item_group()
-		uom = "Nos" if frappe.db.exists("UOM", "Nos") else frappe.db.get_value("UOM", {}, "name")
+		uom = frappe.db.get_value("UOM", {"enabled": 1}, "name")
 		fd, path = tempfile.mkstemp(suffix=".json")
 		os.close(fd)
 
@@ -246,13 +246,18 @@ class TestCatalogLoader(unittest.TestCase):
 			os.rmdir(tmpdir)
 			frappe.db.commit()  # nosemgrep — limpieza de fixtures de test
 
-	def test_capabilities_contrato_v12(self):
-		"""caps expone renderer_profile, caps_version>=12, la garantía no_functional_master_writes, y
-		YA NO expone las capacidades retiradas (contrato para el instalador)."""
+	def test_capabilities_contrato_v13(self):
+		"""Contrato v13: caps expone renderer_profile, caps_version>=13, las categorías funcionales
+		REACTIVADAS de forma controlada (templates/scope_items/support_items/email_templates), la garantía
+		`no_desk_only_master_writes` (phases/payment_terms/designations/skills/economic siguen en Desk) y
+		`no_fiscal_master_writes`. YA NO expone las capacidades retiradas por nombre histórico."""
 		caps = catalog_loader.capabilities()
 		self.assertTrue(caps["renderer_profile"])
-		self.assertGreaterEqual(caps["caps_version"], 12)
-		self.assertTrue(caps["no_functional_master_writes"])
+		self.assertGreaterEqual(caps["caps_version"], 13)
+		for cap in ("templates", "scope_items", "support_items", "email_templates"):
+			self.assertTrue(caps[cap], f"la categoría reactivada '{cap}' debe exponerse")
+		self.assertTrue(caps["no_desk_only_master_writes"])
+		self.assertTrue(caps["no_fiscal_master_writes"])
 		for retirada in (
 			"designations_skills",
 			"phase_tags",
@@ -332,11 +337,8 @@ class TestCatalogLoader(unittest.TestCase):
 		NO expone seeders para los maestros funcionales (ahora en Desk) ni para transaccionales/fiscales;
 		por construcción no puede crear/modificar/eliminar esos registros."""
 		prohibidos = [
-			# Maestros funcionales RETIRADOS del pack (se administran en Desk) — su ausencia queda fijada.
+			# Maestros que SIGUEN solo en Desk (NO reactivados en v13) — su ausencia queda fijada.
 			"_seed_phases",
-			"_seed_scope_items",
-			"_seed_scope_dependencies",
-			"_seed_templates",
 			"_seed_payment_terms",
 			"_seed_payment_terms_templates",
 			"_seed_designations",
@@ -366,6 +368,12 @@ class TestCatalogLoader(unittest.TestCase):
 			"_seed_print_formats",
 			"_seed_print_format_versions",
 			"_seed_clear_fields",
+			# v13: categorías funcionales reactivadas de forma controlada.
+			"_seed_templates",
+			"_seed_scope_items",
+			"_seed_scope_dependencies",
+			"_seed_support_items",
+			"_seed_email_templates",
 		]
 		for fn in permitidos:
 			self.assertTrue(hasattr(catalog_loader, fn), f"falta el seeder permitido '{fn}'")

@@ -10,7 +10,8 @@
   "source",
   "economic_behavior",
   "interval",
-  "interval_count"
+  "interval_count",
+  "commitment_months"
  ],
  "fields": [
   {
@@ -60,6 +61,14 @@
    "fieldname": "interval_count",
    "fieldtype": "Int",
    "label": "Cada N intervalos"
+  },
+  {
+   "columns": 2,
+   "depends_on": "eval:doc.economic_behavior=='recurring'",
+   "description": "Duración del compromiso contractual en meses para esta fuente (12, 24, 36…). Acota las ocurrencias del cargo recurrente al TCV contratado; NO incluye renovaciones. Un recurrente sin compromiso resoluble es error de configuración (fail-closed).",
+   "fieldname": "commitment_months",
+   "fieldtype": "Int",
+   "label": "Compromiso (meses)"
   }
  ],
  "index_web_pages_for_search": 1,

@@ -238,6 +238,17 @@ def auto_create_project_on_won(quotation_name: str) -> None:
 		},
 		user=frappe.session.user,
 	)
+	# Notificación a PMO: SOLO después de crear y vincular el Project (issue #39, requisito de orden). Se
+	# encadena aquí —dentro del mismo job post-creación— en lugar de encolarse en paralelo en la transición,
+	# para garantizar que el correo vea el Project ya creado/vinculado. Reutiliza el gate y el enqueue
+	# existentes de `won_notification` (toggle/correo por Company + dedup por `job_id`): sin mecanismo nuevo y
+	# sin duplicar (este job es idempotente y retorna temprano si el Project ya existía).
+	from erpnext_proposals.erpnext_proposals.utils.workflow_validations import (
+		_maybe_enqueue_won_notification,
+	)
+
+	doc.reload()
+	_maybe_enqueue_won_notification(doc)
 
 
 def _origin_display(row) -> tuple:
@@ -264,6 +275,43 @@ def _scope_task_subject(row) -> str:
 	return row.title or row.code
 
 
+def _assign_task_to_user(task_name: str, user: str | None, context: str = "") -> None:
+	"""Asigna una Task recién creada a ``user`` con el mecanismo **nativo** de Frappe (``assign_to`` → ToDo +
+	``_assign``, reconocido por PMO). No-op si ``user`` es vacío o el usuario no existe / está deshabilitado.
+	Fail-soft: un fallo nunca rompe la materialización (se registra y sigue). Solo debe invocarse sobre Tasks
+	**recién creadas** (nunca reutilizadas): así respeta asignaciones existentes y no duplica en reintentos;
+	``assign_to`` además trae guard nativo de ToDo abierto duplicado."""
+	if not user:
+		return
+	if not frappe.db.exists("User", user) or not frappe.db.get_value("User", user, "enabled"):
+		return
+	try:
+		# `_add(ignore_permissions=True)`: la materialización es server-side y ya inserta las Tasks con
+		# permisos ignorados; no queremos que el `check_permission` sobre el usuario de sesión (que depende
+		# de su rol) bloquee la asignación. Trae el guard nativo de ToDo abierto duplicado.
+		from frappe.desk.form.assign_to import _add as assign_to_add
+
+		assign_to_add({"assign_to": [user], "doctype": "Task", "name": task_name}, ignore_permissions=True)
+	except Exception:
+		frappe.log_error(
+			title="erpnext_proposals: fallo al asignar Task",
+			message=f"Task={task_name} {context} user={user}\n{frappe.get_traceback()}",
+		)
+
+
+def _assign_scope_task(task_name: str, scope_item_code: str | None) -> None:
+	"""Asigna una Task **hija de scope** recién creada al «Responsable de ejecución» (``default_assignee``)
+	configurado en su Scope Item de origen. No aplica a Tasks padre ni —por esta vía— a las operativas; la
+	asignación de la operativa «Entregar» se resuelve aparte por Item Group (`operative_assignee_rules`)."""
+	if not scope_item_code:
+		return
+	_assign_task_to_user(
+		task_name,
+		frappe.db.get_value("Scope Item", scope_item_code, "default_assignee"),
+		context=f"scope_item={scope_item_code}",
+	)
+
+
 def _materialize_scope_into_project(quotation, project, exec_rows) -> dict:
 	"""Materializa el programa sobre un Project **ya resuelto**: una Task padre (`is_group=1`) por cada
 	**ocurrencia de Item contratada**, con sus Scope Items ejecutables como Tasks hijas; si una ocurrencia
@@ -288,28 +336,50 @@ def _materialize_scope_into_project(quotation, project, exec_rows) -> dict:
 	occ_meta = {src["source_row"]: src for src in occ_rows}
 	item_parent_by_row: dict = {}
 
-	def _item_parent_task(source_row: str) -> str:
+	def _item_parent_task(source_row: str, item_code: str | None = None) -> str:
 		"""Task padre por **ocurrencia de Item** (`is_group=1`). Idempotente por
 		`(project, source_quotation_item_row, is_group=1)` — inequívocamente distinta de la Task operativa
 		(`is_group=0`) aunque compartan `source_quotation_item_row`. PMO puede editar/ampliar sin romper la
-		identidad (el campo es read-only y no se toca)."""
-		if source_row in item_parent_by_row:
-			return item_parent_by_row[source_row]
-		existing = frappe.db.get_value(
-			"Task",
-			{"project": project.name, "source_quotation_item_row": source_row, "is_group": 1},
-			"name",
-		)
+		identidad (el campo es read-only y no se toca).
+
+		Defensa en profundidad: si la fila de alcance llega SIN `source_row` (p. ej. un snapshot heredado que
+		no se re-vinculó), se agrupa por `item_code` y el `subject` NUNCA queda vacío — así una referencia
+		ausente no provoca `MandatoryError: subject` ni colapsa Items distintos en un mismo padre."""
+		group_key = source_row or f"__item__:{item_code or ''}"
+		if group_key in item_parent_by_row:
+			return item_parent_by_row[group_key]
+		# `occ_meta` indexa por `source_row`; si falta, conservar el `item_code` real de la fila (no perderlo)
+		# para que `_origin_display` resuelva un subject legible en vez de None.
+		src = occ_meta.get(source_row) or {"item_code": item_code}
+		subject, _q, _u = _origin_display(frappe._dict(src))
+		subject = subject or src.get("item_code") or item_code or source_row or _("Actividades del proyecto")
+		if source_row:
+			existing = frappe.db.get_value(
+				"Task",
+				{"project": project.name, "source_quotation_item_row": source_row, "is_group": 1},
+				"name",
+			)
+		else:
+			# Sin fila origen: identidad estable por item_code (vía subject) dentro del Project; agrupa las
+			# filas del mismo Item en un único padre y no duplica en reintentos del job.
+			existing = frappe.db.get_value(
+				"Task",
+				{
+					"project": project.name,
+					"is_group": 1,
+					"subject": subject,
+					"source_quotation_item_row": ["in", ("", None)],
+				},
+				"name",
+			)
 		if existing:
 			counters["parent_reused"] += 1
 			name = existing
 		else:
-			src = occ_meta.get(source_row) or {"item_code": None}
-			subject, _q, _u = _origin_display(frappe._dict(src))
 			parent = frappe.get_doc(
 				{
 					"doctype": "Task",
-					"subject": subject or src.get("item_code") or source_row,
+					"subject": subject,
 					"project": project.name,
 					"is_group": 1,
 					"expected_time": 0,
@@ -321,7 +391,7 @@ def _materialize_scope_into_project(quotation, project, exec_rows) -> dict:
 			parent.insert(ignore_permissions=True)
 			counters["parent_created"] += 1
 			name = parent.name
-		item_parent_by_row[source_row] = name
+		item_parent_by_row[group_key] = name
 		return name
 
 	# Orden: por ocurrencia (orden del documento), luego fase (sub-orden cuando exista), scope e idx.
@@ -339,7 +409,7 @@ def _materialize_scope_into_project(quotation, project, exec_rows) -> dict:
 	rows_with_children: set = set()  # source_rows que materializaron ≥1 Task hija de scope
 
 	for row in exec_rows:
-		parent = _item_parent_task(row.source_row)
+		parent = _item_parent_task(row.source_row, row.get("item_code"))
 		rows_with_children.add(row.source_row)
 		# Idempotencia de la hija: por referencia guardada o por trazabilidad.
 		if row.project_task and frappe.db.exists("Task", row.project_task):
@@ -387,6 +457,10 @@ def _materialize_scope_into_project(quotation, project, exec_rows) -> dict:
 					"Quotation Scope Item", row.name, "project_task", task.name, update_modified=False
 				)
 				task_name = task.name
+				# Asignación nativa al Responsable de ejecución del Scope Item (solo en creación → no duplica
+				# en reintentos ni pisa asignaciones existentes). `row.scope_item` = Link al Scope Item del
+				# catálogo, poblado tanto para alcance de Item vendido como de paquete (Required Item).
+				_assign_scope_task(task_name, row.scope_item)
 
 		contracted.append(
 			{
@@ -422,7 +496,7 @@ def _materialize_scope_into_project(quotation, project, exec_rows) -> dict:
 		# La Task operativa hereda SOLO la fecha de inicio = ancla del Project (`expected_start_date`), para
 		# que entre al cronograma con un punto de partida; NO se le asigna fin (el PMO lo define al planear).
 		# Idempotente: el guard de arriba evita re-crearla, así que nunca sobrescribe una fecha ya puesta.
-		frappe.get_doc(
+		op_task = frappe.get_doc(
 			{
 				"doctype": "Task",
 				"subject": _("Entregar") + f" — {item_name or src['item_code']}",
@@ -435,8 +509,19 @@ def _materialize_scope_into_project(quotation, project, exec_rows) -> dict:
 				"source_quotation": quotation.name,
 				"source_quotation_item_row": src["source_row"],
 			}
-		).insert(ignore_permissions=True)
+		)
+		op_task.insert(ignore_permissions=True)
 		counters["tasks_created"] += 1
+		# Responsable configurable de la operativa por Item Group del producto (reutiliza Proposal Settings →
+		# `operative_assignee_rules`). Sin regla para ese grupo → sin asignar (comportamiento por defecto). Solo
+		# en creación → no duplica en reintentos. Independiente de las asignaciones de scope (COORD-* / Tony).
+		from erpnext_proposals.erpnext_proposals.utils.quotation import _operative_assignee_for_item
+
+		_assign_task_to_user(
+			op_task.name,
+			_operative_assignee_for_item(src.get("item_code"), quotation.company),
+			context=f"operativa item={src.get('item_code')}",
+		)
 
 	# ── 2º paso idempotente: dependencias nativas (Task.depends_on / Task Depends On) ──
 	dep_edges = _resolve_native_dependencies(contracted, task_by_row_scope, task_by_scope_all, counters)

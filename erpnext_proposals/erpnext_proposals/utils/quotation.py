@@ -2,7 +2,7 @@ import json
 
 import frappe
 from frappe import _
-from frappe.utils import flt
+from frappe.utils import cint, flt
 
 # Excepciones de json.loads (ValueError incluye JSONDecodeError; TypeError si el valor no es str/bytes).
 # Constante nombrada para evitar la tupla literal en el `except`, cuya forma con/sin paréntesis es
@@ -109,6 +109,12 @@ def on_quotation_validate(doc, method=None):
 	# de modo que queden guardados antes del Submit e inmutables por docstatus. El freeze ya no los congela.
 	materialize_proposal_print_format(doc)
 	materialize_sow_print_format(doc)
+	# Versionado: las filas de `quotation_scope_items` heredadas llegan SIN `source_row` (el versionado lo
+	# excluye para no arrastrar names obsoletos de la versión anterior). Re-vincularlas a la fila origen
+	# ACTUAL del mismo item_code DEBE correr ANTES de los guards que omiten la generación — es el único punto
+	# donde se corrige. Sin esto, una propuesta V2+ al llegar a «Ganada» falla al crear el Project porque
+	# `_item_parent_task` recibe `source_row=None` (MandatoryError: subject).
+	_relink_inherited_scope_source_rows(doc)
 	# Skip scope generation when creating a new version (scope already copied)
 	if doc.flags.get("skip_scope_generation"):
 		return
@@ -270,6 +276,26 @@ def _configured_required_items(item_code: str, company: str | None) -> list:
 	return list(dict.fromkeys(group_rules))
 
 
+def _operative_assignee_for_item(item_code: str | None, company: str | None) -> str | None:
+	"""Responsable configurado para la Task operativa «Entregar» de un Item vendido, por el **Item Group** del
+	Item y las reglas ``operative_assignee_rules`` del Proposal Settings de la Company. Genérico y configurable
+	(no hardcodea usuarios ni grupos): sirve para licencias Microsoft o cualquier otro grupo. Match por Item
+	Group exacto (primera regla que coincide); sin regla para ese grupo → ``None`` (la operativa queda sin
+	asignar, comportamiento por defecto). Separación estricta por Company (sin fallback global)."""
+	if not item_code:
+		return None
+	settings = _proposal_settings(company)
+	if not settings:
+		return None
+	group = frappe.db.get_value("Item", item_code, "item_group")
+	if not group:
+		return None
+	for r in settings.get("operative_assignee_rules") or []:
+		if r.item_group == group and r.assignee:
+			return r.assignee
+	return None
+
+
 ONE_TIME = "one_time"
 _ECONOMIC_BEHAVIORS = ("one_time", "recurring", "infrastructure")
 
@@ -315,6 +341,24 @@ def _economic_behavior_for_item(item_code: str, company: str | None) -> tuple:
 	implícito). Resolución **estricta por Company**, sin fallback global. Solo clasifica: el importe siempre
 	sale de la propuesta (precio de la línea / costo externo), aquí NO hay precio."""
 	default = (ONE_TIME, None, None)
+	# Precedencia (producto-nativo primero): 1) atributos genéricos del propio Item (el adaptador de
+	# cualquier proveedor —p. ej. Microsoft— los puebla; NO son campos exclusivos de un proveedor);
+	# 2) regla por Company (Item → Item Group); 3) default one_time.
+	itf = (
+		frappe.db.get_value(
+			"Item",
+			item_code,
+			["proposal_economic_behavior", "proposal_billing_interval", "proposal_billing_interval_count"],
+			as_dict=True,
+		)
+		or {}
+	)
+	if itf.get("proposal_economic_behavior"):
+		return (
+			itf["proposal_economic_behavior"],
+			itf.get("proposal_billing_interval") or None,
+			itf.get("proposal_billing_interval_count") or None,
+		)
 	settings = _proposal_settings(company)
 	if not settings:
 		return default
@@ -328,6 +372,28 @@ def _economic_behavior_for_item(item_code: str, company: str | None) -> tuple:
 			if r.source_type == "Item Group" and r.source == group:
 				return (r.economic_behavior or ONE_TIME, r.interval, r.interval_count)
 	return default
+
+
+def _commitment_for_item(item_code: str, company: str | None) -> int | None:
+	"""Compromiso contractual (meses) POR DEFECTO de un Item (duración del compromiso de la línea; NO el
+	plazo por-documento ni renovaciones). Precedencia paralela a ``_economic_behavior_for_item``:
+	1) ``Item.proposal_commitment_months`` (producto-nativo; adaptadores lo pueblan); 2) regla por Company
+	(Item → Item Group, campo ``commitment_months``); 3) ``None`` (no resoluble). Genérico, sin lógica de
+	proveedor. Devuelve meses > 0 o ``None``."""
+	v = frappe.db.get_value("Item", item_code, "proposal_commitment_months")
+	if v and cint(v) > 0:
+		return cint(v)
+	settings = _proposal_settings(company)
+	if settings:
+		rules = settings.get("economic_behavior_rules") or []
+		group = frappe.db.get_value("Item", item_code, "item_group")
+		for r in rules:
+			if r.source_type == "Item" and r.source == item_code and cint(r.get("commitment_months")) > 0:
+				return cint(r.commitment_months)
+		for r in rules:
+			if r.source_type == "Item Group" and r.source == group and cint(r.get("commitment_months")) > 0:
+				return cint(r.commitment_months)
+	return None
 
 
 def _applicable_scope_items(item_code: str) -> list:
@@ -392,6 +458,40 @@ def _source_rows(doc) -> list:
 		if ri.item:
 			rows.append({"source_type": "required", "source_row": ri.name, "item_code": ri.item})
 	return rows
+
+
+def _relink_inherited_scope_source_rows(doc) -> None:
+	"""Re-vincula las filas de alcance heredadas por versionado a la fila ORIGEN ACTUAL del mismo item_code.
+
+	El versionado (`create_new_proposal_version`) copia `quotation_scope_items` pero EXCLUYE `source_row`/
+	`source_type` (para no arrastrar names obsoletos de la versión anterior) e inserta con
+	`skip_scope_generation`, por lo que la generación —que normalmente deriva `source_row`— no corre. Sin
+	este paso las filas quedan con `source_row=NULL` de forma permanente y la creación del Project de la
+	nueva versión falla.
+
+	Re-deriva contra las filas origen de ESTA versión (names nuevos, nunca los obsoletos), preservando la
+	identidad por OCURRENCIA: el k-ésimo duplicado de un mismo `(item_code, scope_item)` se asigna a la
+	k-ésima ocurrencia de ese item_code. Solo actúa en propuestas versionadas (`previous_proposal`) y solo
+	sobre filas sin `source_row`; es idempotente (un guardado posterior ya las encuentra vinculadas) y no
+	toca snapshots legacy de documentos no versionados."""
+	if not doc.get("previous_proposal"):
+		return
+	occ_by_item: dict = {}
+	for src in _source_rows(doc):
+		occ_by_item.setdefault(src["item_code"], []).append(src)
+	seen: dict = {}  # (item_code, scope_item) -> siguiente índice de ocurrencia a asignar
+	for row in doc.get("quotation_scope_items") or []:
+		if row.get("source_row") or not row.get("item_code"):
+			continue
+		occs = occ_by_item.get(row.item_code)
+		if not occs:
+			continue  # sin fila origen actual para ese item_code → no re-vincular (no inventar procedencia)
+		key = (row.item_code, row.scope_item)
+		idx = min(seen.get(key, 0), len(occs) - 1)
+		src = occs[idx]
+		row.source_row = src["source_row"]
+		row.source_type = src["source_type"]
+		seen[key] = seen.get(key, 0) + 1
 
 
 def _existing_scope_keys(doc) -> set:
@@ -1041,6 +1141,7 @@ def _materialize_economic_behavior(doc, force: bool = False) -> None:
 		row.proposal_economic_behavior = behavior
 		row.proposal_billing_interval = interval or ""
 		row.proposal_billing_interval_count = int(count or 0)
+		row.proposal_commitment_months = cint(_commitment_for_item(row.item_code, company) or 0)
 	for row in doc.get("required_items") or []:
 		if not force and row.get("economic_behavior"):
 			continue
@@ -1048,6 +1149,7 @@ def _materialize_economic_behavior(doc, force: bool = False) -> None:
 		row.economic_behavior = behavior
 		row.billing_interval = interval or ""
 		row.billing_interval_count = int(count or 0)
+		row.commitment_months = cint(_commitment_for_item(row.item, company) or 0)
 
 
 def assert_economic_snapshot_complete(doc) -> None:

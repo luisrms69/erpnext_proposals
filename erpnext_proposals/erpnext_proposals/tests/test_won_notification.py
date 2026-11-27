@@ -1,10 +1,13 @@
 """Tests — issue #39 Fase 1 (2ª acción): correo de notificación al pasar una Quotation a `Ganada`.
 
-Cubre: toggle OFF no encola; ON + destino encola (post-commit, dedup); estricto por Company; Email Template
-configurada → subject/body renderizados; sin plantilla → fallback del app; destino ausente con toggle ON no
-envía; save sin transición no encola; transición != Ganada no encola; independencia respecto de auto-Project.
+Cubre: gate del encolado (toggle OFF no encola; ON + destino encola post-commit/dedup; estricto por Company;
+destino ausente con toggle ON no encola); el correo se **encadena tras la creación del Project** (NO se encola
+en la transición) y **no se envía sin Project vinculado**; Email Template con contexto enriquecido
+(Project/productos/entregables) → subject/body renderizados; sin plantilla → fallback del app; save sin
+transición y transición != Ganada no encolan; el Project SIEMPRE se encola al ganar (incondicional).
 
-Gating por transición: se intercepta `frappe.enqueue`. La lógica del job (render/fallback/envío) se prueba
+El gate se prueba llamando `_maybe_enqueue_won_notification` directamente e interceptando `frappe.enqueue`
+(ya no se encola en la transición). La lógica del job (guard de Project, render/fallback/envío) se prueba
 llamando `send_won_notification_email` directamente e interceptando `frappe.sendmail`.
 """
 
@@ -27,6 +30,9 @@ from erpnext_proposals.erpnext_proposals.tests.phases import (
 	ensure_test_phases,
 )
 from erpnext_proposals.erpnext_proposals.utils.won_notification import send_won_notification_email
+from erpnext_proposals.erpnext_proposals.utils.workflow_validations import (
+	_maybe_enqueue_won_notification,
+)
 
 TEMPLATE = "_WN Template"
 ITEM = "_WN Item"
@@ -35,6 +41,7 @@ CO_B_ABBR = "_WNB"
 CUST = "_WN Cust"
 EMAIL = "ops@example.com"
 ET_NAME = "_WN Email Template"
+UOM = "_Test UOM"  # UOM estándar de Frappe (habilitada en el site de pruebas); no dependemos de 'Nos'.
 WON_JOB = "erpnext_proposals.erpnext_proposals.utils.won_notification.send_won_notification_email"
 PROJ_JOB = "erpnext_proposals.erpnext_proposals.utils.project.auto_create_project_on_won"
 
@@ -44,6 +51,7 @@ class TestWonNotification(unittest.TestCase):
 	def setUpClass(cls):
 		super().setUpClass()
 		cls._q = []
+		cls._projects = []
 		cls.company = get_test_company()
 		if not cls.company:
 			raise unittest.SkipTest("No Company on test site.")
@@ -60,8 +68,6 @@ class TestWonNotification(unittest.TestCase):
 			frappe.get_doc(
 				{"doctype": "Customer", "customer_name": CUST, "customer_group": cg, "territory": terr}
 			).insert(ignore_permissions=True)
-		if not frappe.db.exists("UOM", "Nos"):
-			frappe.get_doc({"doctype": "UOM", "uom_name": "Nos"}).insert(ignore_permissions=True)
 		if not frappe.db.exists("Item", ITEM):
 			frappe.get_doc(
 				{
@@ -69,14 +75,15 @@ class TestWonNotification(unittest.TestCase):
 					"item_code": ITEM,
 					"item_name": ITEM,
 					"item_group": ig,
-					"stock_uom": "Nos",
+					"stock_uom": UOM,
 					"is_stock_item": 0,
 					"is_sales_item": 1,
 					"is_purchase_item": 0,
 				}
 			).insert(ignore_permissions=True)
-		# No comprable: este módulo prueba la notificación, no abastecimiento (fuerza aunque el Item ya exista).
-		frappe.db.set_value("Item", ITEM, "is_purchase_item", 0)
+		# No comprable + UOM habilitada: fuerza aunque el Item ya exista de corridas previas (no abastecimiento;
+		# evita depender de 'Nos', que puede estar deshabilitada en el site de pruebas).
+		frappe.db.set_value("Item", ITEM, {"is_purchase_item": 0, "stock_uom": UOM})
 		if not frappe.db.exists("Proposal Template", TEMPLATE):
 			frappe.get_doc(
 				{"doctype": "Proposal Template", "template_name": TEMPLATE, "description": "t"}
@@ -125,6 +132,17 @@ class TestWonNotification(unittest.TestCase):
 
 	@classmethod
 	def tearDownClass(cls):
+		for pj in getattr(cls, "_projects", []):
+			for t in frappe.get_all("Task", filters={"project": pj}, pluck="name"):
+				try:
+					frappe.delete_doc("Task", t, force=True, ignore_permissions=True)
+				except Exception:
+					pass
+			if frappe.db.exists("Project", pj):
+				try:
+					frappe.delete_doc("Project", pj, force=True, ignore_permissions=True)
+				except Exception:
+					pass
 		for n in cls._q:
 			if frappe.db.exists("Quotation", n):
 				try:
@@ -182,7 +200,7 @@ class TestWonNotification(unittest.TestCase):
 				"proposal_template": TEMPLATE,
 				"proposal_cost_center": cc,
 				"proposal_title": "WN " + frappe.generate_hash(length=4),
-				"items": [{"item_code": ITEM, "item_name": ITEM, "qty": 1, "rate": 1000, "uom": "Nos"}],
+				"items": [{"item_code": ITEM, "item_name": ITEM, "qty": 1, "rate": 1000, "uom": UOM}],
 			}
 		)
 		doc.insert(ignore_permissions=True, ignore_mandatory=True)
@@ -223,40 +241,74 @@ class TestWonNotification(unittest.TestCase):
 			frappe.sendmail = orig
 		return sent
 
-	def _make_ganada(self, company, cc):
+	def _enqueue_capture(self, fn):
+		captured = []
+		orig = frappe.enqueue
+		frappe.enqueue = lambda *a, **k: captured.append((a, k))
+		try:
+			fn()
+		finally:
+			frappe.enqueue = orig
+		return captured
+
+	def _gate(self, quotation_name):
+		"""Captura lo que encola el gate `_maybe_enqueue_won_notification` (lo que ahora corre al final de
+		`auto_create_project_on_won`, ya no en la transición)."""
+		doc = frappe.get_doc("Quotation", quotation_name)
+		return self._enqueue_capture(lambda: _maybe_enqueue_won_notification(doc))
+
+	def _link_project(self, quotation_name, with_tasks=False):
+		"""Crea un Project mínimo y lo vincula a la Quotation (simula el estado post-creación)."""
+		pj = frappe.get_doc(
+			{
+				"doctype": "Project",
+				"project_name": "_WN Proj " + frappe.generate_hash(length=4),
+				"company": self.company,
+				"status": "Open",
+			}
+		).insert(ignore_permissions=True)
+		self.__class__._projects.append(pj.name)
+		if with_tasks:
+			frappe.get_doc(
+				{"doctype": "Task", "subject": "Entregable X", "project": pj.name, "is_group": 0}
+			).insert(ignore_permissions=True)
+		frappe.db.set_value("Quotation", quotation_name, "proposal_project", pj.name, update_modified=False)
+		return pj.name
+
+	def _make_ganada(self, company, cc, link_project=False):
 		q = self._quotation(company, cc)
 		frappe.db.set_value("Quotation", q, "workflow_state", "Ganada", update_modified=False)
+		if link_project:
+			self._link_project(q, with_tasks=True)
 		return q
 
 	# ── Tests ────────────────────────────────────────────────────────────────
 
-	def test_1_toggle_off_does_not_enqueue(self):
+	def test_1_gate_toggle_off_does_not_enqueue(self):
 		self._settings(self.company, email_on=False)
 		q = self._quotation(self.company, self.cc)
-		captured = self._transition(q, "Ganada")
-		self.assertIsNone(self._has_job(captured, WON_JOB, q), "toggle OFF no encola correo")
+		self.assertIsNone(self._has_job(self._gate(q), WON_JOB, q), "toggle OFF no encola correo")
 
-	def test_2_toggle_on_with_email_enqueues(self):
+	def test_2_gate_toggle_on_with_email_enqueues(self):
 		self._settings(self.company, email_on=True, email=EMAIL)
 		q = self._quotation(self.company, self.cc)
-		captured = self._transition(q, "Ganada")
-		job = self._has_job(captured, WON_JOB, q)
+		job = self._has_job(self._gate(q), WON_JOB, q)
 		self.assertIsNotNone(job, "toggle ON + destino encola el correo")
 		self.assertTrue(job.get("enqueue_after_commit"), "post-commit")
 		self.assertTrue(job.get("deduplicate"), "dedup nativo")
 		self.assertEqual(job.get("job_id"), f"won_notification::{q}", "job_id estable para dedup")
 
-	def test_3_strict_per_company(self):
+	def test_3_gate_strict_per_company(self):
 		self._settings(self.company, email_on=True, email=EMAIL)
 		self._settings(CO_B, email_on=False)
 		qa = self._quotation(self.company, self.cc)
 		qb = self._quotation(CO_B, self.cc_b)
-		self.assertIsNotNone(self._has_job(self._transition(qa, "Ganada"), WON_JOB, qa), "A (ON) encola")
-		self.assertIsNone(self._has_job(self._transition(qb, "Ganada"), WON_JOB, qb), "B (OFF) no encola")
+		self.assertIsNotNone(self._has_job(self._gate(qa), WON_JOB, qa), "A (ON) encola")
+		self.assertIsNone(self._has_job(self._gate(qb), WON_JOB, qb), "B (OFF) no encola")
 
-	def test_4_email_template_rendered(self):
+	def test_4_email_template_rendered_with_enriched_context(self):
 		self._settings(self.company, email_on=True, email=EMAIL, template=ET_NAME)
-		q = self._make_ganada(self.company, self.cc)
+		q = self._make_ganada(self.company, self.cc, link_project=True)
 		sent = self._run_job_capturing_email(q)
 		self.assertEqual(sent.get("subject"), f"Ganada: {q}", "subject renderizado desde la plantilla")
 		self.assertIn(CUST, sent.get("message", ""), "body renderizado con contexto de la Quotation")
@@ -266,7 +318,7 @@ class TestWonNotification(unittest.TestCase):
 
 	def test_5_fallback_without_template(self):
 		self._settings(self.company, email_on=True, email=EMAIL)  # sin plantilla
-		q = self._make_ganada(self.company, self.cc)
+		q = self._make_ganada(self.company, self.cc, link_project=True)
 		title = frappe.db.get_value("Quotation", q, "proposal_title")
 		sent = self._run_job_capturing_email(q)
 		self.assertEqual(sent.get("subject"), f"Propuesta ganada: {title}", "fallback de subject")
@@ -280,13 +332,11 @@ class TestWonNotification(unittest.TestCase):
 		frappe.db.set_value(
 			"Proposal Settings", name, "send_won_notification_email", 1, update_modified=False
 		)
-		q = self._make_ganada(self.company, self.cc)
+		q = self._make_ganada(self.company, self.cc, link_project=True)
 		sent = self._run_job_capturing_email(q)
 		self.assertEqual(sent, {}, "config inválida (sin destino) no envía")
-		# Y el gate del enqueue tampoco encola (transición válida a Ganada).
-		self.assertIsNone(
-			self._has_job(self._transition(q, "Ganada", from_state="Enviada al Cliente"), WON_JOB, q)
-		)
+		# Y el gate tampoco encola.
+		self.assertIsNone(self._has_job(self._gate(q), WON_JOB, q))
 
 	def test_7_normal_save_without_transition_does_not_enqueue(self):
 		# Borrador (no submitted): re-guardado sin cambio de estado no es transición → no encola.
@@ -302,27 +352,34 @@ class TestWonNotification(unittest.TestCase):
 			frappe.enqueue = orig
 		self.assertIsNone(self._has_job(captured, WON_JOB, q), "save sin transición no encola")
 
-	def test_8_transition_to_other_state_does_not_enqueue(self):
+	def test_8_transition_to_ganada_enqueues_project_not_email(self):
+		# Nuevo contrato: la transición a Ganada encola SOLO la creación del Project (el correo se encadena
+		# luego, al final de `auto_create_project_on_won`). La transición NO encola el correo directamente.
+		self._settings(self.company, email_on=True, email=EMAIL)
+		q = self._quotation(self.company, self.cc)
+		captured = self._transition(q, "Ganada")
+		self.assertIsNotNone(
+			self._has_job(captured, PROJ_JOB, q), "la transición encola la creación del Project"
+		)
+		self.assertIsNone(
+			self._has_job(captured, WON_JOB, q), "la transición NO encola el correo (se encadena)"
+		)
+
+	def test_9_transition_to_other_state_does_not_enqueue(self):
 		self._settings(self.company, email_on=True, email=EMAIL)
 		q = self._quotation(self.company, self.cc)
 		captured = self._transition(q, "Enviada al Cliente", from_state="Aprobada")
-		self.assertIsNone(self._has_job(captured, WON_JOB, q), "transición != Ganada no encola")
+		self.assertIsNone(self._has_job(captured, WON_JOB, q), "transición != Ganada no encola correo")
+		self.assertIsNone(self._has_job(captured, PROJ_JOB, q), "transición != Ganada no encola Project")
 
-	def test_9_project_unconditional_email_independent(self):
-		# Invariante (opción A): el Project se crea SIEMPRE al ganar (incondicional; el toggle de project está
-		# deprecado). El correo depende de su propio toggle `send_won_notification_email`.
-		# correo ON → ambos encolan (project siempre).
-		self._settings(self.company, project_on=False, email_on=True, email=EMAIL)
-		q1 = self._quotation(self.company, self.cc)
-		c1 = self._transition(q1, "Ganada")
-		self.assertIsNotNone(self._has_job(c1, WON_JOB, q1), "correo encolado (toggle ON)")
-		self.assertIsNotNone(self._has_job(c1, PROJ_JOB, q1), "project SIEMPRE encolado (incondicional)")
-		# correo OFF → project igual encola, correo no.
-		self._settings(self.company, project_on=True, email_on=False)
-		q2 = self._quotation(self.company, self.cc)
-		c2 = self._transition(q2, "Ganada")
-		self.assertIsNotNone(self._has_job(c2, PROJ_JOB, q2), "project encolado (incondicional)")
-		self.assertIsNone(self._has_job(c2, WON_JOB, q2), "correo NO encolado (toggle OFF)")
+	def test_10_does_not_send_without_linked_project(self):
+		# Requisito de orden: sin Project creado/vinculado el job NO envía (aunque toggle/correo OK).
+		self._settings(self.company, email_on=True, email=EMAIL, template=ET_NAME)
+		q = self._make_ganada(self.company, self.cc)  # sin Project vinculado
+		self.assertEqual(self._run_job_capturing_email(q), {}, "sin Project vinculado no envía")
+		# Al vincular el Project, el mismo job SÍ envía.
+		self._link_project(q, with_tasks=True)
+		self.assertNotEqual(self._run_job_capturing_email(q), {}, "con Project vinculado sí envía")
 
 
 if __name__ == "__main__":

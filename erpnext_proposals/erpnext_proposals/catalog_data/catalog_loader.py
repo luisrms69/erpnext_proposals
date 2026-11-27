@@ -139,7 +139,14 @@ BASE_SECTIONS = frozenset(
 #      presentación: Sections, contenido editorial de Item (sin crear Items), Letter Heads, Print
 #      Formats + versionamiento y `clear_fields` sobre tipos editoriales. `clear_fields` deja de
 #      admitir templates/scope_items/phases (tipos ya no gestionados por el pack).
-LOADER_CAPS_VERSION = 12
+# v13: REACTIVACIÓN CONTROLADA de categorías funcionales requeridas por paquetes de soporte (ADR pendiente):
+#      `templates` (Proposal Template + su estructura de Sections), `scope_items` (maestros + relación N:M
+#      `erpnext_items` + `default_assignee` validado fail-closed contra User del site), `support_items`
+#      (SOLO Items organizativos no vendibles/comprables/stock; fail-closed; nunca masters fiscales) y
+#      `email_templates` (Email Template nativo). Reutiliza los seeders previos (recuperados de 20434dc^);
+#      idempotente, con control de conflictos y validación de referencias. NO reactiva phases, designations,
+#      skills, payment_terms ni economic_behavior_rules (siguen administrados en Desk).
+LOADER_CAPS_VERSION = 13
 
 
 def capabilities() -> dict:
@@ -167,14 +174,16 @@ def capabilities() -> dict:
 		"renderer_profile": "proposal_renderer_profile" in _PRINT_FORMAT_MANAGED_FIELDS,
 		# v11: vaciado explícito y opt-in de campos editoriales (`clear_fields`) por objeto.
 		"clear_fields": callable(globals().get("_seed_clear_fields")),
-		# v12: el loader NO siembra masters funcionales administrados en Desk (contrato de depuración):
-		# Templates, Scope Items, Phases, registro/flags de Item, Payment Terms, Designations, Skills,
-		# economic_behavior_rules. Se verifica por AUSENCIA de sus seeders.
-		"no_functional_master_writes": not any(
+		# v13: categorías funcionales reactivadas de forma CONTROLADA (requeridas por paquetes de soporte).
+		"templates": callable(globals().get("_seed_templates")),
+		"scope_items": callable(globals().get("_seed_scope_items")),
+		"support_items": callable(globals().get("_seed_support_items")),
+		"email_templates": callable(globals().get("_seed_email_templates")),
+		# Masters funcionales que SIGUEN administrados solo en Desk (no reactivados): Phases, Payment Terms,
+		# Designations, Skills, economic_behavior_rules. Se verifica por AUSENCIA de sus seeders.
+		"no_desk_only_master_writes": not any(
 			callable(globals().get(fn))
 			for fn in (
-				"_seed_templates",
-				"_seed_scope_items",
 				"_seed_phases",
 				"_seed_payment_terms",
 				"_seed_payment_terms_templates",
@@ -221,6 +230,12 @@ def run(catalog_path: str | None = None, dry_run: bool = True, update_content: b
 		section_remap = _seed_sections(
 			data.get("sections", []), report, dry_run, update_content, set(data.get("versioned", []))
 		)
+		# v13: Item organizativo (p. ej. COORD-LICENCIAS) ANTES de los Scope Items que lo referencian por la
+		# relación N:M `erpnext_items`. Acotado y fail-closed (solo Items no vendibles/comprables/stock).
+		_seed_support_items(data.get("support_items", []), report, dry_run, update_content)
+		# v13: Scope Items (maestros funcionales reactivados de forma controlada), con validación fail-closed
+		# de `default_assignee` (User debe existir y estar habilitado en el site destino).
+		_seed_scope_items(data.get("scope_items", []), report, dry_run, update_content)
 		# Contenido EDITORIAL de Items. El loader NUNCA crea Items (el registro funcional se administra
 		# en Desk): si el Item no existe, se reporta como pendiente y se omite. UOM/Item Groups tampoco
 		# se crean (masters fiscales de facturacion_mexico).
@@ -250,6 +265,10 @@ def run(catalog_path: str | None = None, dry_run: bool = True, update_content: b
 			dry_run,
 			declared={pf.get("name") for pf in data.get("print_formats", [])},
 		)
+		# v13: Proposal Templates (DESPUÉS de Sections/Print Formats/Letter Heads: referencian esos nombres).
+		_seed_templates(data.get("templates", []), section_remap, report, dry_run, update_content)
+		# v13: Email Templates nativos del flujo (p. ej. Propuesta Ganada PMO).
+		_seed_email_templates(data.get("email_templates", []), report, dry_run, update_content)
 		# Vaciado explícito y opt-in de campos editoriales (`clear_fields`) — DESPUÉS de los seeders, de
 		# modo que el estado deseado del catálogo prevalezca sobre lo que ellos hayan sembrado.
 		_seed_clear_fields(data, section_remap, report, dry_run, update_content)
@@ -853,3 +872,493 @@ def _print_report(report: dict, dry_run: bool, data: dict) -> None:
 		lines.append("  ⚠️  Hay conflictos: revisa antes de cargar. El seeder no sobrescribe.")
 	lines.append("=" * 70)
 	print("\n".join(lines))
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# v13: seeders funcionales reactivados (recuperados de 20434dc^) + Items org./Email Templates
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+def _seed_scope_items(items: list, report: dict, dry_run: bool, update_content: bool = False) -> None:
+	fields = [
+		"title",
+		"sequence",
+		"phase",
+		"erpnext_item",
+		"estimated_hours",
+		"default_assignee",
+		"default_designation",
+		"visible_in_proposal",
+		"is_internal_cost_task",
+		"description",
+		"deliverable",
+		# Planeación PMO (opcional): reglas reutilizables del catálogo.
+		"planned_start_offset_days",
+		# Momento relativo de ejecución del programa fuente (texto libre; opcional).
+		"moment",
+		"planned_duration_days",
+		"is_milestone",
+	]
+	for it in items:
+		code = it["code"]
+		label = f"Scope Item '{code}'"
+		# Fail-closed del Responsable de ejecución: si el catálogo trae default_assignee y el User no
+		# existe / está deshabilitado en el site destino, NO se crea/actualiza el Scope Item (se reporta
+		# como conflicto; nunca se inventa usuario ni se ignora el error).
+		_assignee = it.get("default_assignee")
+		if _assignee and (
+			not frappe.db.exists("User", _assignee) or not frappe.db.get_value("User", _assignee, "enabled")
+		):
+			report["conflicts"].append(
+				f"{label}: default_assignee {_assignee!r} no existe o está deshabilitado en el site — fail-closed"
+			)
+			continue
+		# Campos administrados = los que el catálogo trae como clave presente. Se distingue:
+		#   - provided: clave presente con valor no-None  → se fija ese valor;
+		#   - cleared:  clave presente con valor null      → se LIMPIA (p.ej. erpnext_item=null
+		#                                                     para que NO autogenere con el Item).
+		# Un campo OMITIDO (clave ausente) no se administra: conserva su valor / default del modelo
+		# (así estimated_hours omitido no marca falso conflicto contra el 0.0 del modelo).
+		provided, cleared = _managed_fields(it, fields)
+		# erpnext_item PENDIENTE: el catálogo lo provee pero el Item comercial aún no existe. No se
+		# fuerza el Link (fallaría). Se deja sin vincular y se registra; al re-ejecutar la
+		# sincronización cuando el Item exista, el Link se completa (identidad por `code`, sin duplicar).
+		pending_item = provided.get("erpnext_item")
+		if pending_item and not frappe.db.exists("Item", pending_item):
+			provided.pop("erpnext_item")
+			report["pending"].append(
+				f"{label}: Item '{pending_item}' no existe aún — erpnext_item pendiente (se vinculará al re-ejecutar)"
+			)
+		keys = list(provided.keys()) + list(cleared)
+
+		# Relación N:N Item ↔ Scope Item (child table `erpnext_items`). Se administra SOLO si la clave
+		# está presente en el registro: clave AUSENTE = no tocar (conserva lo existente); lista = sincroniza
+		# exactamente (agrega faltantes, quita no declarados, sin duplicar, orden irrelevante); lista vacía
+		# = limpia. Es INDEPENDIENTE del Link legacy `erpnext_item`: no se sincroniza ni se hace backfill
+		# entre ambos. Items inexistentes se OMITEN y se reportan (mismo criterio que dependencias/legacy;
+		# no se crean Items implícitos). Un Item repetido en el JSON invalida el catálogo.
+		has_n2m = "erpnext_items" in it
+		desired_items: list = []
+		if has_n2m:
+			raw = list(it.get("erpnext_items") or [])
+			if len(raw) != len(set(raw)):
+				frappe.throw(
+					_("Catálogo inválido: 'erpnext_items' repite un Item en Scope Item '{0}'.").format(code)
+				)
+			desired_items = [i for i in raw if frappe.db.exists("Item", i)]
+			for miss in [i for i in raw if not frappe.db.exists("Item", i)]:
+				report["pending"].append(
+					f"{label}: Item '{miss}' no existe aún — relación erpnext_items pendiente (se vinculará al re-ejecutar)"
+				)
+
+		if not frappe.db.exists("Scope Item", code):
+			if not dry_run:
+				doc = {"doctype": "Scope Item", "code": code, "enabled": 1}
+				doc.update(provided)
+				for f in cleared:
+					doc[f] = None
+				if has_n2m:
+					doc["erpnext_items"] = [{"item": i} for i in desired_items]
+				frappe.get_doc(doc).insert(ignore_permissions=True)
+			report["created"].append(label)
+			continue
+
+		current = frappe.db.get_value("Scope Item", code, keys, as_dict=True) if keys else {}
+		diff_parts = []
+		scalar_diffs = _diff_managed(provided, cleared, current)
+		if scalar_diffs:
+			diff_parts.append(scalar_diffs)
+		if has_n2m:
+			current_items = set(
+				frappe.get_all(
+					"Scope Item ERPNext Item",
+					filters={"parenttype": "Scope Item", "parentfield": "erpnext_items", "parent": code},
+					pluck="item",
+				)
+			)
+			if set(desired_items) != current_items:
+				diff_parts.append(f"erpnext_items {sorted(current_items)} -> {sorted(desired_items)}")
+
+		if not diff_parts:
+			report["unchanged"].append(label)
+		elif update_content:
+			if not dry_run:
+				doc = frappe.get_doc("Scope Item", code)
+				for f, v in provided.items():
+					doc.set(f, v)
+				for f in cleared:
+					doc.set(f, None)
+				if has_n2m:
+					doc.set("erpnext_items", [{"item": i} for i in desired_items])
+				doc.save(ignore_permissions=True)
+			report["updated"].append(f"{label}: {', '.join(diff_parts)}")
+		else:
+			report["conflicts"].append(f"{label}: {', '.join(diff_parts)}")
+
+	# 2º paso idempotente: dependencias del catálogo (todos los Scope Items ya existen).
+	_seed_scope_dependencies(items, report, dry_run, update_content)
+
+
+def _seed_scope_dependencies(items: list, report: dict, dry_run: bool, update_content: bool = False) -> None:
+	"""Aplica `depends_on` (lista de códigos de Scope Items predecesores) como filas de la child table
+	`depends_on_scope_items`. Segundo paso: se ejecuta tras crear todos los Scope Items del catálogo.
+
+	- Idempotente: identidad por conjunto de códigos; si el conjunto ya coincide, no escribe.
+	- Clave `depends_on` AUSENTE → no administra dependencias (conserva lo existente).
+	- Predecesores que no existen (p. ej. de un Item no contratado) se OMITEN y se reportan; nunca
+	  se crea un Link roto. Auto-referencia/duplicados/ciclos los valida Scope Item.validate().
+	"""
+	for it in items:
+		if "depends_on" not in it:
+			continue
+		code = it["code"]
+		desired = [c for c in (it.get("depends_on") or []) if c]
+		if not frappe.db.exists("Scope Item", code):
+			# dry-run sobre un Scope Item aún no creado: se reportaría en la próxima corrida real.
+			if desired and dry_run:
+				report["updated"].append(
+					f"Scope Item '{code}': {len(desired)} dependencia(s) (pendiente de creación)"
+				)
+			continue
+
+		valid = [c for c in desired if frappe.db.exists("Scope Item", c)]
+		missing = [c for c in desired if not frappe.db.exists("Scope Item", c)]
+		if missing:
+			report["pending"].append(
+				f"Scope Item '{code}': dependencias omitidas (Scope Items inexistentes) {missing}"
+			)
+
+		current = set(
+			frappe.get_all(
+				"Scope Item Dependency",
+				filters={
+					"parenttype": "Scope Item",
+					"parentfield": "depends_on_scope_items",
+					"parent": code,
+				},
+				pluck="depends_on",
+			)
+		)
+		if set(valid) == current:
+			continue  # ya coincide — idempotente, sin escritura
+
+		if not (update_content or not current):
+			# Existe y difiere pero sin update_content: no sobrescribir, reportar conflicto.
+			report["conflicts"].append(
+				f"Scope Item '{code}': dependencias difieren del catálogo {sorted(valid)} vs {sorted(current)} (usar update_content)"
+			)
+			continue
+
+		if not dry_run:
+			doc = frappe.get_doc("Scope Item", code)
+			doc.set("depends_on_scope_items", [])
+			for dep in valid:
+				doc.append("depends_on_scope_items", {"depends_on": dep})
+			doc.save(ignore_permissions=True)
+		report["updated"].append(f"Scope Item '{code}': dependencias {sorted(valid)}")
+
+
+def _seed_templates(
+	templates: list, section_remap: dict, report: dict, dry_run: bool, update_content: bool
+) -> None:
+	# Secciones válidas para referenciar: las base/existentes + los nombres reales resueltos.
+	existing = _existing_section_names()
+	catalog_names = set(section_remap.values())
+	valid_sections = existing | catalog_names
+	reused_base: set = set()
+	for t in templates:
+		name = t["template_name"]
+		label = f"Proposal Template '{name}'"
+
+		# Re-mapear cada referencia de sección al nombre real (canónico o versionado).
+		rows = []
+		missing = []
+		for r in t["sections"]:
+			resolved = section_remap.get(r["proposal_section"], r["proposal_section"])
+			if resolved not in valid_sections:
+				missing.append(r["proposal_section"])
+			elif resolved in existing and resolved not in catalog_names:
+				reused_base.add(resolved)  # sección base preexistente reutilizada por el template
+			row = dict(r)
+			row["proposal_section"] = resolved
+			rows.append(row)
+		if missing:
+			report["conflicts"].append(f"{label}: secciones inexistentes {missing}")
+			continue
+
+		if not frappe.db.exists("Proposal Template", name):
+			if not dry_run:
+				doc = frappe.get_doc(
+					{
+						"doctype": "Proposal Template",
+						"template_name": name,
+						"description": t.get("description", ""),
+					}
+				)
+				if t.get("print_format"):
+					doc.print_format = t["print_format"]
+				if t.get("sow_print_format"):
+					doc.sow_print_format = t["sow_print_format"]
+				if t.get("letter_head"):
+					doc.letter_head = t["letter_head"]
+				if "separate_cover_page" in t:
+					doc.separate_cover_page = int(t["separate_cover_page"])
+				for r in rows:
+					doc.append("sections", _template_section_row(r))
+				doc.insert(ignore_permissions=True)
+			report["created"].append(f"{label} ({len(rows)} secciones)")
+			continue
+
+		# Existe: comparar filas + print_format. Si difiere y update_content → reconstruir.
+		diffs = _template_rows_diff(name, rows)
+		if t.get("print_format"):
+			pf_current = frappe.db.get_value("Proposal Template", name, "print_format") or ""
+			if (t["print_format"] or "") != pf_current:
+				diffs = (
+					diffs + "; " if diffs else ""
+				) + f"print_format: {pf_current!r} -> {t['print_format']!r}"
+		if t.get("sow_print_format"):
+			sow_current = frappe.db.get_value("Proposal Template", name, "sow_print_format") or ""
+			if (t["sow_print_format"] or "") != sow_current:
+				diffs = (
+					diffs + "; " if diffs else ""
+				) + f"sow_print_format: {sow_current!r} -> {t['sow_print_format']!r}"
+		if t.get("letter_head"):
+			lh_current = frappe.db.get_value("Proposal Template", name, "letter_head") or ""
+			if (t["letter_head"] or "") != lh_current:
+				diffs = (
+					diffs + "; " if diffs else ""
+				) + f"letter_head: {lh_current!r} -> {t['letter_head']!r}"
+		if "separate_cover_page" in t:
+			scp_current = int(frappe.db.get_value("Proposal Template", name, "separate_cover_page") or 0)
+			if int(t["separate_cover_page"]) != scp_current:
+				diffs = (
+					diffs + "; " if diffs else ""
+				) + f"separate_cover_page: {scp_current} -> {int(t['separate_cover_page'])}"
+		if not diffs:
+			report["unchanged"].append(label)
+		elif update_content:
+			if not dry_run:
+				doc = frappe.get_doc("Proposal Template", name)
+				if t.get("description"):
+					doc.description = t["description"]
+				if t.get("print_format"):
+					doc.print_format = t["print_format"]
+				if t.get("sow_print_format"):
+					doc.sow_print_format = t["sow_print_format"]
+				if t.get("letter_head"):
+					doc.letter_head = t["letter_head"]
+				if "separate_cover_page" in t:
+					doc.separate_cover_page = int(t["separate_cover_page"])
+				doc.set("sections", [])
+				for r in rows:
+					doc.append("sections", _template_section_row(r))
+				doc.save(ignore_permissions=True)
+			report["updated"].append(f"{label} ({len(rows)} secciones)")
+		else:
+			report["conflicts"].append(f"{label}: difiere del catálogo → {diffs} (usar update_content)")
+
+	for s in sorted(reused_base):
+		report["reused"].append(f"Proposal Section '{s}' (base, reutilizada)")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Helpers
+
+
+def _template_section_row(r: dict) -> dict:
+	return {
+		"proposal_section": r["proposal_section"],
+		"sequence": r["sequence"],
+		"include_by_default": r.get("include_by_default", 1),
+		"use_custom_content": r.get("use_custom_content", 0),
+		"custom_content": r.get("custom_content", ""),
+		"custom_title": r.get("custom_title", ""),
+		"hide_title": r.get("hide_title", 0),
+		"page_break_before": r.get("page_break_before", 0),
+	}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Vaciado explícito de campos (`clear_fields`) — genérico, opt-in, idempotente
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Tipos de catálogo sobre los que un objeto puede declarar `clear_fields`.
+# clave del catálogo -> (DocType, campo identidad del objeto).
+_CLEARABLE_TYPES = {
+	"templates": ("Proposal Template", "template_name"),
+	"sections": ("Proposal Section", "section_name"),
+	"scope_items": ("Scope Item", "code"),
+	"items": ("Item", "item_code"),
+	"phases": ("Proposal Phase", "phase_code"),
+	"letter_heads": ("Letter Head", "letter_head_name"),
+}
+
+# Campos que NUNCA pueden vaciarse por `clear_fields` (estructura/sistema/nested-set/child).
+_CLEAR_FIELDS_FORBIDDEN = {
+	"name",
+	"owner",
+	"creation",
+	"modified",
+	"modified_by",
+	"docstatus",
+	"idx",
+	"parent",
+	"parentfield",
+	"parenttype",
+	"doctype",
+	"lft",
+	"rgt",
+	"is_group",
+}
+
+
+def _template_rows_diff(template_name: str, expected_rows: list) -> str:
+	"""Compara las filas actuales del template contra el catálogo. Devuelve '' si son iguales."""
+	doc = frappe.get_doc("Proposal Template", template_name)
+	current = sorted(
+		(
+			(
+				row.proposal_section,
+				row.sequence,
+				int(row.include_by_default or 0),
+				int(row.use_custom_content or 0),
+				(row.custom_title or ""),
+				(row.custom_content or ""),
+				int(row.hide_title or 0),
+				int(row.page_break_before or 0),
+			)
+			for row in doc.sections
+		),
+		key=lambda x: x[1],
+	)
+	expected = sorted(
+		(
+			(
+				r["proposal_section"],
+				r["sequence"],
+				int(r.get("include_by_default", 1)),
+				int(r.get("use_custom_content", 0)),
+				(r.get("custom_title") or ""),
+				(r.get("custom_content") or ""),
+				int(r.get("hide_title", 0)),
+				int(r.get("page_break_before", 0)),
+			)
+			for r in expected_rows
+		),
+		key=lambda x: x[1],
+	)
+	if current == expected:
+		return ""
+	return f"{len(current)} filas actuales vs {len(expected)} del catálogo"
+
+
+def _existing_section_names() -> set:
+	return set(frappe.get_all("Proposal Section", pluck="name"))
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# v13: Items organizativos (NO vendibles/comprables/stock) + Email Templates
+# ─────────────────────────────────────────────────────────────────────────────
+
+_SUPPORT_ITEM_FIELDS = (
+	"item_name",
+	"item_group",
+	"stock_uom",
+	"is_stock_item",
+	"is_sales_item",
+	"is_purchase_item",
+	"disabled",
+)
+
+
+def _seed_support_items(items: list, report: dict, dry_run: bool, update_content: bool = False) -> None:
+	"""Crea/actualiza Items ORGANIZATIVOS requeridos por paquetes de alcance (p. ej. `COORD-LICENCIAS`).
+
+	Acotado y fail-closed: solo Items NO vendibles / NO comprables / NO stock (is_sales/purchase/stock==0);
+	cualquier otra cosa es un master comercial/fiscal que el loader NO crea (se reporta como conflicto).
+	Requiere que el Item Group y la UOM ya existan en el site (masters que administra facturacion_mexico):
+	si faltan, se reporta `pending` y se omite (nunca se crean). Idempotente por `item_code`."""
+	for it in items:
+		code = it["item_code"]
+		label = f"Support Item '{code}'"
+		if (
+			int(it.get("is_sales_item", 0))
+			or int(it.get("is_purchase_item", 0))
+			or int(it.get("is_stock_item", 0))
+		):
+			report["conflicts"].append(
+				f"{label}: no es organizativo (is_sales/purchase/stock deben ser 0) — el loader no crea Items comerciales/fiscales"
+			)
+			continue
+		ig = it.get("item_group")
+		uom = it.get("stock_uom")
+		if not ig or not frappe.db.exists("Item Group", ig):
+			report["pending"].append(
+				f"{label}: Item Group {ig!r} no existe en el site (se administra fuera del pack)"
+			)
+			continue
+		if not uom or not frappe.db.exists("UOM", uom):
+			report["pending"].append(f"{label}: UOM {uom!r} no existe o no es válida en el site")
+			continue
+		expected = {
+			"item_name": it.get("item_name") or code,
+			"item_group": ig,
+			"stock_uom": uom,
+			"is_stock_item": 0,
+			"is_sales_item": 0,
+			"is_purchase_item": 0,
+			"disabled": int(it.get("disabled", 0)),
+		}
+		if not frappe.db.exists("Item", code):
+			if not dry_run:
+				frappe.get_doc({"doctype": "Item", "item_code": code, **expected}).insert(
+					ignore_permissions=True
+				)
+			report["created"].append(label)
+			continue
+		current = frappe.db.get_value("Item", code, list(_SUPPORT_ITEM_FIELDS), as_dict=True) or {}
+		diffs = _diff(expected, current)
+		if not diffs:
+			report["unchanged"].append(label)
+		elif update_content:
+			if not dry_run:
+				doc = frappe.get_doc("Item", code)
+				for k, v in expected.items():
+					doc.set(k, v)
+				doc.save(ignore_permissions=True)
+			report["updated"].append(f"{label}: {diffs}")
+		else:
+			report["conflicts"].append(f"{label}: {diffs} (usar update_content)")
+
+
+_EMAIL_TEMPLATE_FIELDS = ("subject", "use_html", "response", "response_html", "reference_doctype")
+
+
+def _seed_email_templates(ets: list, report: dict, dry_run: bool, update_content: bool = False) -> None:
+	"""Crea/actualiza Email Templates nativos del flujo (p. ej. `Propuesta Ganada PMO`). Identidad: name.
+	Solo administra los campos provistos; idempotente; conflictos reportados si difiere sin update_content."""
+	for et in ets:
+		name = et["name"]
+		label = f"Email Template '{name}'"
+		expected = {k: et[k] for k in _EMAIL_TEMPLATE_FIELDS if k in et}
+		if not frappe.db.exists("Email Template", name):
+			if not dry_run:
+				frappe.get_doc({"doctype": "Email Template", "name": name, **expected}).insert(
+					ignore_permissions=True
+				)
+			report["created"].append(label)
+			continue
+		current = frappe.db.get_value("Email Template", name, list(expected.keys()), as_dict=True) or {}
+		diffs = _diff(expected, current)
+		if not diffs:
+			report["unchanged"].append(label)
+		elif update_content:
+			if not dry_run:
+				doc = frappe.get_doc("Email Template", name)
+				for k, v in expected.items():
+					doc.set(k, v)
+				doc.save(ignore_permissions=True)
+			report["updated"].append(f"{label}: {diffs}")
+		else:
+			report["conflicts"].append(f"{label}: {diffs} (usar update_content)")
