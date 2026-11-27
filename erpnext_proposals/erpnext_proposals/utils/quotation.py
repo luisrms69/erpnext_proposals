@@ -270,6 +270,26 @@ def _configured_required_items(item_code: str, company: str | None) -> list:
 	return list(dict.fromkeys(group_rules))
 
 
+def _operative_assignee_for_item(item_code: str | None, company: str | None) -> str | None:
+	"""Responsable configurado para la Task operativa «Entregar» de un Item vendido, por el **Item Group** del
+	Item y las reglas ``operative_assignee_rules`` del Proposal Settings de la Company. Genérico y configurable
+	(no hardcodea usuarios ni grupos): sirve para licencias Microsoft o cualquier otro grupo. Match por Item
+	Group exacto (primera regla que coincide); sin regla para ese grupo → ``None`` (la operativa queda sin
+	asignar, comportamiento por defecto). Separación estricta por Company (sin fallback global)."""
+	if not item_code:
+		return None
+	settings = _proposal_settings(company)
+	if not settings:
+		return None
+	group = frappe.db.get_value("Item", item_code, "item_group")
+	if not group:
+		return None
+	for r in settings.get("operative_assignee_rules") or []:
+		if r.item_group == group and r.assignee:
+			return r.assignee
+	return None
+
+
 ONE_TIME = "one_time"
 _ECONOMIC_BEHAVIORS = ("one_time", "recurring", "infrastructure")
 
@@ -365,11 +385,7 @@ def _commitment_for_item(item_code: str, company: str | None) -> int | None:
 			if r.source_type == "Item" and r.source == item_code and cint(r.get("commitment_months")) > 0:
 				return cint(r.commitment_months)
 		for r in rules:
-			if (
-				r.source_type == "Item Group"
-				and r.source == group
-				and cint(r.get("commitment_months")) > 0
-			):
+			if r.source_type == "Item Group" and r.source == group and cint(r.get("commitment_months")) > 0:
 				return cint(r.commitment_months)
 	return None
 
