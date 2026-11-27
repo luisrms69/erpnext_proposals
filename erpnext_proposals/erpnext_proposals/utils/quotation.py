@@ -109,6 +109,12 @@ def on_quotation_validate(doc, method=None):
 	# de modo que queden guardados antes del Submit e inmutables por docstatus. El freeze ya no los congela.
 	materialize_proposal_print_format(doc)
 	materialize_sow_print_format(doc)
+	# Versionado: las filas de `quotation_scope_items` heredadas llegan SIN `source_row` (el versionado lo
+	# excluye para no arrastrar names obsoletos de la versión anterior). Re-vincularlas a la fila origen
+	# ACTUAL del mismo item_code DEBE correr ANTES de los guards que omiten la generación — es el único punto
+	# donde se corrige. Sin esto, una propuesta V2+ al llegar a «Ganada» falla al crear el Project porque
+	# `_item_parent_task` recibe `source_row=None` (MandatoryError: subject).
+	_relink_inherited_scope_source_rows(doc)
 	# Skip scope generation when creating a new version (scope already copied)
 	if doc.flags.get("skip_scope_generation"):
 		return
@@ -452,6 +458,40 @@ def _source_rows(doc) -> list:
 		if ri.item:
 			rows.append({"source_type": "required", "source_row": ri.name, "item_code": ri.item})
 	return rows
+
+
+def _relink_inherited_scope_source_rows(doc) -> None:
+	"""Re-vincula las filas de alcance heredadas por versionado a la fila ORIGEN ACTUAL del mismo item_code.
+
+	El versionado (`create_new_proposal_version`) copia `quotation_scope_items` pero EXCLUYE `source_row`/
+	`source_type` (para no arrastrar names obsoletos de la versión anterior) e inserta con
+	`skip_scope_generation`, por lo que la generación —que normalmente deriva `source_row`— no corre. Sin
+	este paso las filas quedan con `source_row=NULL` de forma permanente y la creación del Project de la
+	nueva versión falla.
+
+	Re-deriva contra las filas origen de ESTA versión (names nuevos, nunca los obsoletos), preservando la
+	identidad por OCURRENCIA: el k-ésimo duplicado de un mismo `(item_code, scope_item)` se asigna a la
+	k-ésima ocurrencia de ese item_code. Solo actúa en propuestas versionadas (`previous_proposal`) y solo
+	sobre filas sin `source_row`; es idempotente (un guardado posterior ya las encuentra vinculadas) y no
+	toca snapshots legacy de documentos no versionados."""
+	if not doc.get("previous_proposal"):
+		return
+	occ_by_item: dict = {}
+	for src in _source_rows(doc):
+		occ_by_item.setdefault(src["item_code"], []).append(src)
+	seen: dict = {}  # (item_code, scope_item) -> siguiente índice de ocurrencia a asignar
+	for row in doc.get("quotation_scope_items") or []:
+		if row.get("source_row") or not row.get("item_code"):
+			continue
+		occs = occ_by_item.get(row.item_code)
+		if not occs:
+			continue  # sin fila origen actual para ese item_code → no re-vincular (no inventar procedencia)
+		key = (row.item_code, row.scope_item)
+		idx = min(seen.get(key, 0), len(occs) - 1)
+		src = occs[idx]
+		row.source_row = src["source_row"]
+		row.source_type = src["source_type"]
+		seen[key] = seen.get(key, 0) + 1
 
 
 def _existing_scope_keys(doc) -> set:

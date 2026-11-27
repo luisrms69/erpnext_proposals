@@ -336,28 +336,50 @@ def _materialize_scope_into_project(quotation, project, exec_rows) -> dict:
 	occ_meta = {src["source_row"]: src for src in occ_rows}
 	item_parent_by_row: dict = {}
 
-	def _item_parent_task(source_row: str) -> str:
+	def _item_parent_task(source_row: str, item_code: str | None = None) -> str:
 		"""Task padre por **ocurrencia de Item** (`is_group=1`). Idempotente por
 		`(project, source_quotation_item_row, is_group=1)` — inequívocamente distinta de la Task operativa
 		(`is_group=0`) aunque compartan `source_quotation_item_row`. PMO puede editar/ampliar sin romper la
-		identidad (el campo es read-only y no se toca)."""
-		if source_row in item_parent_by_row:
-			return item_parent_by_row[source_row]
-		existing = frappe.db.get_value(
-			"Task",
-			{"project": project.name, "source_quotation_item_row": source_row, "is_group": 1},
-			"name",
-		)
+		identidad (el campo es read-only y no se toca).
+
+		Defensa en profundidad: si la fila de alcance llega SIN `source_row` (p. ej. un snapshot heredado que
+		no se re-vinculó), se agrupa por `item_code` y el `subject` NUNCA queda vacío — así una referencia
+		ausente no provoca `MandatoryError: subject` ni colapsa Items distintos en un mismo padre."""
+		group_key = source_row or f"__item__:{item_code or ''}"
+		if group_key in item_parent_by_row:
+			return item_parent_by_row[group_key]
+		# `occ_meta` indexa por `source_row`; si falta, conservar el `item_code` real de la fila (no perderlo)
+		# para que `_origin_display` resuelva un subject legible en vez de None.
+		src = occ_meta.get(source_row) or {"item_code": item_code}
+		subject, _q, _u = _origin_display(frappe._dict(src))
+		subject = subject or src.get("item_code") or item_code or source_row or _("Actividades del proyecto")
+		if source_row:
+			existing = frappe.db.get_value(
+				"Task",
+				{"project": project.name, "source_quotation_item_row": source_row, "is_group": 1},
+				"name",
+			)
+		else:
+			# Sin fila origen: identidad estable por item_code (vía subject) dentro del Project; agrupa las
+			# filas del mismo Item en un único padre y no duplica en reintentos del job.
+			existing = frappe.db.get_value(
+				"Task",
+				{
+					"project": project.name,
+					"is_group": 1,
+					"subject": subject,
+					"source_quotation_item_row": ["in", ("", None)],
+				},
+				"name",
+			)
 		if existing:
 			counters["parent_reused"] += 1
 			name = existing
 		else:
-			src = occ_meta.get(source_row) or {"item_code": None}
-			subject, _q, _u = _origin_display(frappe._dict(src))
 			parent = frappe.get_doc(
 				{
 					"doctype": "Task",
-					"subject": subject or src.get("item_code") or source_row,
+					"subject": subject,
 					"project": project.name,
 					"is_group": 1,
 					"expected_time": 0,
@@ -369,7 +391,7 @@ def _materialize_scope_into_project(quotation, project, exec_rows) -> dict:
 			parent.insert(ignore_permissions=True)
 			counters["parent_created"] += 1
 			name = parent.name
-		item_parent_by_row[source_row] = name
+		item_parent_by_row[group_key] = name
 		return name
 
 	# Orden: por ocurrencia (orden del documento), luego fase (sub-orden cuando exista), scope e idx.
@@ -387,7 +409,7 @@ def _materialize_scope_into_project(quotation, project, exec_rows) -> dict:
 	rows_with_children: set = set()  # source_rows que materializaron ≥1 Task hija de scope
 
 	for row in exec_rows:
-		parent = _item_parent_task(row.source_row)
+		parent = _item_parent_task(row.source_row, row.get("item_code"))
 		rows_with_children.add(row.source_row)
 		# Idempotencia de la hija: por referencia guardada o por trazabilidad.
 		if row.project_task and frappe.db.exists("Task", row.project_task):
