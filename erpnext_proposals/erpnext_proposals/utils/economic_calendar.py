@@ -524,7 +524,9 @@ def _evaluate_doc(doc, *, term: int, scope_scale: float = 1.0, base_term: int | 
 		if _b == "recurring":
 			_scenario_commitments.append(
 				_scenario_commitment(
-					_effective_commitment(_r, _r.item_code, is_frozen, company, _ITEMS_COMMITMENT_FIELD, base_term)
+					_effective_commitment(
+						_r, _r.item_code, is_frozen, company, _ITEMS_COMMITMENT_FIELD, base_term
+					)
 				)
 			)
 	for _r in doc.get("required_items") or []:
@@ -532,7 +534,9 @@ def _evaluate_doc(doc, *, term: int, scope_scale: float = 1.0, base_term: int | 
 		if _b == "recurring":
 			_scenario_commitments.append(
 				_scenario_commitment(
-					_effective_commitment(_r, _r.item, is_frozen, company, _REQUIRED_COMMITMENT_FIELD, base_term)
+					_effective_commitment(
+						_r, _r.item, is_frozen, company, _REQUIRED_COMMITMENT_FIELD, base_term
+					)
 				)
 			)
 	max_commitment = max(_scenario_commitments) if _scenario_commitments else 0
@@ -556,7 +560,17 @@ def _evaluate_doc(doc, *, term: int, scope_scale: float = 1.0, base_term: int | 
 	}
 
 	def _add_line(
-		item_code, label, qty, origin, behavior, interval, count, commitment, revenue_amt, ext_rate, ext_source
+		item_code,
+		label,
+		qty,
+		origin,
+		behavior,
+		interval,
+		count,
+		commitment,
+		revenue_amt,
+		ext_rate,
+		ext_source,
 	):
 		grp = group_label(behavior)
 		step = _step_months(interval, count)
@@ -677,7 +691,9 @@ def _evaluate_doc(doc, *, term: int, scope_scale: float = 1.0, base_term: int | 
 		behavior, interval, count = _effective_behavior(
 			row, row.item_code, is_frozen, company, _ITEMS_FROZEN_FIELDS
 		)
-		commitment = _effective_commitment(row, row.item_code, is_frozen, company, _ITEMS_COMMITMENT_FIELD, base_term)
+		commitment = _effective_commitment(
+			row, row.item_code, is_frozen, company, _ITEMS_COMMITMENT_FIELD, base_term
+		)
 		label = row.get("item_name") or row.item_code
 		if behavior == "recurring":
 			_assert_recurring_valid(interval, count, commitment, label, company)
@@ -713,7 +729,9 @@ def _evaluate_doc(doc, *, term: int, scope_scale: float = 1.0, base_term: int | 
 		behavior, interval, count = _effective_behavior(
 			row, row.item, is_frozen, company, _REQUIRED_FROZEN_FIELDS
 		)
-		commitment = _effective_commitment(row, row.item, is_frozen, company, _REQUIRED_COMMITMENT_FIELD, base_term)
+		commitment = _effective_commitment(
+			row, row.item, is_frozen, company, _REQUIRED_COMMITMENT_FIELD, base_term
+		)
 		label = (row.get("item") or "") + " (requerido)"
 		if behavior == "recurring":
 			_assert_recurring_valid(interval, count, commitment, label, company)
@@ -944,7 +962,9 @@ def present_in_quote_currency(model: dict) -> dict:
 			for e in line.get("effort_by_profile") or []:
 				conv(e, ("cost",))
 	if model.get("financing"):
-		conv(model["financing"], ("financial_cost_total", "interest_total", "fees_total", "principal", "base"))
+		conv(
+			model["financing"], ("financial_cost_total", "interest_total", "fees_total", "principal", "base")
+		)
 	# Trazabilidad temporal y segmentos del calendario: también en moneda de cotización (antes quedaban en
 	# base → mezcla MXN/USD). Son re-expresiones de importes ya calculados; no recalculan nada.
 	for r in model.get("temporal") or []:
